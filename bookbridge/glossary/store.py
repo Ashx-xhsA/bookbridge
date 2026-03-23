@@ -1,9 +1,14 @@
 """SQLite-backed glossary storage for translation consistency."""
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 from bookbridge.glossary.models import Term, Translation
+
+TERM_COLUMNS = "id, english, category, notes, first_chunk"
+DEFAULT_FIRST_CHUNK = 0
 
 
 class GlossaryStore:
@@ -16,15 +21,22 @@ class GlossaryStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _row_to_term(row: tuple) -> Term:
+        return Term(id=row[0], english=row[1], category=row[2], notes=row[3], first_chunk=row[4])
 
     def create_db(self) -> None:
         """Create the glossary tables if they don't already exist."""
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS terms (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,8 +57,6 @@ class GlossaryStore:
                 )"""
             )
             conn.commit()
-        finally:
-            conn.close()
 
     def add_term(self, english: str, category: str, context: str) -> Term:
         """Add a new term to the glossary.
@@ -59,11 +69,10 @@ class GlossaryStore:
         Returns:
             The newly created Term with its assigned ID.
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO terms (english, category, notes, first_chunk) VALUES (?, ?, ?, ?)",
-                (english, category, context, 0),
+                (english, category, context, DEFAULT_FIRST_CHUNK),
             )
             conn.commit()
             return Term(
@@ -71,10 +80,8 @@ class GlossaryStore:
                 english=english,
                 category=category,
                 notes=context,
-                first_chunk=0,
+                first_chunk=DEFAULT_FIRST_CHUNK,
             )
-        finally:
-            conn.close()
 
     def get_term(self, term_id: int) -> Term | None:
         """Retrieve a term by its ID.
@@ -85,17 +92,14 @@ class GlossaryStore:
         Returns:
             The Term if found, None otherwise.
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, english, category, notes, first_chunk FROM terms WHERE id = ?",
+                f"SELECT {TERM_COLUMNS} FROM terms WHERE id = ?",
                 (term_id,),
             ).fetchone()
             if row is None:
                 return None
-            return Term(id=row[0], english=row[1], category=row[2], notes=row[3], first_chunk=row[4])
-        finally:
-            conn.close()
+            return self._row_to_term(row)
 
     def list_terms(self) -> list[Term]:
         """List all terms in the glossary.
@@ -103,16 +107,9 @@ class GlossaryStore:
         Returns:
             List of all Term objects, ordered by ID.
         """
-        conn = self._connect()
-        try:
-            rows = conn.execute(
-                "SELECT id, english, category, notes, first_chunk FROM terms ORDER BY id"
-            ).fetchall()
-            return [
-                Term(id=r[0], english=r[1], category=r[2], notes=r[3], first_chunk=r[4]) for r in rows
-            ]
-        finally:
-            conn.close()
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT {TERM_COLUMNS} FROM terms ORDER BY id").fetchall()
+            return [self._row_to_term(r) for r in rows]
 
     def add_translation(self, term_id: int, language_code: str, translation: str) -> Translation:
         """Add a translation for a term.
@@ -125,16 +122,13 @@ class GlossaryStore:
         Returns:
             The newly created Translation.
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             conn.execute(
                 "INSERT INTO translations (term_id, language_code, translation) VALUES (?, ?, ?)",
                 (term_id, language_code, translation),
             )
             conn.commit()
             return Translation(term_id=term_id, language_code=language_code, translation=translation)
-        finally:
-            conn.close()
 
     def get_translations(self, term_id: int) -> list[Translation]:
         """Get all translations for a term.
@@ -145,8 +139,7 @@ class GlossaryStore:
         Returns:
             List of Translation objects for the term.
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             rows = conn.execute(
                 "SELECT term_id, language_code, translation, approved FROM translations WHERE term_id = ?",
                 (term_id,),
@@ -157,8 +150,6 @@ class GlossaryStore:
                 )
                 for r in rows
             ]
-        finally:
-            conn.close()
 
     def search_terms(self, query: str) -> list[Term]:
         """Search terms by keyword (case-insensitive partial match on english name).
@@ -169,14 +160,9 @@ class GlossaryStore:
         Returns:
             List of matching Term objects.
         """
-        conn = self._connect()
-        try:
+        with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, english, category, notes, first_chunk FROM terms WHERE english LIKE ? COLLATE NOCASE",
+                f"SELECT {TERM_COLUMNS} FROM terms WHERE english LIKE ? COLLATE NOCASE",
                 (f"%{query}%",),
             ).fetchall()
-            return [
-                Term(id=r[0], english=r[1], category=r[2], notes=r[3], first_chunk=r[4]) for r in rows
-            ]
-        finally:
-            conn.close()
+            return [self._row_to_term(r) for r in rows]
