@@ -58,6 +58,16 @@ bookbridge/
 - Test fixtures in tests/fixtures/ for sample text and HTML
 - Integration tests for CLI using typer.testing.CliRunner
 - Target: 80%+ coverage on ingestion/ and quality/ modules
+- Run tests with: `pytest tests/ -v --tb=short`
+- Check coverage with: `pytest tests/ --cov=bookbridge --cov-report=term`
+
+## Context Management Strategy
+- Use /clear between Explore, Plan, Implement, and Commit phases
+- Use /compact when context grows long during implementation sessions
+- Use --continue to resume interrupted sessions
+- Save exploration findings to docs/ files so they persist across /clear
+- Save implementation plans to docs/ files before clearing context
+- CLAUDE.md @import references keep PRD and API docs always available
 
 ## Do's
 - Write tests BEFORE implementation (strict TDD)
