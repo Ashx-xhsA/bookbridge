@@ -1,10 +1,14 @@
-"""Smart document chunker with chapter boundary detection."""
+"""Smart document chunker with chapter boundary detection.
+
+Detects structural boundaries (parts, chapters, prologues) in page text
+and splits documents into manageable chunks for translation.
+"""
 
 import re
 
 from bookbridge.ingestion.models import ChunkInfo, ChunkManifest
 
-CHAPTER_PATTERNS: list[re.Pattern] = [
+CHAPTER_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*PART\s+(ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN|\d+)", re.IGNORECASE),
     re.compile(r"^\s*Chapter\s+\d+", re.IGNORECASE),
     re.compile(r"^\s*PROEM\b", re.IGNORECASE),
@@ -13,23 +17,31 @@ CHAPTER_PATTERNS: list[re.Pattern] = [
     re.compile(r"^\s*APPENDIX\b", re.IGNORECASE),
 ]
 
+HEADER_SCAN_LINES: int = 3
+MAX_TITLE_LENGTH: int = 80
+
+
+def _has_chapter_marker(text: str) -> bool:
+    """Check if a page's opening lines contain a chapter marker."""
+    first_lines = text.strip().split("\n")[:HEADER_SCAN_LINES]
+    return any(
+        pattern.search(line)
+        for line in first_lines
+        for pattern in CHAPTER_PATTERNS
+    )
+
 
 def detect_chapter_breaks(pages: dict[int, str]) -> set[int]:
     """Find page numbers where new chapters or structural sections begin.
 
-    Scans the first few lines of each page for patterns like
-    'PART ONE', 'Chapter 3', 'PROEM', etc.
+    Scans the first few lines of each page for structural markers
+    like 'PART ONE', 'Chapter 3', 'PROEM', etc.
     """
-    breaks: set[int] = set()
-    for page_num, text in sorted(pages.items()):
-        if not text.strip():
-            continue
-        first_lines = text.strip().split("\n")[:3]
-        for line in first_lines:
-            if any(p.search(line) for p in CHAPTER_PATTERNS):
-                breaks.add(page_num)
-                break
-    return breaks
+    return {
+        page_num
+        for page_num, text in pages.items()
+        if text.strip() and _has_chapter_marker(text)
+    }
 
 
 def build_chunk_manifest(
@@ -39,8 +51,8 @@ def build_chunk_manifest(
 ) -> ChunkManifest:
     """Build a chunk manifest by splitting pages at chapter boundaries.
 
-    Respects max_pages_per_chunk as an upper limit. Prefers splitting
-    at detected chapter boundaries when possible.
+    Prefers splitting at detected chapter boundaries. Falls back to
+    splitting at max_pages_per_chunk when no boundary is nearby.
     """
     if not pages:
         return ChunkManifest(source_file=source_file, total_pages=0, chunks=[])
@@ -55,11 +67,11 @@ def build_chunk_manifest(
     for i, page_num in enumerate(sorted_pages):
         pages_in_chunk = page_num - chunk_start + 1
         is_last = i == len(sorted_pages) - 1
-        next_is_break = (not is_last and sorted_pages[i + 1] in breaks)
+        next_is_break = not is_last and sorted_pages[i + 1] in breaks
         at_size_limit = pages_in_chunk >= max_pages_per_chunk
 
         if is_last or next_is_break or at_size_limit:
-            title = _extract_title(pages, chunk_start, breaks)
+            title = _extract_title(pages, chunk_start)
             chunks.append(
                 ChunkInfo(
                     chunk_id=chunk_id,
@@ -80,12 +92,14 @@ def build_chunk_manifest(
     )
 
 
-def _extract_title(pages: dict[int, str], start_page: int, breaks: set[int]) -> str:
-    """Try to extract a title from the first page of a chunk."""
+def _extract_title(pages: dict[int, str], start_page: int) -> str:
+    """Extract a title from the first page of a chunk."""
     text = pages.get(start_page, "")
     if not text.strip():
         return f"Chunk starting at page {start_page}"
     first_line = text.strip().split("\n")[0].strip()
-    if len(first_line) > 80:
-        return first_line[:77] + "..."
-    return first_line if first_line else f"Chunk starting at page {start_page}"
+    if not first_line:
+        return f"Chunk starting at page {start_page}"
+    if len(first_line) > MAX_TITLE_LENGTH:
+        return first_line[: MAX_TITLE_LENGTH - 3] + "..."
+    return first_line

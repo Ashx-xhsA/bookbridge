@@ -1,0 +1,103 @@
+import pytest
+from bookbridge.ingestion.chunker import detect_chapter_breaks, build_chunk_manifest
+from bookbridge.ingestion.models import ChunkManifest
+
+
+# AC1: detect_chapter_breaks finds PART and Chapter headers
+class TestDetectChapterBreaks:
+    def test_finds_part_one_header(self):
+        pages = {1: "Intro text", 2: "PART ONE\nStory begins"}
+        breaks = detect_chapter_breaks(pages)
+        assert 2 in breaks
+
+    def test_finds_chapter_header(self):
+        pages = {1: "Text", 2: "Chapter 3\nContent here"}
+        breaks = detect_chapter_breaks(pages)
+        assert 2 in breaks
+
+    def test_finds_proem_header(self):
+        pages = {1: "Cover page", 2: "PROEM\nSome opening text"}
+        breaks = detect_chapter_breaks(pages)
+        assert 2 in breaks
+
+    def test_finds_epilogue_header(self):
+        pages = {10: "Some text", 11: "EPILOGUE\nFinal words"}
+        breaks = detect_chapter_breaks(pages)
+        assert 11 in breaks
+
+    def test_no_breaks_in_plain_text(self):
+        pages = {1: "Hello world", 2: "More text", 3: "Even more"}
+        breaks = detect_chapter_breaks(pages)
+        assert len(breaks) == 0
+
+    def test_skips_empty_pages(self):
+        pages = {1: "", 2: "PART TWO\nText"}
+        breaks = detect_chapter_breaks(pages)
+        assert 1 not in breaks
+        assert 2 in breaks
+
+    def test_case_insensitive(self):
+        pages = {1: "part three\nContent"}
+        breaks = detect_chapter_breaks(pages)
+        assert 1 in breaks
+
+
+# AC3: build_chunk_manifest respects max_pages_per_chunk
+class TestBuildChunkManifest:
+    def test_empty_pages_returns_empty_manifest(self):
+        manifest = build_chunk_manifest({})
+        assert manifest.total_pages == 0
+        assert manifest.chunks == []
+
+    def test_single_page_produces_one_chunk(self):
+        manifest = build_chunk_manifest({1: "Hello"})
+        assert len(manifest.chunks) == 1
+        assert manifest.chunks[0].start_page == 1
+        assert manifest.chunks[0].end_page == 1
+
+    def test_respects_max_pages_limit(self):
+        pages = {i: f"Page {i}" for i in range(1, 31)}
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=10)
+        for chunk in manifest.chunks:
+            assert chunk.page_count <= 10
+
+    # AC4: all pages covered without gaps
+    def test_all_pages_covered(self):
+        pages = {i: f"Page {i}" for i in range(1, 26)}
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=10)
+        covered = set()
+        for chunk in manifest.chunks:
+            for p in range(chunk.start_page, chunk.end_page + 1):
+                covered.add(p)
+        assert covered == set(range(1, 26))
+
+    # AC5: splits at chapter boundaries
+    def test_splits_at_chapter_break(self):
+        pages = {
+            1: "Intro text",
+            2: "More intro",
+            3: "PART ONE\nStory begins",
+            4: "Story continues",
+        }
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=20)
+        assert len(manifest.chunks) == 2
+        assert manifest.chunks[0].end_page == 2
+        assert manifest.chunks[1].start_page == 3
+
+    def test_chunk_ids_are_sequential(self):
+        pages = {i: f"Page {i}" for i in range(1, 11)}
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=3)
+        ids = [c.chunk_id for c in manifest.chunks]
+        assert ids == list(range(1, len(ids) + 1))
+
+    def test_source_file_in_manifest(self):
+        manifest = build_chunk_manifest({1: "Text"}, source_file="test.pdf")
+        assert manifest.source_file == "test.pdf"
+
+    def test_to_dict_serialization(self):
+        manifest = build_chunk_manifest({1: "Hello", 2: "World"})
+        d = manifest.to_dict()
+        assert "source_file" in d
+        assert "total_pages" in d
+        assert "chunks" in d
+        assert isinstance(d["chunks"], list)
