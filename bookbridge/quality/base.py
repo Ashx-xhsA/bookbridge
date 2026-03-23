@@ -41,17 +41,11 @@ class BaseQualityChecker(ABC):
         Returns:
             True if paragraph counts match.
         """
-        original_count = len(
-            [p for p in original.split(PARAGRAPH_SEPARATOR) if p.strip()]
-        )
-        translation_count = len(
-            [p for p in translation.split(PARAGRAPH_SEPARATOR) if p.strip()]
-        )
+        original_count = len([p for p in original.split(PARAGRAPH_SEPARATOR) if p.strip()])
+        translation_count = len([p for p in translation.split(PARAGRAPH_SEPARATOR) if p.strip()])
         return original_count == translation_count
 
-    def check_glossary_consistency(
-        self, translation: str, glossary: dict[str, str]
-    ) -> list[Issue]:
+    def check_glossary_consistency(self, translation: str, glossary: dict[str, str]) -> list[Issue]:
         """Check that expected glossary translations appear in the text.
 
         Args:

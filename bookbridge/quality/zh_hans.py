@@ -40,7 +40,7 @@ class ChineseSimplifiedChecker(BaseQualityChecker):
             return [
                 Issue(
                     category="punctuation",
-                    message=f"Found {len(matches)} half-width punctuation mark(s) after Chinese characters",
+                    message=f"Found {len(matches)} half-width punctuation(s) after Chinese chars",
                     severity="warning",
                 )
             ]

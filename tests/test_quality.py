@@ -6,7 +6,6 @@ from bookbridge.quality.base import BaseQualityChecker
 from bookbridge.quality.models import Issue, QualityReport
 from bookbridge.quality.zh_hans import ChineseSimplifiedChecker
 
-
 # --- Fixtures following v2 skill pattern ---
 
 
