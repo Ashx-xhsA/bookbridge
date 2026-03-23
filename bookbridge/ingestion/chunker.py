@@ -1,4 +1,8 @@
-"""Smart document chunker with chapter boundary detection."""
+"""Smart document chunker with chapter boundary detection.
+
+Detects structural boundaries (parts, chapters, prologues) in page text
+and splits documents into manageable chunks for translation.
+"""
 
 import re
 
@@ -13,6 +17,19 @@ CHAPTER_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*APPENDIX\b", re.IGNORECASE),
 ]
 
+HEADER_SCAN_LINES: int = 3
+MAX_TITLE_LENGTH: int = 80
+
+
+def _has_chapter_marker(text: str) -> bool:
+    """Check if a page's opening lines contain a chapter marker."""
+    first_lines = text.strip().split("\n")[:HEADER_SCAN_LINES]
+    return any(
+        pattern.search(line)
+        for line in first_lines
+        for pattern in CHAPTER_PATTERNS
+    )
+
 
 def detect_chapter_breaks(pages: dict[int, str]) -> set[int]:
     """Find page numbers where new chapters or structural sections begin.
@@ -20,16 +37,11 @@ def detect_chapter_breaks(pages: dict[int, str]) -> set[int]:
     Scans the first few lines of each page for structural markers
     like 'PART ONE', 'Chapter 3', 'PROEM', etc.
     """
-    breaks: set[int] = set()
-    for page_num, text in sorted(pages.items()):
-        if not text.strip():
-            continue
-        first_lines = text.strip().split("\n")[:3]
-        for line in first_lines:
-            if any(p.search(line) for p in CHAPTER_PATTERNS):
-                breaks.add(page_num)
-                break
-    return breaks
+    return {
+        page_num
+        for page_num, text in pages.items()
+        if text.strip() and _has_chapter_marker(text)
+    }
 
 
 def build_chunk_manifest(
@@ -86,6 +98,8 @@ def _extract_title(pages: dict[int, str], start_page: int) -> str:
     if not text.strip():
         return f"Chunk starting at page {start_page}"
     first_line = text.strip().split("\n")[0].strip()
-    if len(first_line) > 80:
-        return first_line[:77] + "..."
-    return first_line if first_line else f"Chunk starting at page {start_page}"
+    if not first_line:
+        return f"Chunk starting at page {start_page}"
+    if len(first_line) > MAX_TITLE_LENGTH:
+        return first_line[: MAX_TITLE_LENGTH - 3] + "..."
+    return first_line
