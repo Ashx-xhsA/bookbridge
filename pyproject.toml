@@ -12,6 +12,7 @@ dependencies = [
     "typer",
     "rich",
     "jinja2",
+    "mcp",
 ]
 
 [project.optional-dependencies]
