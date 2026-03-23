@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Glob", "Grep",
+      "Write bookbridge/**",
+      "Write tests/**",
+      "Write docs/**",
+      "Shell(pytest*)",
+      "Shell(ruff*)",
+      "Shell(git*)"
+    ],
+    "deny": [
+      "Write .env",
+      "Write legacy/**",
+      "Shell(rm *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "command": "ruff format $CLAUDE_FILE_PATH 2>/dev/null; ruff check --fix $CLAUDE_FILE_PATH 2>/dev/null; true"
+      }
+    ]
+  }
+}
