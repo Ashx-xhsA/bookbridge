@@ -90,7 +90,27 @@ EOF
 )"
 ```
 
-## Step 7: Print Completion Summary
+## Step 7: Post Code Review as PR Comment
+
+After the PR is created, invoke the `code-reviewer` sub-agent on the current branch diff and post its output as a PR comment so it is visible to graders and teammates.
+
+```bash
+git diff origin/main...$(git branch --show-current) > /tmp/pr_diff.txt
+```
+
+Then invoke the code-reviewer agent with the diff content and the instruction to produce a full C.L.E.A.R. review. Once the agent returns its output, post it as a PR comment:
+
+```bash
+gh pr comment <PR-number> \
+  --repo UchihaSusie/bookbridge \
+  --body "## C.L.E.A.R. Code Review (code-reviewer agent)
+
+<paste full agent output here>"
+```
+
+The comment must contain the agent's actual `## MUST FIX`, `## SHOULD CONSIDER`, and `## C.L.E.A.R. SUMMARY` sections — not a summary you write yourself.
+
+## Step 8: Print Completion Summary
 
 Output:
 
@@ -109,6 +129,7 @@ Output:
 ## Constraints
 
 - Never skip Step 2 — a PR with failing checks wastes the reviewer's time
+- Never skip Step 7 — the C.L.E.A.R. review comment is required by the rubric ("visible in PR comments")
 - Always include the AI disclosure block — it is required by the rubric
 - Always link `Closes #<number>` so GitHub auto-closes the issue on merge
 - Do not merge the PR yourself — wait for teammate review
