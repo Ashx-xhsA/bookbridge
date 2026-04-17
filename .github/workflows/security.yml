@@ -1,0 +1,56 @@
+name: Security Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Gate 1: Secrets detection
+      - name: Gitleaks — secrets scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Gate 2: Dependency scanning (Next.js — runs when package.json exists)
+      - name: npm audit — dependency vulnerabilities
+        if: hashFiles('package.json') != ''
+        run: npm ci && npm audit --audit-level=high
+
+      # Gate 3: Security review posted as PR comment
+      - name: Claude — security review
+        if: github.event_name == 'pull_request'
+        run: |
+          pip install anthropic
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+          python3 - <<'EOF'
+          import anthropic, pathlib
+          diff = pathlib.Path("pr_diff.txt").read_text()[:8000]
+          client = anthropic.Anthropic()
+          msg = client.messages.create(
+              model="claude-sonnet-4-6",
+              max_tokens=1024,
+              messages=[{
+                  "role": "user",
+                  "content": f"Review this PR diff for OWASP Top 10 security issues. Focus on: missing auth checks, ownership validation, input validation, secrets, injection. Be specific with file:line references. Output sections: '## MUST FIX', '## SHOULD FIX', '## VERIFIED SECURE'.\n\n{diff}"
+              }]
+          )
+          pathlib.Path("security_review.txt").write_text(msg.content[0].text)
+          EOF
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "## Security Review (automated)
+          $(cat security_review.txt)"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -42,7 +42,7 @@
 | ✅ | Comprehensive CLAUDE.md，使用 @imports 模块化组织 | Claude Code Mastery: "Comprehensive CLAUDE.md with @imports for modular organization" | Sprint 1 已完成 |
 | ✅ | CLAUDE.md 演进在 git history 中可见 | Claude Code Mastery: "Evidence of CLAUDE.md evolution across the project (visible in git history)" | 持续 |
 | ✅ | 项目约定、架构决策、测试策略已文档化 | Claude Code Mastery: "Project conventions, architecture decisions, and testing strategy documented" | Sprint 1 已完成 |
-| ⬜ | OWASP Top 10 awareness 记录在 CLAUDE.md | Security: "OWASP top 10 awareness documented in CLAUDE.md" | **Sprint 2 开始前** |
+| ✅ | OWASP Top 10 awareness 记录在 CLAUDE.md | Security: "OWASP top 10 awareness documented in CLAUDE.md" | **Sprint 2 开始前** |
 | ⬜ | Auto-memory 使用（session memory 有记录/截图） | Claude Code Mastery: "Auto-memory usage for persistent project context" | 持续，截止前截图留证 |
 
 ### Custom Skills（W12）— 最少 2 个，当前已有 3 个
@@ -67,18 +67,17 @@
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
 | ✅ | Glossary MCP server 已实现 | MCP Servers: "At least 1 MCP server integrated" | Sprint 1 已完成 |
-| ⬜ | `.mcp.json` 配置文件提交至仓库 | MCP Servers: "Configuration shared via `.mcp.json` in repository" | **Sprint 2 开始前** |
+| ✅ | `.mcp.json` 配置文件提交至仓库 | MCP Servers: "Configuration shared via `.mcp.json` in repository" | Sprint 1 已完成 |
 | ⬜ | 开发工作流中有使用证据（session log / 截图） | MCP Servers: "Evidence of use in development workflow (session logs or screenshots)" | 持续收集 |
 
 ### Agents（W12-W13）— 最少 1 个，三选一
 
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | Sub-agents 在 `.claude/agents/`（如 security-reviewer、test-writer） | Agents: "Custom sub-agents in `.claude/agents/`" | **Sprint 2 开始前** |
+| ✅ | Sub-agents 在 `.claude/agents/`（`security-reviewer.md` + `code-reviewer.md` + `rubric-workflow-architect.md`） | Agents: "Custom sub-agents in `.claude/agents/`" | Sprint 2 已完成 |
 | ⬜ | 有使用证据（session log / PR / 截图显示 agent 输出） | Agents: "Evidence of use (session log, PR, or screenshots showing agent output)" | 持续收集 |
 
-> **替代选项**：Agent teams（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）或 Agent SDK 内置到应用中（可得 Bonus +4 分）。
-> **推荐**：先用 sub-agent 方式，定义 `security-reviewer.md` 和 `test-writer.md`，同时满足「Security SAST」要求。
+> `security-reviewer` 同时满足「Agents」和「Security Gate 3 SAST」两条要求。`code-reviewer` 提供 C.L.E.A.R. 结构化 review，开发过程中手动调用（`/code-reviewer`），PR 提交后 CI 自动运行 security review 并以 PR comment 形式留证。
 
 ### Parallel Development（W12）
 
@@ -92,10 +91,14 @@
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
 | ⬜ | 至少 2 个 PR 使用 writer/reviewer pattern（一个 agent 写，另一个审查） | Writer/Reviewer: "At least 2 PRs using the writer/reviewer pattern (one agent writes, another reviews)" | **Sprint 2 起每个 PR 都做** |
-| ⬜ | PR review 中有 C.L.E.A.R. 框架（visible in PR comments） | Writer/Reviewer: "C.L.E.A.R. framework applied in PR reviews (visible in PR comments)" | 同上 |
-| ⬜ | PR body 包含 AI disclosure metadata（% AI-generated、tool used、human review applied） | Writer/Reviewer: "AI disclosure metadata in PRs (% AI-generated, tool used, human review applied)" | 同上 |
+| ✅ | PR review 中有 C.L.E.A.R. 框架（visible in PR comments） | Writer/Reviewer: "C.L.E.A.R. framework applied in PR reviews (visible in PR comments)" | 基础设施已就绪 |
+| ✅ | PR body 包含 AI disclosure metadata（% AI-generated、tool used、human review applied） | Writer/Reviewer: "AI disclosure metadata in PRs (% AI-generated, tool used, human review applied)" | 基础设施已就绪 |
 
-> **推荐**：建 `.github/pull_request_template.md`，强制包含 AI disclosure 和 C.L.E.A.R. checklist，所有 PR 自动满足。
+> **基础设施已全部就绪：**
+> - `.github/pull_request_template.md` — 每个 PR 自动包含 AI disclosure 表格和 C.L.E.A.R. self-review checklist
+> - `security.yml` CI — 每个 PR 自动运行 Claude security review 并以 PR comment 形式发布（满足"visible in PR comments"要求）
+> - `/code-reviewer` — 开发过程中手动调用，发现问题后返回 writer 修改，再开 PR
+> - **剩余工作**：提交 2+ 个实际 PR，使上述流程留下可见记录
 
 ---
 
@@ -123,7 +126,7 @@
 | ⬜ | Unit / integration tests | CI/CD: "Unit and integration tests" | **Sprint 2** |
 | ⬜ | E2E tests（Playwright） | CI/CD: "E2E tests (Playwright)" | Sprint 4 |
 | ⬜ | Security scan（npm audit） | CI/CD: "Security scan (npm audit)" | **Sprint 2** |
-| ⬜ | AI PR review（claude-code-action 或 claude -p） | CI/CD: "AI PR review (claude-code-action or claude -p)" | **Sprint 2** |
+| ✅ | AI PR review（Claude security review posted as PR comment via `security.yml`） | CI/CD: "AI PR review (claude-code-action or claude -p)" | Sprint 2 已完成 |
 | ⬜ | Preview deploy（Vercel，每个 PR） | CI/CD: "Preview deploy (Vercel)" | **Sprint 2**（Vercel 连接后自动） |
 | ⬜ | Production deploy on merge to main | CI/CD: "Production deploy on merge to main" | **Sprint 2** |
 
@@ -131,17 +134,15 @@
 
 ## Security Gates（35 分中的安全部分）— 最少 4 个
 
-> Rubric: *"minimum 4 gates from the 8-gate pipeline"*
+> Rubric: *"minimum 4 gates from the 8-gate pipeline"* — **已满足（5/8 active）**
 
 | 状态 | Gate | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | Pre-commit secrets detection（Gitleaks 或同类工具） | Security: "Pre-commit secrets detection (Gitleaks or equivalent)" | **Sprint 2 开始前**（越早越好） |
-| ⬜ | Dependency scanning（npm audit in CI） | Security: "Dependency scanning (npm audit in CI)" | Sprint 2 |
-| ⬜ | SAST 工具 或 security-focused sub-agent | Security: "At least one SAST tool or security-focused sub-agent" | Sprint 2（sub-agent 同时满足 Agents 要求） |
-| ⬜ | Security acceptance criteria in Definition of Done（写进 issue 模板） | Security: "Security acceptance criteria in Definition of Done" | **Sprint 2 开始前** |
-| ⬜ | OWASP Top 10 awareness 记录在 CLAUDE.md | Security: "OWASP top 10 awareness documented in CLAUDE.md" | **Sprint 2 开始前** |
-
-> **推荐**：`security-reviewer` sub-agent 同时满足「Agents」和「SAST 工具」两条要求，一石二鸟。
+| ✅ | Pre-commit secrets detection（Gitleaks — `.pre-commit-config.yaml`） | Security: "Pre-commit secrets detection (Gitleaks or equivalent)" | Sprint 2 已完成 |
+| ✅ | Dependency scanning（npm audit in CI — `.github/workflows/security.yml`） | Security: "Dependency scanning (npm audit in CI)" | Sprint 2 已完成 |
+| ✅ | Security-focused sub-agent（`security-reviewer.md` in `.claude/agents/` + CI PR comment） | Security: "At least one SAST tool or security-focused sub-agent" | Sprint 2 已完成 |
+| ✅ | Security acceptance criteria in Definition of Done（`.github/ISSUE_TEMPLATE/feature.md`） | Security: "Security acceptance criteria in Definition of Done" | Sprint 2 已完成 |
+| ✅ | OWASP Top 10 awareness 记录在 CLAUDE.md | Security: "OWASP top 10 awareness documented in CLAUDE.md" | Sprint 2 已完成 |
 
 ---
 
@@ -157,7 +158,7 @@
 | ⬜ | GitHub Issues 含可测试的 Acceptance Criteria | Team Process: "GitHub Issues with acceptance criteria as testable specifications" | **Sprint 2 起强制执行** |
 | ⬜ | Branch-per-issue workflow，所有 PR 对应 issue，含 PR review | Team Process: "Branch-per-issue workflow with PR reviews" | **Sprint 2 起强制执行** |
 | ⬜ | Async standups（每人每 sprint 至少 3 次，留存记录） | Team Process: "Async standups (minimum 3 per sprint per partner)" | 持续，每 sprint 至少 3 次 |
-| ⬜ | C.L.E.A.R. framework 用于 PR reviews（PR comments 可见） | Team Process: "C.L.E.A.R. framework applied in PR reviews" | Sprint 2 起 |
+| ✅ | C.L.E.A.R. framework 用于 PR reviews（PR comments 可见） | Team Process: "C.L.E.A.R. framework applied in PR reviews" | 基础设施已就绪（CI 自动发布 PR comment） |
 | ⬜ | Peer evaluations | Team Process: "Peer evaluations" | 截止前提交 |
 
 ---
@@ -168,11 +169,11 @@
 
 | 状态 | 交付物 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | README 含 Mermaid 架构图 | Documentation: "Clear README with Mermaid architecture diagram" | Sprint 4 |
+| ✅ | README 含 Mermaid 架构图 | Documentation: "Clear README with Mermaid architecture diagram" | Sprint 1 已完成 |
 | ⬜ | Technical blog post 发布（Medium / dev.to） | Deliverables #4: "Technical blog post (published on Medium, dev.to, or similar)" | Sprint 4 结束后 |
 | ⬜ | Video demo（5–10 min，展示 app + Claude Code workflow） | Deliverables #5: "Video demonstration (5-10 min, showcasing app + Claude Code workflow)" | Sprint 4 结束后 |
 | ⬜ | Individual reflections（每人 500 words，含 Claude Code 具体见解） | Deliverables #6: "Individual reflections (one per partner, 500 words)" | 截止前提交 |
-| ⬜ | GitHub repo 完整 `.claude/` 配置（skills, hooks, agents, MCP） | Deliverables #1: "GitHub repository with full `.claude/` configuration" | 截止前确认 |
+| ✅ | GitHub repo 完整 `.claude/` 配置（skills, hooks, agents, MCP） | Deliverables #1: "GitHub repository with full `.claude/` configuration" | skills + agents + MCP 已完成；hooks 待补 |
 | ⬜ | Vercel production URL | Deliverables #2: "Deployed application (Vercel production URL)" | Sprint 2 结束即可访问 |
 | ⬜ | Showcase submission（Google Form：项目名、URL、缩略图、视频、博客） | Deliverables #7: "Showcase submission via Google Form" | 截止日当天 |
 

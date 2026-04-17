@@ -57,19 +57,24 @@ graph TD
 bookbridge/
 ├── CLAUDE.md                        # AI assistant context: conventions, architecture, OWASP
 ├── .mcp.json                        # MCP server config shared with the team
+├── .pre-commit-config.yaml          # Gate 1: Gitleaks secrets scan on every commit
 ├── .claude/
 │   ├── settings.json                # Claude Code hooks (lint-on-edit, test gate)
 │   ├── skills/
-│   │   ├── tdd-add-module.md        # TDD workflow for adding Python modules (v2)
+│   │   ├── tdd-add-module.md        # TDD workflow for adding Python modules (v2, iterated from v1)
+│   │   ├── tdd-add-module-v1.md     # v1 baseline (kept for git-history evidence)
 │   │   ├── start-issue.md           # Creates a branch and prints acceptance criteria for an issue
 │   │   └── create-pr.md             # Runs checks, writes PR with C.L.E.A.R. + AI disclosure
 │   └── agents/
-│       ├── architect.md             # Rubric review and sprint planning agent
-│       ├── security-reviewer.md     # OWASP-aware PR security review agent
-│       └── test-writer.md           # TDD test stub generation agent
+│       ├── rubric-workflow-architect.md  # Rubric analysis and sprint planning agent
+│       ├── security-reviewer.md          # OWASP-aware PR security review (Gate 3 sub-agent)
+│       └── code-reviewer.md              # C.L.E.A.R. correctness review — invoke before opening a PR
 ├── .github/
-│   ├── pull_request_template.md     # Enforces C.L.E.A.R. checklist and AI disclosure on every PR
-│   └── workflows/                   # GitHub Actions: lint, typecheck, tests, deploy, AI review
+│   ├── pull_request_template.md     # AI disclosure table + C.L.E.A.R. checklist on every PR
+│   ├── ISSUE_TEMPLATE/
+│   │   └── feature.md               # Gate 7: security DoD checklist on every issue
+│   └── workflows/
+│       └── security.yml             # Gates 1–3: Gitleaks + npm audit + Claude AI security review (posted as PR comment)
 ├── bookbridge/                      # Python Worker package
 │   ├── ingestion/                   # PDF extraction, text cleaning, chapter chunking
 │   ├── glossary/                    # SQLite + ChromaDB glossary store
@@ -87,17 +92,51 @@ bookbridge/
 
 ---
 
+## Security Gates
+
+5 of 8 rubric gates active — exceeds the W14 Security minimum of 4.
+
+| Gate | Tool | Status |
+|---|---|---|
+| 1 — Secrets detection | Gitleaks pre-commit (`.pre-commit-config.yaml`) | ✅ Active |
+| 2 — Dependency scanning | `npm audit --audit-level=high` in CI | ✅ Active (runs when `package.json` exists) |
+| 3 — SAST / sub-agent | `security-reviewer` Claude sub-agent + AI review posted as PR comment in CI | ✅ Active |
+| 7 — Definition of Done | Security checklist in `.github/ISSUE_TEMPLATE/feature.md` | ✅ Active |
+| — OWASP awareness | OWASP Top 10 mapped to BookBridge defenses in `CLAUDE.md` | ✅ Active |
+
+OWASP Top 10 mapping documented in [`CLAUDE.md`](CLAUDE.md#security-owasp-top-10--bookbridge-mapping).
+
+**One-time setup:**
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Add `ANTHROPIC_API_KEY` to GitHub repo secrets for the AI review step in CI.
+
+---
+
 ## Development Workflow
 
 Every issue follows the same cycle:
 
 ```
-/start-issue <n>   →   write code (TDD)   →   /create-pr <n>   →   teammate reviews   →   merge
+/start-issue <n>   →   write code (TDD)   →   /code-reviewer   →   fix issues   →   /create-pr <n>   →   teammate reviews   →   merge
 ```
 
 **`/start-issue <n>`** — fetches the issue from GitHub, creates a correctly-named branch (`feat/issue-<n>-...`), and prints the acceptance criteria.
 
-**`/create-pr <n>`** — runs lint + tests, writes a PR description with C.L.E.A.R. self-review checklist and AI disclosure metadata, then opens the PR.
+**`/code-reviewer`** — runs the C.L.E.A.R. correctness review (Correctness, Logic, Efficiency, Architecture, Risks) on the current changes before opening a PR. Fix any MUST FIX items, then proceed to `/create-pr`.
+
+**`/create-pr <n>`** — runs lint + tests, writes a PR description with C.L.E.A.R. self-review checklist and AI disclosure metadata, then opens the PR. CI then automatically posts a Claude security review as a PR comment.
+
+### Writer/Reviewer Pattern
+
+| Role | Agent | When |
+|---|---|---|
+| Writer | Claude Code (main session) | During development |
+| Correctness Reviewer | `code-reviewer` sub-agent (`/code-reviewer`) | Before opening PR — manual |
+| Security Reviewer | `security-reviewer` sub-agent + CI (`security.yml`) | Automatically on every PR as a comment |
 
 ### TDD cycle (Python Worker)
 

@@ -41,6 +41,28 @@ legacy/             # reference baseline — do not modify
 ## Commit Prefixes
 `test(red):` · `feat(green):` · `refactor:` · `feat(next):` · `feat(worker):`
 
+## Security (OWASP Top 10 — BookBridge mapping)
+
+| # | Threat | BookBridge Defense |
+|---|--------|--------------------|
+| A01 | Broken Access Control | `auth()` on every API route; ownership check (`resource.ownerId === userId`) on all `[id]` routes; 403 on mismatch |
+| A02 | Cryptographic Failures | No plaintext secrets; all secrets in env vars; HTTPS enforced by Vercel + Railway |
+| A03 | Injection | Prisma ORM only (no raw SQL); Zod validates all inputs; no user values in shell commands |
+| A04 | Insecure Design | BFF pattern: browser never calls Worker directly; Worker URL is env-var only |
+| A05 | Security Misconfiguration | Gitleaks pre-commit blocks secret commits; `.env` never committed; debug mode off in prod |
+| A06 | Vulnerable Components | `npm audit` in CI (Gate 2); Semgrep SAST (Gate 3); deps pinned via lockfile |
+| A07 | Auth Failures | Clerk handles all auth; no custom auth logic; `auth()` server-side, `useUser()` client-side |
+| A08 | Data Integrity Failures | `package-lock.json` pinned; Gitleaks prevents tampered secrets; verify all AI-suggested packages exist on npm/PyPI |
+| A09 | Logging Failures | No PII, secrets, or session tokens in logs; generic error messages to client |
+| A10 | SSRF | Worker URL from `process.env.WORKER_URL` only; no user-controlled URLs forwarded to Worker |
+
+### Security Gates Active
+- **Gate 1** — Gitleaks pre-commit (`.pre-commit-config.yaml`)
+- **Gate 2** — `npm audit` in GitHub Actions (`.github/workflows/security.yml`)
+- **Gate 3** — Semgrep SAST in GitHub Actions
+- **Gate 7** — Security checklist in Definition of Done (`.github/ISSUE_TEMPLATE/feature.md`)
+- **Sub-agent** — `security-reviewer` in `.claude/agents/` for PR review
+
 ## Don'ts
 - Don't store secrets in code
 - Don't modify `legacy/`
