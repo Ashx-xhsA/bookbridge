@@ -1,94 +1,156 @@
-# BookBridge: Product Requirements Document
+# BookBridge Product Requirements Document v2
+
+> Version history: v1 was a Python CLI implementation (see git history). From v2 onwards, the project adopts a Next.js Web App + Python Worker architecture.
+
+---
 
 ## Problem Statement
 
-BookBridge is an AI powered translation system designed for long documents,
-addressing key limitations of traditional translation tools: inconsistent
-terminology across sections, loss of narrative and technical context, and
-inefficient processing of documents that exceed single prompt context windows.
+BookBridge is an AI-powered long-document translation web platform. After uploading a PDF, the platform automatically parses the chapter structure and supports selective per-chapter translation. Results are presented in an immersive two-column reading view (original on the left, translation on the right). Compared to traditional whole-document translation, BookBridge guarantees cross-chapter terminology consistency and supports progressive reading — no need to wait for the entire book to be translated.
 
-Instead of translating text in isolated segments, BookBridge first performs
-full document structural analysis to extract chapters, recurring entities,
-and domain specific terminology. It then enables selective chunk by chunk
-translation with enforced glossary consistency, improving translation quality
-beyond basic single pass conversion. The system uses document type specific
-AI skills (e.g., literary fiction, academic papers, technical documentation)
-to better preserve tone, register, and style appropriate to each genre.
-
-BookBridge supports both bilingual (side by side) and translation only output
-views, making it adaptable for different user needs. It represents a shift
-toward structured AI workflows for long context translation rather than
-single step prompt generation.
+---
 
 ## Target Users
 
-### International Students
-Students studying in a non native language who need to read lengthy English
-textbooks, papers, or course materials. They prefer bilingual output so they
-can compare the original and translated text side by side, reinforcing
-language learning while ensuring comprehension. BookBridge helps them read
-without constantly switching to a dictionary, turning reading time into both
-study and language improvement.
+### Translator (Registered User)
+Uploads PDFs, selects target language and translation style, manages the glossary, triggers per-chapter translation, and publishes projects as public links.
 
-### Researchers and Professionals
-Academics and professionals who need to stay current with the latest English
-language publications: research papers, industry reports, standards documents.
-They understand most of the content but encounter specialized terms, idioms,
-or dense passages that require lookup. Constantly switching to a translation
-tool or dictionary interrupts their reading flow. BookBridge provides inline
-translations that let them maintain focus, avoiding the context switch penalty
-of external lookups.
+### Reader (Guest)
+Accesses published projects via a public link without registering. Reads in the two-column view and toggles between bilingual and translation-only modes.
 
-### Casual Readers (Foreign Language Books)
-Readers who want to enjoy books that are not yet available in their native
-language. When they try using general purpose translators, they find that
-character names and invented terminology are translated inconsistently across
-chapters, breaking immersion. BookBridge provides a clean, glossary consistent
-translated version (without the original text) for smooth, uninterrupted
-reading. For example, a reader translating a 300+ page science fiction novel
-would see consistent character and place names throughout.
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend / BFF | Next.js 15 App Router |
+| Authentication | Clerk |
+| Database | PostgreSQL (Neon) via Prisma |
+| Translation Worker | Python 3.11, existing bookbridge core wrapped with FastAPI, deployed on Railway |
+| Vector Retrieval | ChromaDB (local to Worker, RAG acceleration layer) |
+| LLM | Anthropic Claude API (called by Python Worker) |
+| Deployment | Vercel (Next.js) + Railway (Python Worker) |
+| CI/CD | GitHub Actions |
+
+---
 
 ## Functional Requirements
 
-### FR1: PDF Ingestion
-- Accept any English language PDF as input
-- Auto detect chapter and section boundaries
-- Output structured text chunks with metadata (page ranges, detected titles)
-- Handle OCR artifacts and running headers gracefully
+### FR1: Authentication (Clerk)
+- Translator: accesses Dashboard after sign-up / login
+- Reader: accesses public projects directly via link, no login required
 
-### FR2: Glossary Management
-- Extract named entities (characters, places, concepts) automatically via NLP
-- Store terms with categories, occurrence counts, and chunk locations
-- Support human review and approval of term translations
-- Provide semantic search across glossary via embeddings (RAG)
+### FR2: Project Management (Translator)
+- Upload PDF, set project name, target language, and translation style (literary / academic / technical)
+- Project list shows: name, progress (translated chapters / total chapters), publish status
+- Publish / unpublish project, generating a public reading link
 
-### FR3: Translation
-- Translate individual chunks on demand (random access, not sequential only)
-- Inject relevant glossary terms into each translation context
-- Apply configurable translation style via skill files
-- Support multiple target languages (zh Hans, es, ar)
+### FR3: PDF Parsing (Python Worker)
+- Extract page text, detect chapter boundaries, clean noise and running headers
+- Generate ChunkManifest and write to PostgreSQL
+- Each chunk's initial status: `untranslated`
 
-### FR4: Quality Assurance
-- Check glossary consistency across translated chunks
-- Language specific checks (punctuation, register, RTL support)
-- LLM based quality review with scoring
-- Retry mechanism for low quality translations
+### FR4: Glossary Management (Translator, within Dashboard)
+- Worker automatically extracts named entities and writes them to PostgreSQL
+- Translator can review, edit, and approve term translations
+- Manual term addition supported
 
-### FR5: Output Assembly
-- Bilingual HTML (English + target language, page by page)
-- Translation only HTML for clean reading
-- Sidebar navigation with chapter links and quality indicators
-- Incremental assembly (handle partial progress gracefully)
+### FR5: Chapter Translation (Python Worker)
+- Accepts single-chapter translation requests; status transitions: `untranslated → queued → translating → translated | failed`
+- Injects relevant glossary terms into Claude API prompt via RAG
+- Writes translation results back to PostgreSQL
+- Automatic single retry on failure
 
-## Non Functional Requirements
-- CLI first interface (typer)
-- All state in SQLite (portable, no server needed)
-- MCP server interfaces for Claude Code integration
+### FR6: Reading View (Reader + Translator)
+
+**Layout (inspired by Readest):**
+- Top toolbar: Toggle Sidebar | book title centered | font size controls
+- Left sidebar (collapsible): chapter names + page numbers + translation status badges (○ untranslated / ⟳ translating / ✓ translated)
+- Main area: left column = original text, right column = translation, two-column book-page layout
+- Untranslated chapters: right column shows original text with a "Translate This Chapter" banner at the top (visible to Translator only)
+- Bottom: reading progress bar + page number
+
+**Interactions:**
+- Click a chapter in the sidebar → jump to that position
+- "Translate This Chapter" → triggers Worker task; right column updates in real time via polling
+- Top toggle: bilingual / translation-only mode
+
+### FR7: Quality Checking (Python Worker)
+- Glossary consistency check across translated chunks
+- LLM quality scoring; results written to PostgreSQL
+- Per-chapter quality scores displayed in Dashboard
+
+---
+
+## Core Data Model
+
+```
+User          (Clerk managed)
+Project       id, owner_id, title, language, skill, status, is_public, public_token
+Chunk         id, project_id, title, start_page, end_page, original_text,
+              translated_text, status, quality_score, order_index
+Term          id, project_id, english, category, notes
+Translation   id, term_id, language_code, translation, approved
+```
+
+---
+
+## Worker API (FastAPI)
+
+| Endpoint | Description |
+|---|---|
+| `POST /parse` | Receive PDF, parse and write chunks to PostgreSQL |
+| `POST /translate/chunk` | Translate a single chapter |
+| `GET /job/{job_id}` | Query job status |
+| `POST /glossary/extract` | Extract terms from parsed chunks |
+
+---
+
+## Sprint Plan
+
+### Sprint 1 — Python Foundation (Complete)
+**Goal: build and test the core Python CLI modules that the Worker will expose**
+- TDD ingestion pipeline: text cleaning, smart chunker, HTML body extractor (PRs #4-7)
+- TDD glossary SQLite store with ChromaDB vector retrieval
+- TDD quality checker with per-language base class
+- Glossary MCP server (tools: lookup, add, list terms)
+- Custom TDD skill `tdd-add-module` iterated v1→v2
+- CLAUDE.md, README, PRD v2, API Design documentation
+
+### Sprint 2 — Deploy First
+**Goal: establish a deployable full-stack skeleton so the CI/CD pipeline runs continuously from this sprint onward**
+- Python Worker: FastAPI endpoints (`/parse`, `/translate/chunk`, `/job/{id}`)
+- Implement `harness/` (translation orchestrator: chunk → Claude API → write results)
+- Migrate SQLite → PostgreSQL (psycopg2)
+- Deploy Python Worker to Railway
+- Next.js 15 shell: Clerk auth (sign-in / sign-up pages live) + protected route skeleton + base layout
+- Connect Vercel; production deploy on merge to main
+- GitHub Actions CI pipeline live: lint, typecheck, unit tests, preview deploy, prod deploy, npm audit, AI PR review
+
+### Sprint 3 — Next.js Full Features
+**Goal: complete user flow from PDF upload to seeing a translated chapter**
+- Prisma schema (Project / Chunk / Term tables)
+- PDF upload → call Worker `/parse` → display chapter list
+- Dashboard UI (project list + create project)
+- Trigger single-chapter translation → polling → status update
+- Glossary management (view / edit terms in Dashboard)
+
+### Sprint 4 — Reading View + Polish
+**Goal: complete two-column reading experience and production-grade polish**
+- Two-column reading view (toggleable sidebar, status badges, font size controls)
+- "Translate This Chapter" banner → Worker → polling → real-time right-column update
+- Publish project → public link → Reader reading view
+- Bilingual / translation-only mode toggle
+- Quality score display + manual re-translation of low-score chapters
+- Playwright E2E test cases added to existing CI pipeline
+- Responsive UI optimization
+
+---
+
+## Non-Functional Requirements
+- Next.js API Routes act as BFF; Python Worker accepts tasks via REST
+- All persistent state stored in PostgreSQL (single source of truth)
+- ChromaDB is a local RAG acceleration layer on the Worker only, not source of truth
 - 80%+ test coverage on core modules
-
-## Acceptance Criteria (Sprint 1: Ingestion)
-- [ ] AC1: PDF reader extracts clean text from any English PDF
-- [ ] AC2: Running headers and OCR noise are removed
-- [ ] AC3: Smart chunker detects chapter/part boundaries
-- [ ] AC4: Chunk manifest (JSON) lists all chunks with page ranges and titles
-- [ ] AC5: CLI `bookbridge scan <pdf>` runs full ingestion pipeline
+- CI/CD pipeline: lint, typecheck, unit tests, E2E (Playwright), security scan, AI PR review, Vercel preview deploy

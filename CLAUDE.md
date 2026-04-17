@@ -1,88 +1,50 @@
-# BookBridge: Skill Driven Book Translation System
+# BookBridge
 
-## Project Overview
-BookBridge automates long document translation with glossary consistency,
-quality checking, and MCP integration. It replaces isolated, single prompt
-translation with a structured pipeline: ingest, extract terminology, translate
-with enforced consistency, and assemble polished output.
+Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **Python FastAPI Worker** (Railway). Sprint 1 Python core is complete; Sprints 2–4 build the web stack on top.
 
-## Tech Stack
-- Language: Python 3.11+
-- PDF extraction: pdfplumber
-- NLP: spaCy (en_core_web_sm) for named entity recognition
-- LLM: Anthropic Claude API (anthropic SDK)
-- Vector store: ChromaDB for glossary RAG retrieval
-- Database: SQLite (stdlib sqlite3) for glossary and progress state
-- MCP: mcp Python SDK for server development
-- CLI: typer + rich for terminal UI
-- Templates: Jinja2 for HTML output
-- Testing: pytest + pytest_cov
-- Formatting: ruff (linter + formatter)
-
-## Architecture Decisions
-- Monolith with clear module boundaries (translation is I/O bound, not compute bound)
-- SQLite for glossary + progress state (portable, zero config, no server needed)
-- ChromaDB for semantic glossary retrieval (embed terms for RAG injection at translation time)
-- Skills as plain .md files (user extensible without code changes)
-- MCP servers expose glossary and translation as tools for Claude Code integration
-- Strict TDD: tests written before implementation for all core modules
+## Architecture Rules
+- Next.js API Routes proxy all Worker calls — browser never talks to Worker directly
+- PostgreSQL is the single source of truth; ChromaDB is a local RAG cache on the Worker only
+- Wrap existing Python core (`ingestion/`, `glossary/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
+- Server Components by default; add `'use client'` only for interactivity or browser APIs
 
 ## Project Structure
-bookbridge/
-  bookbridge/          # main package
-    cli.py             # typer CLI entry point
-    config.py          # project level config and language registry
-    ingestion/         # PDF reading, chunking, term extraction
-    glossary/          # SQLite + ChromaDB glossary storage
-    skills/            # .md skill files + SkillManager loader
-    harness/           # translation orchestrator, context engineering, LLM client
-    quality/           # per language quality checkers
-    mcp_servers/       # glossary and translation MCP servers
-    output/            # HTML assembler + Jinja2 templates
-  tests/               # pytest test suite
-  docs/                # PRD, API design, exploration notes
-  legacy/              # original manual pipeline for reference
+```
+bookbridge/         # Python Worker package
+  ingestion/        # PDF reading, chunking, term extraction
+  glossary/         # ChromaDB RAG store (local to Worker)
+  harness/          # translation orchestrator + Claude API client
+  quality/          # per-language quality checkers
+  worker_api/       # FastAPI endpoints
+  mcp_servers/      # glossary and translation MCP servers
+tests/              # pytest suite (Python Worker)
+app/                # Next.js App Router (Sprint 2+)
+  api/              # BFF API Routes
+prisma/             # Prisma schema + migrations
+docs/               # PRD, API design, sprint notes
+legacy/             # reference baseline — do not modify
+```
 
-## Coding Conventions
-- Type hints on ALL function signatures (enforced by ruff)
-- Dataclasses for structured data (no raw dicts for domain objects)
-- Functions under 40 lines; extract helpers when longer
-- pathlib.Path preferred over os.path for all new code
-- Google style docstrings on all public functions
-- Imports sorted by ruff (isort compatible)
+## Python Conventions
+- Type hints on all signatures; ruff enforced
+- Dataclasses for domain objects (`ChunkManifest`, `ChunkInfo`, `Term`, `TranslationJob`)
+- `pathlib.Path` over `os.path`; functions under 40 lines
+- TDD: write failing test first, then implement
+- Run: `pytest tests/ -v --tb=short`
+- Coverage: `pytest tests/ --cov=bookbridge --cov-report=term`
 
-## Testing Strategy
-- pytest as test runner, pytest_cov for coverage
-- TDD workflow: write failing test, implement to pass, refactor
-- Unit tests for all pure functions (cleaning, parsing, chunking)
-- Test fixtures in tests/fixtures/ for sample text and HTML
-- Integration tests for CLI using typer.testing.CliRunner
-- Target: 80%+ coverage on ingestion/ and quality/ modules
-- Run tests with: `pytest tests/ -v --tb=short`
-- Check coverage with: `pytest tests/ --cov=bookbridge --cov-report=term`
+## Next.js Conventions
+- Prisma client as singleton (`lib/prisma.ts`)
+- Validate API Route input with Zod before calling Worker or Prisma
+- Clerk `auth()` server-side; `useUser()` client-side
 
-## Context Management Strategy
-- Use /clear between Explore, Plan, Implement, and Commit phases
-- Use /compact when context grows long during implementation sessions
-- Use --continue to resume interrupted sessions
-- Save exploration findings to docs/ files so they persist across /clear
-- Save implementation plans to docs/ files before clearing context
-- CLAUDE.md @import references keep PRD and API docs always available
-
-## Do's
-- Write tests BEFORE implementation (strict TDD)
-- Use dataclasses for all structured data (ChunkManifest, ChunkInfo, Term)
-- Keep modules importable independently (no circular imports)
-- Handle edge cases: empty pages, OCR garbage, missing files, unicode
-- Use /clear between workflow phases to manage context
-- Commit with conventional prefixes: test(red):, feat(green):, refactor:
+## Commit Prefixes
+`test(red):` · `feat(green):` · `refactor:` · `feat(next):` · `feat(worker):`
 
 ## Don'ts
-- Don't hardcode file paths (accept via CLI args or config)
-- Don't use print() for user output (use rich.console or logging)
-- Don't store API keys in code (use environment variables)
-- Don't modify files in legacy/ (that is the reference baseline)
-- Don't let AI write tests (humans write test specs, AI implements code)
+- Don't store secrets in code
+- Don't modify `legacy/`
+- Don't use ChromaDB or SQLite as persistent state (PostgreSQL only)
 
 @import docs/PRD.md
 @import docs/API_DESIGN.md
