@@ -58,10 +58,6 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
   it('renders the file input without a conflicting inline position:relative style', () => {
     render(<NewProjectPage />)
 
-    const input = screen.getByRole<HTMLInputElement>('button', { hidden: true }) as unknown as HTMLInputElement
-      || document.querySelector('input[type="file"]')
-
-    // Query directly — getByRole won't surface file inputs
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
     expect(fileInput).not.toBeNull()
 
@@ -87,9 +83,7 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
     const clickSpy = vi.spyOn(fileInput, 'click')
 
     // The dropzone wrapper — the dashed-border div surrounding the input
-    const dropzone = fileInput.closest(
-      'div.border-dashed, [data-testid="dropzone"]'
-    ) as HTMLElement
+    const dropzone = document.querySelector('[data-testid="dropzone"]') as HTMLElement
 
     // THE FAILING ASSERTION: without an onClick wiring the wrapper to the
     // input, this spy will never be called.
@@ -118,9 +112,7 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
 
     const clickSpy = vi.spyOn(fileInput, 'click')
 
-    const dropzone = fileInput.closest(
-      'div.border-dashed, [data-testid="dropzone"]'
-    ) as HTMLElement
+    const dropzone = document.querySelector('[data-testid="dropzone"]') as HTMLElement
 
     // Step 1 — click the visible dropzone area
     fireEvent.click(dropzone)
