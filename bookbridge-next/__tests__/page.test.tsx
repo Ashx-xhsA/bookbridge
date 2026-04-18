@@ -6,12 +6,16 @@ vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(),
 }))
 
-// Mock the UserButton client component — it cannot render in jsdom
+// Mock the UserButton client component and AuthNav — cannot render in jsdom
 vi.mock('@clerk/nextjs', () => ({
   UserButton: () => <div data-testid="user-button" />,
 }))
 
-// Mock next/navigation so redirect() doesn't throw during render
+vi.mock('@/app/components/AuthNav', () => ({
+  default: () => <div data-testid="user-button" />,
+}))
+
+// TODO: reserved for tests that assert redirect() on protected routes
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
@@ -24,13 +28,15 @@ vi.mock('next/link', () => ({
 }))
 
 import { auth } from '@clerk/nextjs/server'
-const mockAuth = vi.mocked(auth)
+
+let mockAuth: ReturnType<typeof vi.mocked<typeof auth>>
 
 describe('app/page.tsx — auth-aware landing page', () => {
-  beforeEach(() => {
-    // resetModules + dynamic import() lets each test set a fresh mockResolvedValueOnce
+  beforeEach(async () => {
     vi.clearAllMocks()
     vi.resetModules()
+    const { auth: freshAuth } = await import('@clerk/nextjs/server')
+    mockAuth = vi.mocked(freshAuth)
   })
 
   it('returns 200 and shows Sign In and Get Started links when signed out', async () => {

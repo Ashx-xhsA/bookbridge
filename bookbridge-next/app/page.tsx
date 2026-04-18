@@ -1,9 +1,16 @@
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
-import { UserButton } from '@clerk/nextjs'
+import AuthNav from '@/app/components/AuthNav'
+
+export const dynamic = 'force-dynamic'
 
 export default async function Home() {
-  const { userId } = await auth()
+  let userId: string | null = null
+  try {
+    ;({ userId } = await auth())
+  } catch {
+    // treat as signed-out if Clerk env vars are absent
+  }
   return (
     <div className="flex min-h-screen flex-col bg-cream">
       <header className="border-b border-parchment">
@@ -25,7 +32,7 @@ export default async function Home() {
                 >
                   My Library
                 </Link>
-                <UserButton />
+                <AuthNav />
               </>
             ) : (
               <>
