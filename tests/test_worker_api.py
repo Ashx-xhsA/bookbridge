@@ -32,8 +32,8 @@ def test_health_check_returns_200(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_endpoint_returns_job_id_and_status(client: TestClient) -> None:
-    """POST /parse returns {"job_id": str, "status": "queued"} per API contract."""
+def test_parse_endpoint_returns_job_id_status_and_chunks(client: TestClient) -> None:
+    """POST /parse returns {job_id, status: "completed", chunks: [...]} synchronously."""
     fake_manifest = ChunkManifest(
         source_file="test.pdf",
         total_pages=5,
@@ -50,9 +50,32 @@ def test_parse_endpoint_returns_job_id_and_status(client: TestClient) -> None:
         )
     assert response.status_code == 200
     body = response.json()
-    assert "job_id" in body
     assert isinstance(body["job_id"], str)
-    assert body["status"] == "queued"
+    assert body["status"] == "completed"
+    assert body["chunks"] == [
+        {
+            "chunk_id": 1,
+            "title": "Chapter 1",
+            "start_page": 1,
+            "end_page": 5,
+            "page_count": 5,
+        }
+    ]
+
+
+def test_parse_empty_chunks_returns_422(client: TestClient) -> None:
+    """A PDF with no chapter markers is surfaced as an error, not silent success."""
+    empty_manifest = ChunkManifest(source_file="test.pdf", total_pages=5, chunks=[])
+    fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
+    with (
+        patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}),
+        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=empty_manifest),
+    ):
+        response = client.post(
+            "/parse",
+            files={"file": ("test.pdf", fake_pdf, "application/pdf")},
+        )
+    assert response.status_code == 422
 
 
 def test_parse_rejects_missing_file(client: TestClient) -> None:
