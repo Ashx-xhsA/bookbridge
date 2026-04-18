@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
 from bookbridge.worker_api.models import (
+    ChunkData,
     HealthResponse,
     JobStatusResponse,
     TranslateChunkRequest,
@@ -41,12 +42,13 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
         raise HTTPException(status_code=413, detail="PDF exceeds maximum allowed size (50 MB).")
 
     tmp_path: Path | None = None
+    manifest = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(data)
             tmp_path = Path(tmp.name)
         pages = extract_pages(tmp_path)
-        build_chunk_manifest(pages, source_file=file.filename)
+        manifest = build_chunk_manifest(pages, source_file=file.filename)
     except HTTPException:
         raise
     except Exception:
@@ -55,8 +57,18 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
+    chunks = [
+        ChunkData(
+            chunk_id=c.chunk_id,
+            title=c.title,
+            start_page=c.start_page,
+            end_page=c.end_page,
+            page_count=c.page_count,
+        )
+        for c in (manifest.chunks if manifest else [])
+    ]
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "queued", "error": None}
+    _jobs[job_id] = {"status": "completed", "chunks": chunks, "error": None}
     return TranslateChunkResponse(job_id=job_id)
 
 
@@ -78,4 +90,9 @@ def get_job(job_id: str) -> JobStatusResponse:
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    return JobStatusResponse(job_id=job_id, status=job["status"], error=job.get("error"))
+    return JobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        error=job.get("error"),
+        chunks=job.get("chunks"),
+    )
