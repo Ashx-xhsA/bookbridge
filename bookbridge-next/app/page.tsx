@@ -69,7 +69,7 @@ export default async function Home() {
                   href={userId ? '/dashboard' : '/sign-up'}
                   className="rounded-lg bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover transition-colors"
                 >
-                  Start Translating
+                  {userId ? 'Go to Dashboard' : 'Start Translating'}
                 </Link>
                 <Link
                   href="/read/demo"

@@ -28,6 +28,7 @@ const mockAuth = vi.mocked(auth)
 
 describe('app/page.tsx — auth-aware landing page', () => {
   beforeEach(() => {
+    // resetModules + dynamic import() lets each test set a fresh mockResolvedValueOnce
     vi.clearAllMocks()
     vi.resetModules()
   })
@@ -56,6 +57,9 @@ describe('app/page.tsx — auth-aware landing page', () => {
 
     expect(screen.queryByText('Sign In')).not.toBeInTheDocument()
     expect(screen.queryByText('Get Started')).not.toBeInTheDocument()
+    const myLib = screen.getByRole('link', { name: /my library/i })
+    expect(myLib).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByTestId('user-button')).toBeInTheDocument()
   })
 
   it('has Start Translating link pointing to /sign-up when signed out', async () => {
@@ -72,7 +76,7 @@ describe('app/page.tsx — auth-aware landing page', () => {
     expect(cta).toHaveAttribute('href', '/sign-up')
   })
 
-  it('has Start Translating link pointing to /dashboard when signed in', async () => {
+  it('has Go to Dashboard link pointing to /dashboard when signed in', async () => {
     mockAuth.mockResolvedValueOnce(
       { userId: 'user_abc' } as Awaited<ReturnType<typeof auth>>
     )
@@ -80,7 +84,7 @@ describe('app/page.tsx — auth-aware landing page', () => {
     const jsx = await Home()
     render(jsx as React.ReactElement)
 
-    const cta = screen.getByRole('link', { name: /start translating/i })
+    const cta = screen.getByRole('link', { name: /go to dashboard/i })
     expect(cta).toHaveAttribute('href', '/dashboard')
   })
 })
