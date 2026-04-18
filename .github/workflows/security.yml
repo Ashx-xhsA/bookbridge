@@ -34,7 +34,10 @@ jobs:
           pip install anthropic
           git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
           python3 - <<'EOF'
-          import anthropic, pathlib
+          import anthropic, pathlib, os, sys
+          if not os.environ.get('ANTHROPIC_API_KEY'):
+              print("WARNING: ANTHROPIC_API_KEY not set — skipping AI security review")
+              sys.exit(0)
           diff = pathlib.Path("pr_diff.txt").read_text()[:8000]
           client = anthropic.Anthropic()
           msg = client.messages.create(
