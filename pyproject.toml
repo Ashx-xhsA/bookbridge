@@ -29,6 +29,10 @@ dev = [
 [project.scripts]
 bookbridge = "bookbridge.cli:app"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bookbridge*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
