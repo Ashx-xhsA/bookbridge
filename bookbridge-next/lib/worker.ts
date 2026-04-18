@@ -1,12 +1,21 @@
-const WORKER_URL = process.env.WORKER_URL || 'https://passionate-serenity-production-3cdd.up.railway.app'
 const TIMEOUT_MS = 8000
+
+function getWorkerUrl(): string {
+  const url = process.env.WORKER_URL
+  if (!url) {
+    throw new Error(
+      'WORKER_URL environment variable is not set. Refusing to call a hardcoded fallback.'
+    )
+  }
+  return url
+}
 
 export async function workerFetch(
   path: string,
   init?: RequestInit
 ): Promise<Response> {
   try {
-    return await fetch(`${WORKER_URL}${path}`, {
+    return await fetch(`${getWorkerUrl()}${path}`, {
       ...init,
       headers: { ...init?.headers },
       signal: AbortSignal.timeout(TIMEOUT_MS),
