@@ -55,7 +55,7 @@ function makeParams(jobId: string) {
 // ---------------------------------------------------------------------------
 const OWNER_ID = 'user_owner'
 const OTHER_USER_ID = 'user_other'
-const JOB_ID = 'job_abc123'
+const JOB_ID = 'clh3p7b1p0000qzrmkf8g4m0h'
 
 const fakeJob = {
   id: JOB_ID,
@@ -121,7 +121,7 @@ describe('GET /api/jobs/[jobId]', () => {
     expect(mockJobFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: JOB_ID },
-        include: { project: true },
+        select: expect.objectContaining({ project: expect.anything() }),
       }),
     )
   })
