@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2 } from 'lucide-react'
 
 export default function NewProjectPage() {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [targetLang, setTargetLang] = useState('zh-Hans')
@@ -73,18 +74,31 @@ export default function NewProjectPage() {
 
         <div>
           <label className="block text-sm font-medium">PDF File</label>
-          <div className="mt-1 flex items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 px-6 py-10 dark:border-zinc-700">
+          <div
+            className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 px-6 py-10 dark:border-zinc-700"
+            onClick={() => fileInputRef.current?.click()}
+          >
             <div className="text-center">
               <Upload className="mx-auto h-8 w-8 text-zinc-400" />
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 {file ? file.name : 'Click or drag to upload a PDF'}
               </p>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="absolute inset-0 cursor-pointer opacity-0"
-                style={{ position: 'relative' }}
+                className="hidden"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null
+                  if (selected && selected.type !== 'application/pdf') {
+                    setError('Only PDF files are supported.')
+                    setFile(null)
+                  } else {
+                    setError('')
+                    setFile(selected)
+                  }
+                }}
               />
             </div>
           </div>
