@@ -1,6 +1,4 @@
-import pytest
-from bookbridge.ingestion.chunker import detect_chapter_breaks, build_chunk_manifest
-from bookbridge.ingestion.models import ChunkManifest
+from bookbridge.ingestion.chunker import build_chunk_manifest, detect_chapter_breaks
 
 
 # AC1: detect_chapter_breaks finds PART and Chapter headers

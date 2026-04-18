@@ -128,7 +128,9 @@ class GlossaryStore:
                 (term_id, language_code, translation),
             )
             conn.commit()
-            return Translation(term_id=term_id, language_code=language_code, translation=translation)
+            return Translation(
+                term_id=term_id, language_code=language_code, translation=translation
+            )
 
     def get_translations(self, term_id: int) -> list[Translation]:
         """Get all translations for a term.
@@ -141,7 +143,8 @@ class GlossaryStore:
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT term_id, language_code, translation, approved FROM translations WHERE term_id = ?",
+                "SELECT term_id, language_code, translation, approved "
+                "FROM translations WHERE term_id = ?",
                 (term_id,),
             ).fetchall()
             return [

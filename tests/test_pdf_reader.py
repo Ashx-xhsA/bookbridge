@@ -1,6 +1,8 @@
-import pytest
 from bookbridge.ingestion.pdf_reader import (
-    is_noise_line, is_running_header, clean_page_text, is_noise_page
+    clean_page_text,
+    is_noise_line,
+    is_noise_page,
+    is_running_header,
 )
 
 

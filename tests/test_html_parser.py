@@ -1,4 +1,3 @@
-import pytest
 from bookbridge.output.html_parser import extract_body_content
 
 
