@@ -148,9 +148,7 @@ class GlossaryStore:
                 (term_id,),
             ).fetchall()
             return [
-                Translation(
-                    term_id=r[0], language_code=r[1], translation=r[2], approved=bool(r[3])
-                )
+                Translation(term_id=r[0], language_code=r[1], translation=r[2], approved=bool(r[3]))
                 for r in rows
             ]
 

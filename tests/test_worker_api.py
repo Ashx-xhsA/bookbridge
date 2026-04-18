@@ -19,6 +19,7 @@ def client() -> TestClient:
 # Health check
 # ---------------------------------------------------------------------------
 
+
 def test_health_check_returns_200(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -30,6 +31,7 @@ def test_health_check_returns_200(client: TestClient) -> None:
 # POST /parse
 # ---------------------------------------------------------------------------
 
+
 def test_parse_endpoint_returns_job_id_and_status(client: TestClient) -> None:
     """POST /parse returns {"job_id": str, "status": "queued"} per API contract."""
     fake_manifest = ChunkManifest(
@@ -38,8 +40,10 @@ def test_parse_endpoint_returns_job_id_and_status(client: TestClient) -> None:
         chunks=[ChunkInfo(chunk_id=1, title="Chapter 1", start_page=1, end_page=5, page_count=5)],
     )
     fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
-    with patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}), \
-         patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest):
+    with (
+        patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}),
+        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest),
+    ):
         response = client.post(
             "/parse",
             files={"file": ("test.pdf", fake_pdf, "application/pdf")},
@@ -60,6 +64,7 @@ def test_parse_rejects_missing_file(client: TestClient) -> None:
 # POST /translate/chunk
 # ---------------------------------------------------------------------------
 
+
 def test_translate_chunk_returns_job_id(client: TestClient) -> None:
     """POST /translate/chunk returns {"job_id": str, "status": "queued"} per API contract."""
     response = client.post("/translate/chunk", json={"project_id": "proj-1", "chunk_id": "1"})
@@ -78,6 +83,7 @@ def test_translate_chunk_rejects_missing_chunk_id(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 # GET /job/{job_id}
 # ---------------------------------------------------------------------------
+
 
 def test_get_job_status_returns_status_field(client: TestClient) -> None:
     # Create a real job first so the 200 branch is exercised.
@@ -100,6 +106,7 @@ def test_get_job_status_404_for_unknown_id(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 # Error handling — no stack traces exposed
 # ---------------------------------------------------------------------------
+
 
 def test_invalid_pdf_returns_422_no_stack_trace(client: TestClient) -> None:
     """An unreadable PDF returns 422 with no raw traceback in the response."""
