@@ -1,6 +1,9 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
+import { UserButton } from '@clerk/nextjs'
 
-export default function Home() {
+export default async function Home() {
+  const { userId } = await auth()
   return (
     <div className="flex min-h-screen flex-col bg-cream">
       <header className="border-b border-parchment">
@@ -14,18 +17,32 @@ export default function Home() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <Link
-              href="/sign-in"
-              className="text-sm font-medium text-ink-light hover:text-ink"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/sign-up"
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
-            >
-              Get Started
-            </Link>
+            {userId ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-medium text-ink-light hover:text-ink"
+                >
+                  My Library
+                </Link>
+                <UserButton />
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/sign-in"
+                  className="text-sm font-medium text-ink-light hover:text-ink"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -49,7 +66,7 @@ export default function Home() {
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link
-                  href="/sign-up"
+                  href={userId ? '/dashboard' : '/sign-up'}
                   className="rounded-lg bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover transition-colors"
                 >
                   Start Translating
