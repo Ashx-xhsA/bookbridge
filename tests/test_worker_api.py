@@ -30,8 +30,8 @@ def test_health_check_returns_200(client: TestClient) -> None:
 # POST /parse
 # ---------------------------------------------------------------------------
 
-def test_parse_endpoint_returns_chunk_manifest_shape(client: TestClient) -> None:
-    """POST /parse returns ChunkManifest JSON (extract_pages mocked to avoid real PDF)."""
+def test_parse_endpoint_returns_job_id_and_status(client: TestClient) -> None:
+    """POST /parse returns {"job_id": str, "status": "queued"} per API contract."""
     fake_manifest = ChunkManifest(
         source_file="test.pdf",
         total_pages=5,
@@ -46,10 +46,9 @@ def test_parse_endpoint_returns_chunk_manifest_shape(client: TestClient) -> None
         )
     assert response.status_code == 200
     body = response.json()
-    assert "source_file" in body
-    assert "total_pages" in body
-    assert "chunks" in body
-    assert isinstance(body["chunks"], list)
+    assert "job_id" in body
+    assert isinstance(body["job_id"], str)
+    assert body["status"] == "queued"
 
 
 def test_parse_rejects_missing_file(client: TestClient) -> None:
@@ -62,12 +61,13 @@ def test_parse_rejects_missing_file(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 def test_translate_chunk_returns_job_id(client: TestClient) -> None:
-    """POST /translate/chunk returns a job_id string."""
-    response = client.post("/translate/chunk", json={"chunk_id": "1"})
+    """POST /translate/chunk returns {"job_id": str, "status": "queued"} per API contract."""
+    response = client.post("/translate/chunk", json={"project_id": "proj-1", "chunk_id": "1"})
     assert response.status_code == 200
     body = response.json()
     assert "job_id" in body
     assert isinstance(body["job_id"], str)
+    assert body["status"] == "queued"
 
 
 def test_translate_chunk_rejects_missing_chunk_id(client: TestClient) -> None:
@@ -81,14 +81,15 @@ def test_translate_chunk_rejects_missing_chunk_id(client: TestClient) -> None:
 
 def test_get_job_status_returns_status_field(client: TestClient) -> None:
     # Create a real job first so the 200 branch is exercised.
-    create = client.post("/translate/chunk", json={"chunk_id": "42"})
+    create = client.post("/translate/chunk", json={"project_id": "proj-1", "chunk_id": "42"})
     job_id = create.json()["job_id"]
 
     response = client.get(f"/job/{job_id}")
     assert response.status_code == 200
     body = response.json()
-    assert "status" in body
+    assert body["job_id"] == job_id
     assert body["status"] == "queued"
+    assert "error" in body
 
 
 def test_get_job_status_404_for_unknown_id(client: TestClient) -> None:

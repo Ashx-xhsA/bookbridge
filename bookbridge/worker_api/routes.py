@@ -29,8 +29,8 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.post("/parse")
-def parse(file: UploadFile) -> dict:
+@router.post("/parse", response_model=TranslateChunkResponse)
+def parse(file: UploadFile) -> TranslateChunkResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
     if file.content_type not in ("application/pdf", "application/octet-stream"):
@@ -46,8 +46,7 @@ def parse(file: UploadFile) -> dict:
             tmp.write(data)
             tmp_path = Path(tmp.name)
         pages = extract_pages(tmp_path)
-        manifest = build_chunk_manifest(pages, source_file=file.filename)
-        return manifest.to_dict()
+        build_chunk_manifest(pages, source_file=file.filename)
     except HTTPException:
         raise
     except Exception:
@@ -56,12 +55,16 @@ def parse(file: UploadFile) -> dict:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "queued", "error": None}
+    return TranslateChunkResponse(job_id=job_id)
+
 
 @router.post("/translate/chunk", response_model=TranslateChunkResponse)
 def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     job_id = str(uuid.uuid4())
     # Stub: enqueues job but does not invoke harness/ yet — wired in S2-3.
-    _jobs[job_id] = {"status": "queued", "chunk_id": body.chunk_id, "result": None}
+    _jobs[job_id] = {"status": "queued", "project_id": body.project_id, "chunk_id": body.chunk_id, "error": None}
     return TranslateChunkResponse(job_id=job_id)
 
 
@@ -70,4 +73,4 @@ def get_job(job_id: str) -> JobStatusResponse:
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    return JobStatusResponse(status=job["status"], result=job.get("result"))
+    return JobStatusResponse(job_id=job_id, status=job["status"], error=job.get("error"))
