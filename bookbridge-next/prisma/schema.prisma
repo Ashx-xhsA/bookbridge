@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String    @id @default(cuid())
+  clerkId   String    @unique
+  email     String    @unique
+  name      String?
+  role      Role      @default(TRANSLATOR)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum Role {
+  TRANSLATOR
+  REVIEWER
+  ADMIN
+}
+
+model Project {
+  id          String           @id @default(cuid())
+  title       String
+  sourceFile  String
+  sourceLang  String           @default("en")
+  targetLang  String           @default("zh-Hans")
+  status      ProjectStatus    @default(DRAFT)
+  isPublic    Boolean          @default(false)
+  ownerId     String
+  owner       User             @relation(fields: [ownerId], references: [clerkId])
+  chapters    Chapter[]
+  jobs        TranslationJob[]
+  glossary    GlossaryTerm[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+enum ProjectStatus {
+  DRAFT
+  PARSING
+  READY
+  TRANSLATING
+  COMPLETED
+}
+
+model Chapter {
+  id            String  @id @default(cuid())
+  projectId     String
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number        Int
+  title         String
+  startPage     Int
+  endPage       Int
+  pageCount     Int
+  sourceContent String? @db.Text
+  translation   String? @db.Text
+}
+
+model TranslationJob {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId String?
+  status    JobStatus @default(QUEUED)
+  workerId  String?
+  result    String?   @db.Text
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model GlossaryTerm {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  english     String
+  translation String?
+  category    String  @default("general")
+  notes       String?
+  approved    Boolean @default(false)
+}

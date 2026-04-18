@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "glossary-server": {
+      "command": "python",
+      "args": ["-m", "bookbridge.mcp_servers.glossary_server", "--db", "glossary.db"]
+    }
+  }
+}
