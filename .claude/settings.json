@@ -5,9 +5,16 @@
       "Write bookbridge/**",
       "Write tests/**",
       "Write docs/**",
+      "Write app/**",
+      "Write .github/**",
+      "Write vitest.config.ts",
+      "Write playwright.config.ts",
+      "Write vitest.setup.ts",
       "Shell(pytest*)",
       "Shell(ruff*)",
-      "Shell(git*)"
+      "Shell(git*)",
+      "Shell(npx*)",
+      "Shell(npm*)"
     ],
     "deny": [
       "Write .env",
@@ -19,7 +26,34 @@
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
-        "command": "ruff format $CLAUDE_FILE_PATH 2>/dev/null; ruff check --fix $CLAUDE_FILE_PATH 2>/dev/null; true"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ruff format $CLAUDE_FILE_PATH 2>/dev/null; ruff check --fix $CLAUDE_FILE_PATH 2>/dev/null; true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '--- pytest quality gate ---'; pytest tests/ -q --tb=short 2>&1 | tail -5; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'feat(next):'; then RED=$(git log --oneline \"$(git branch --show-current)\" 2>/dev/null | grep -c 'test(red):'); if [ \"$RED\" -eq 0 ]; then echo 'WARNING: No test(red): commit on this branch. TDD rubric requires failing tests committed before implementation.'; fi; fi"
+          }
+        ]
       }
     ]
   }

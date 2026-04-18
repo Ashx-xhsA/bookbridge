@@ -68,24 +68,32 @@ bookbridge/
 │   └── agents/
 │       ├── rubric-workflow-architect.md  # Rubric analysis and sprint planning agent
 │       ├── security-reviewer.md          # OWASP-aware PR security review (Gate 3 sub-agent)
-│       └── code-reviewer.md              # C.L.E.A.R. correctness review — invoke before opening a PR
+│       ├── code-reviewer.md              # C.L.E.A.R. correctness review — invoke before opening a PR
+│       ├── product-architect.md          # GitHub Issue generation and PRD coverage auditing
+│       └── test-writer.md                # Writes failing Vitest tests + test(red): commit (auto-invoked by start-issue)
 ├── .github/
 │   ├── pull_request_template.md     # AI disclosure table + C.L.E.A.R. checklist on every PR
 │   ├── ISSUE_TEMPLATE/
 │   │   └── feature.md               # Gate 7: security DoD checklist on every issue
 │   └── workflows/
-│       └── security.yml             # Gates 1–3: Gitleaks + npm audit + Claude AI security review (posted as PR comment)
+│       ├── security.yml             # Gates 1–3: Gitleaks + npm audit + Claude AI security review (posted as PR comment)
+│       └── ci.yml                   # Python tests + Next.js lint/typecheck/unit tests + Playwright E2E (hashFiles guards)
 ├── bookbridge/                      # Python Worker package
 │   ├── ingestion/                   # PDF extraction, text cleaning, chapter chunking
 │   ├── glossary/                    # SQLite + ChromaDB glossary store
 │   ├── harness/                     # Translation orchestrator (chunk → Claude API → PostgreSQL)
 │   ├── quality/                     # Per-language quality checkers
 │   └── mcp_servers/                 # Glossary MCP server (5 tools + 1 resource)
-├── tests/                           # 81 tests, all passing
+├── vitest.config.ts                 # Vitest config — 70% coverage threshold on app/api/** + lib/**
+├── vitest.setup.ts                  # jest-dom matchers for all unit tests
+├── playwright.config.ts             # Playwright config — Clerk auth state, chromium project
+├── e2e/                             # Playwright E2E tests (Sprint 3–4)
+├── tests/                           # 81 Python tests, all passing
 ├── docs/
 │   ├── PRD.md                       # Product requirements (English)
 │   ├── PRD-zh.md                    # Product requirements (Chinese)
 │   ├── API_DESIGN.md                # Internal API specifications
+│   ├── sprint-2-planning.md         # Sprint 2 planning doc (goal, deliverables, TDD commitment)
 │   └── workflow-checklist.md        # Rubric workflow requirements and completion tracker
 └── legacy/                          # Original manual pipeline (read-only reference)
 ```
@@ -134,11 +142,32 @@ Every issue follows the same cycle:
 
 | Role | Agent | When |
 |---|---|---|
-| Writer | Claude Code (main session) | During development |
+| Test Writer (TDD red) | `test-writer` sub-agent | Auto-invoked by `/start-issue` for `feat`-labelled issues |
+| Writer (implementation) | Claude Code (main session) | After `test(red):` commit exists |
 | Correctness Reviewer | `code-reviewer` sub-agent (`/code-reviewer`) | Before opening PR — manual |
 | Security Reviewer | `security-reviewer` sub-agent + CI (`security.yml`) | Automatically on every PR as a comment |
 
-### TDD cycle (Python Worker)
+### TDD cycle — Next.js (automated via `test-writer` agent)
+
+`/start-issue <n>` automatically invokes the `test-writer` sub-agent for any `feat`-labelled issue. The agent writes failing Vitest tests and commits `test(red):` before any implementation begins.
+
+```
+/start-issue <n>
+  └─ test-writer agent
+       ├─ writes app/api/<route>/__tests__/route.test.ts
+       ├─ confirms all tests fail
+       └─ commits: test(red): add failing tests for <feature> (ref #<n>)
+
+# then implement:
+git commit -m "feat(next): implement <feature> to pass all tests (ref #<n>)"
+
+# optional refactor:
+git commit -m "refactor: ..."
+```
+
+Each test file covers 5 required cases: auth guard (401), input validation (400), happy path, ownership check (403 on `[id]` routes), and endpoint-specific edge cases (404/502/empty list).
+
+### TDD cycle — Python Worker
 
 ```bash
 pytest tests/test_<module>.py -v          # RED — all fail
@@ -154,10 +183,18 @@ Commit conventions: `test(red):` → `feat(green):` → `refactor:`
 
 ## Running Tests
 
+**Python Worker:**
 ```bash
 pip install -e ".[dev]"
 pytest tests/ -v --tb=short
 pytest tests/ --cov=bookbridge --cov-report=term
+```
+
+**Next.js (Sprint 2+):**
+```bash
+npm test                    # unit + integration (Vitest)
+npm run test:coverage       # with 70% coverage enforcement
+npx playwright test         # E2E (requires dev server or PLAYWRIGHT_BASE_URL)
 ```
 
 ---

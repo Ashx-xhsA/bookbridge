@@ -74,9 +74,24 @@ Output a clean summary in this format:
 **Next step**: start coding. When done, run `/create-pr <number>` to open a PR.
 ---
 
+## Step 7: Auto-Invoke test-writer for Next.js Issues
+
+Check the issue labels:
+- If labels include `feat`, `next.js`, or `tdd` → invoke the `test-writer` sub-agent with:
+  > "Write failing Vitest tests for issue #<number>. Feature: <title>. API endpoint: <extract from issue body's Technical Specification section>. Request schema: <extract from issue body's API Contract section>. Issue number for commit message: <number>."
+- If labels include `python-worker` → skip this step (Python TDD is handled by the `tdd-add-module` skill separately)
+- If labels are `documentation` or `chore` only → skip this step
+
+The `test-writer` agent will write the failing test file, confirm all tests fail, and commit `test(red):` before any implementation begins.
+
+Print the test-writer's output summary so the user can see which tests were written.
+
+**Do not proceed to any implementation until `test-writer` has committed.**
+
 ## Constraints
 
 - Never create the branch from anything other than `main`
 - Never skip Step 3 — working from a stale `main` causes merge conflicts
 - If the issue is already assigned or the branch already exists, tell the user and stop
 - Do not start implementing the issue — this skill only sets up the workspace
+- Never skip Step 7 for `feat`-labelled issues — a missing `test(red):` commit means the feature does not count toward the TDD rubric

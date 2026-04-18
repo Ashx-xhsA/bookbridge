@@ -58,9 +58,10 @@
 
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | PreToolUse 或 PostToolUse hook（如 lint-on-edit、auto-format、block protected files） | Hooks: "At least one PreToolUse or PostToolUse hook" | **Sprint 2 开始前** |
-| ⬜ | Stop hook（质量门控，如运行测试） | Hooks: "At least one quality-enforcement hook (e.g., Stop hook that runs tests)" | **Sprint 2 开始前** |
-| ⬜ | 共至少 2 个 hook 配置在 `.claude/settings.json` | Hooks: "At least 2 hooks configured in `.claude/settings.json`" | **Sprint 2 开始前** |
+| ✅ | PostToolUse hook（ruff format + ruff check --fix on Write/Edit） | Hooks: "At least one PreToolUse or PostToolUse hook" | 已完成 |
+| ✅ | Stop hook（pytest quality gate — runs `pytest tests/ -q --tb=short` on session end） | Hooks: "At least one quality-enforcement hook (e.g., Stop hook that runs tests)" | 已完成 |
+| ✅ | PreToolUse TDD guard（warns on `feat(next):` commit without prior `test(red):` on branch） | Hooks: "At least 2 hooks configured in `.claude/settings.json`" | 已完成 |
+| ✅ | 共至少 2 个 hook 配置在 `.claude/settings.json`（现有 3 个：PostToolUse + Stop + PreToolUse） | Hooks: "At least 2 hooks configured in `.claude/settings.json`" | 已完成 |
 
 ### MCP Servers（W12）— 最少 1 个
 
@@ -74,10 +75,10 @@
 
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ✅ | Sub-agents 在 `.claude/agents/`（`security-reviewer.md` + `code-reviewer.md` + `rubric-workflow-architect.md`） | Agents: "Custom sub-agents in `.claude/agents/`" | Sprint 2 已完成 |
+| ✅ | Sub-agents 在 `.claude/agents/`（`security-reviewer` + `code-reviewer` + `rubric-workflow-architect` + `product-architect` + `test-writer`） | Agents: "Custom sub-agents in `.claude/agents/`" | 2026-04-17 完成（5 agents） |
 | ⬜ | 有使用证据（session log / PR / 截图显示 agent 输出） | Agents: "Evidence of use (session log, PR, or screenshots showing agent output)" | 持续收集 |
 
-> `security-reviewer` 同时满足「Agents」和「Security Gate 3 SAST」两条要求。`code-reviewer` 提供 C.L.E.A.R. 结构化 review，开发过程中手动调用（`/code-reviewer`），PR 提交后 CI 自动运行 security review 并以 PR comment 形式留证。
+> `security-reviewer` 同时满足「Agents」和「Security Gate 3 SAST」两条要求。`code-reviewer` 提供 C.L.E.A.R. 结构化 review，开发过程中手动调用（`/code-reviewer`），PR 提交后 CI 自动运行 security review 并以 PR comment 形式留证。`test-writer` 在 `/start-issue` Step 7 中自动调用，写入失败测试并提交 `test(red):`，确保 TDD git 历史证据。
 
 ### Parallel Development（W12）
 
@@ -106,12 +107,43 @@
 
 > Rubric: *"TDD red-green-refactor for 3+ features visible in git; 70%+ coverage; unit + integration + E2E (Playwright); tests verify behavior and edge cases"*
 
+### Infrastructure（一次性准备工作）
+
+| 状态 | 要求 | 推荐时机 |
+|---|---|---|
+| ✅ | `test-writer` sub-agent 创建（`.claude/agents/test-writer.md`）— 自动写失败测试并提交 `test(red):` | 2026-04-17 完成 |
+| ✅ | `start-issue` Step 7 — `feat`/`next.js`/`tdd` label 的 issue 自动触发 `test-writer` | 2026-04-17 完成 |
+| ✅ | Bootstrap Vitest + coverage (`vitest.config.ts`, `vitest.setup.ts`, 70% thresholds on `app/api/**` + `lib/**`) | 已完成 2026-04-17 |
+| ✅ | Bootstrap Playwright (`playwright.config.ts`, `e2e/` 目录, chromium project, storageState auth) | 已完成 2026-04-17 |
+
+### TDD Features（需要在 git history 中留证）
+
+每个 Next.js feature 的完整流程：`/start-issue <N>` → test-writer 自动提交 `test(red):` → 实现代码 → `feat(next):` commit → `refactor:` commit（如有）
+
+| 状态 | Feature | git 证据要求 | 推荐时机 |
+|---|---|---|---|
+| ⬜ | **Feature 1**: `POST /api/upload`（PDF → Worker /parse → chapter list） | `test(red): add failing tests for POST /api/upload` 先于 `feat(next): implement POST /api/upload` | Sprint 2 |
+| ⬜ | **Feature 2**: `POST /api/jobs`（create translation job） | `test(red): add failing tests for POST /api/jobs` 先于 `feat(next): implement POST /api/jobs` | Sprint 2–3 |
+| ⬜ | **Feature 3**: `GET /api/projects/[id]/glossary`（fetch glossary terms） | `test(red): add failing tests for GET /api/glossary` 先于 `feat(next): implement GET /api/glossary` | Sprint 3 |
+
+> **验证方法（grader 视角）：** `git log --oneline` 中，每个 Feature 的 `test(red):` commit SHA 必须早于对应的 `feat(next):` commit SHA。
+
+### Coverage & E2E
+
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | TDD red-green-refactor 用于 3+ 功能，git history 可见 failing test 先提交 | TDD: "TDD workflow (red-green-refactor) for at least 3 features; Git history showing failing tests committed before implementation" | 每个功能开发时 |
-| ⬜ | Unit + integration tests（Vitest 或 Jest） | TDD: "Unit + integration tests (Vitest or Jest)" | Sprint 2 起 |
-| ⬜ | 至少 1 个 E2E test（Playwright） | TDD: "At least 1 E2E test (Playwright)" | Sprint 4 |
-| ⬜ | 70%+ 测试覆盖率 | TDD: "70%+ test coverage" | Sprint 4 前达到 |
+| ⬜ | Unit + integration tests（Vitest）— API route handlers，含 auth guard / input validation / ownership / edge case | TDD: "Unit + integration tests (Vitest or Jest)" | Sprint 2 起，每个 feature |
+| ⬜ | 至少 1 个 E2E test（Playwright）— 覆盖 upload → job → view 全流程 | TDD: "At least 1 E2E test (Playwright)" | Sprint 3–4 |
+| ⬜ | 70%+ 测试覆盖率（`npx vitest run --coverage`，threshold 配置在 `vitest.config.ts`） | TDD: "70%+ test coverage" | Sprint 4 前达到 |
+
+### 下一步行动清单（按优先级）
+
+1. ✅ ~~`vitest.config.ts` + `vitest.setup.ts` + `playwright.config.ts` 已创建，`ci.yml` 已配置~~
+2. **Sprint 2 第一步**：初始化 Next.js app（`npx create-next-app@15 ...`），安装 `vitest @vitest/coverage-v8 @testing-library/react @playwright/test`，提交 `feat(next): bootstrap Next.js app with Vitest + Playwright`
+3. **每个 Sprint 2 feature issue**：`/start-issue <N>` → test-writer 自动提交 `test(red):` → 实现 → `feat(next):`
+4. **Sprint 2 结束前**：确认 `git log` 中有 2+ 对 `test(red):` / `feat(next):` commit 对；开 2+ 个 PR 留下 writer/reviewer 证据
+5. **Sprint 3**：完成第 3 个 TDD feature；写 `e2e/upload-and-translate.spec.ts`（先 `test(red):` commit，再实现 UI）
+6. **Sprint 4 结束前**：`npm run test:coverage` 输出 ≥70%，截图留证；连接 Vercel，开 production deploy
 
 ---
 
@@ -121,11 +153,11 @@
 
 | 状态 | 阶段 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
-| ⬜ | Lint（ESLint + Prettier） | CI/CD: "Lint (ESLint + Prettier)" | **Sprint 2**（Next.js 初始化时） |
-| ⬜ | Type checking（tsc --noEmit） | CI/CD: "Type checking (tsc --noEmit)" | **Sprint 2** |
-| ⬜ | Unit / integration tests | CI/CD: "Unit and integration tests" | **Sprint 2** |
-| ⬜ | E2E tests（Playwright） | CI/CD: "E2E tests (Playwright)" | Sprint 4 |
-| ⬜ | Security scan（npm audit） | CI/CD: "Security scan (npm audit)" | **Sprint 2** |
+| ✅ | Lint（ESLint + Prettier）— `ci.yml` `nextjs` job 中 `npm run lint`，`hashFiles('package.json')` guard | CI/CD: "Lint (ESLint + Prettier)" | ci.yml 已配置，Next.js init 时自动激活 |
+| ✅ | Type checking（tsc --noEmit）— `ci.yml` `nextjs` job 中 `npm run typecheck`，同上 guard | CI/CD: "Type checking (tsc --noEmit)" | ci.yml 已配置，Next.js init 时自动激活 |
+| ✅ | Unit / integration tests — `ci.yml` `nextjs` job `npm run test:coverage`，coverage artifact 上传 | CI/CD: "Unit and integration tests" | ci.yml 已配置，Next.js init 时自动激活 |
+| ✅ | E2E tests（Playwright）— `ci.yml` `e2e` job，`hashFiles('playwright.config.ts')` guard（文件已存在） | CI/CD: "E2E tests (Playwright)" | ci.yml 已配置，E2E 测试写完后自动运行 |
+| ✅ | Security scan（npm audit — `security.yml`） | CI/CD: "Security scan (npm audit)" | 已完成 |
 | ✅ | AI PR review（Claude security review posted as PR comment via `security.yml`） | CI/CD: "AI PR review (claude-code-action or claude -p)" | Sprint 2 已完成 |
 | ⬜ | Preview deploy（Vercel，每个 PR） | CI/CD: "Preview deploy (Vercel)" | **Sprint 2**（Vercel 连接后自动） |
 | ⬜ | Production deploy on merge to main | CI/CD: "Production deploy on merge to main" | **Sprint 2** |
@@ -153,7 +185,7 @@
 | 状态 | 要求 | Rubric 依据 | 推荐时机 |
 |---|---|---|---|
 | ✅ | Sprint 1 retrospective 文档 | Team Process: "2 sprints documented (sprint planning + retrospective each)" | Sprint 1 已完成 |
-| ⬜ | Sprint 2 planning 文档 | Team Process: "2 sprints documented" | Sprint 2 开始时 |
+| ✅ | Sprint 2 planning 文档（`docs/sprint-2-planning.md`） | Team Process: "2 sprints documented" | 已完成 2026-04-17 |
 | ⬜ | Sprint 2 retrospective 文档 | Team Process: "2 sprints documented" | Sprint 2 结束时 |
 | ⬜ | GitHub Issues 含可测试的 Acceptance Criteria | Team Process: "GitHub Issues with acceptance criteria as testable specifications" | **Sprint 2 起强制执行** |
 | ⬜ | Branch-per-issue workflow，所有 PR 对应 issue，含 PR review | Team Process: "Branch-per-issue workflow with PR reviews" | **Sprint 2 起强制执行** |
@@ -173,7 +205,7 @@
 | ⬜ | Technical blog post 发布（Medium / dev.to） | Deliverables #4: "Technical blog post (published on Medium, dev.to, or similar)" | Sprint 4 结束后 |
 | ⬜ | Video demo（5–10 min，展示 app + Claude Code workflow） | Deliverables #5: "Video demonstration (5-10 min, showcasing app + Claude Code workflow)" | Sprint 4 结束后 |
 | ⬜ | Individual reflections（每人 500 words，含 Claude Code 具体见解） | Deliverables #6: "Individual reflections (one per partner, 500 words)" | 截止前提交 |
-| ✅ | GitHub repo 完整 `.claude/` 配置（skills, hooks, agents, MCP） | Deliverables #1: "GitHub repository with full `.claude/` configuration" | skills + agents + MCP 已完成；hooks 待补 |
+| ✅ | GitHub repo 完整 `.claude/` 配置（skills, hooks, agents, MCP） | Deliverables #1: "GitHub repository with full `.claude/` configuration" | hooks 已完成（PostToolUse + Stop + PreToolUse） |
 | ⬜ | Vercel production URL | Deliverables #2: "Deployed application (Vercel production URL)" | Sprint 2 结束即可访问 |
 | ⬜ | Showcase submission（Google Form：项目名、URL、缩略图、视频、博客） | Deliverables #7: "Showcase submission via Google Form" | 截止日当天 |
 
