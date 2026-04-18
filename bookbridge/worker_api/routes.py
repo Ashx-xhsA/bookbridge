@@ -17,7 +17,10 @@ from bookbridge.worker_api.models import (
 
 router = APIRouter()
 
-# In-memory job store — replaced by PostgreSQL in S2-3
+MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
+
+# In-memory job store — stub only; replaced by PostgreSQL in S2-3.
+# Lost on any process restart (Railway ON_FAILURE policy makes this realistic).
 _jobs: dict[str, dict] = {}
 
 
@@ -30,26 +33,34 @@ def health() -> HealthResponse:
 def parse(file: UploadFile) -> dict:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
+    if file.content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(file.file.read())
-        tmp_path = Path(tmp.name)
+    data = file.file.read(MAX_PDF_BYTES + 1)
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="PDF exceeds maximum allowed size (50 MB).")
 
+    tmp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = Path(tmp.name)
         pages = extract_pages(tmp_path)
+        manifest = build_chunk_manifest(pages, source_file=file.filename)
+        return manifest.to_dict()
+    except HTTPException:
+        raise
     except Exception:
-        tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="Could not read the uploaded PDF.")
     finally:
-        tmp_path.unlink(missing_ok=True)
-
-    manifest = build_chunk_manifest(pages, source_file=file.filename)
-    return manifest.to_dict()
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 @router.post("/translate/chunk", response_model=TranslateChunkResponse)
 def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     job_id = str(uuid.uuid4())
+    # Stub: enqueues job but does not invoke harness/ yet — wired in S2-3.
     _jobs[job_id] = {"status": "queued", "chunk_id": body.chunk_id, "result": None}
     return TranslateChunkResponse(job_id=job_id)
 

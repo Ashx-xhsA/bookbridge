@@ -80,11 +80,20 @@ def test_translate_chunk_rejects_missing_chunk_id(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 def test_get_job_status_returns_status_field(client: TestClient) -> None:
-    response = client.get("/job/some-job-id")
-    assert response.status_code in (200, 404)
-    if response.status_code == 200:
-        body = response.json()
-        assert "status" in body
+    # Create a real job first so the 200 branch is exercised.
+    create = client.post("/translate/chunk", json={"chunk_id": "42"})
+    job_id = create.json()["job_id"]
+
+    response = client.get(f"/job/{job_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert "status" in body
+    assert body["status"] == "queued"
+
+
+def test_get_job_status_404_for_unknown_id(client: TestClient) -> None:
+    response = client.get("/job/nonexistent-job-id")
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

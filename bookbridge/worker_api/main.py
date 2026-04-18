@@ -1,6 +1,7 @@
 """FastAPI application factory for the bookbridge worker service."""
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from bookbridge.worker_api.routes import router
@@ -11,6 +12,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def _generic_error(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, RequestValidationError):
+            raise exc  # let FastAPI's built-in 422 handler take it
         return JSONResponse(status_code=500, content={"detail": "Internal server error."})
 
     app.include_router(router)
