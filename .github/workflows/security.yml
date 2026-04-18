@@ -53,42 +53,33 @@ jobs:
       - name: Post security summary to PR
         if: github.event_name == 'pull_request'
         run: |
-          BANDIT_ISSUES=$(python3 -c "
-          import json, pathlib
+          python3 - <<'PYEOF'
+          import json, pathlib, os, subprocess
+
           try:
               data = json.loads(pathlib.Path('bandit-report.json').read_text())
-              issues = data.get('results', [])
-              high = [i for i in issues if i['issue_severity'] == 'HIGH']
-              med  = [i for i in issues if i['issue_severity'] == 'MEDIUM']
+              results = data.get('results', [])
+              high = [i for i in results if i['issue_severity'] == 'HIGH']
+              med  = [i for i in results if i['issue_severity'] == 'MEDIUM']
               lines = []
               for i in (high + med)[:10]:
-                  lines.append(f\"- [{i['issue_severity']}] {i['issue_text']} — \`{i['filename']}:{i['line_number']}\`\")
+                  lines.append(f"- **{i['issue_severity']}** {i['issue_text']} — `{i['filename']}:{i['line_number']}`")
               summary = '\n'.join(lines) if lines else '- No HIGH/MEDIUM issues found'
-              total = len(issues)
-              print(f'total={total}')
-              print(f'high={len(high)}')
-              print(f'issues<<EOF')
-              print(summary)
-              print('EOF')
-          except Exception as e:
-              print('total=0')
-              print('high=0')
-              print('issues<<EOF')
-              print('- Bandit report not available')
-              print('EOF')
-          " 2>/dev/null || echo -e 'total=0\nhigh=0\nissues<<EOF\n- Bandit not run\nEOF')
+          except Exception:
+              summary = '- Bandit report not available'
 
-          eval "$BANDIT_ISSUES"
+          body = f"""## Automated Security Scan
 
-          BODY="## Automated Security Scan
+**Gates checked:** Gitleaks (secrets) · npm audit (deps) · Bandit (Python SAST) · Semgrep (JS/TS OWASP)
 
-          **Gates checked:** Gitleaks (secrets) · npm audit (deps) · Bandit (Python SAST) · Semgrep (JS/TS OWASP)
+### Bandit — Python SAST
+{summary}
 
-          ### Bandit — Python SAST
-          $issues
+> **Note:** Run `/security-review` locally via Claude Code for a full AI-assisted review before merging."""
 
-          > **Note:** Run \`/security-review\` locally via Claude Code for a full AI-assisted review before merging."
+          pathlib.Path('pr_comment.txt').write_text(body)
+          PYEOF
 
-          gh pr comment ${{ github.event.pull_request.number }} --body "$BODY"
+          gh pr comment ${{ github.event.pull_request.number }} --body-file pr_comment.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
