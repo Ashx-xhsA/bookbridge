@@ -3,9 +3,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
 
-const POLL_INTERVAL_MS = 500
-const POLL_MAX_ATTEMPTS = 60
-
 interface WorkerChunk {
   chunk_id: number
   title: string
@@ -14,27 +11,11 @@ interface WorkerChunk {
   page_count: number
 }
 
-interface WorkerJobStatus {
-  job_id?: string
+interface WorkerParseResponse {
+  job_id: string
   status: string
-  error?: string | null
   chunks?: WorkerChunk[]
-}
-
-async function pollJobUntilDone(workerJobId: string): Promise<WorkerJobStatus | null> {
-  for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
-    let res: Response
-    try {
-      res = await workerFetch(`/job/${workerJobId}`)
-    } catch {
-      return null
-    }
-    if (!res.ok) return null
-    const data = (await res.json()) as WorkerJobStatus
-    if (data.status === 'completed' || data.status === 'failed') return data
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
-  }
-  return null
+  error?: string | null
 }
 
 export async function POST(req: NextRequest) {
@@ -74,58 +55,76 @@ export async function POST(req: NextRequest) {
   const workerForm = new FormData()
   workerForm.append('file', file)
 
-  let workerJobId: string | null = null
+  let parseData: WorkerParseResponse | null = null
+  let workerErrorDetail: string | null = null
+  let workerErrorStatus: number | null = null
 
   try {
     const workerRes = await workerFetch('/parse', { method: 'POST', body: workerForm })
     if (workerRes.ok) {
-      const workerData = await workerRes.json()
-      workerJobId = typeof workerData.job_id === 'string' ? workerData.job_id : null
+      parseData = (await workerRes.json()) as WorkerParseResponse
+    } else {
+      workerErrorStatus = workerRes.status
+      try {
+        const errJson = await workerRes.json()
+        workerErrorDetail =
+          typeof errJson?.detail === 'string' ? errJson.detail : 'Worker error'
+      } catch {
+        workerErrorDetail = 'Worker error'
+      }
     }
-  } catch {
-    // Worker unavailable — project stays PARSING; client can poll job status later
+  } catch (err) {
+    workerErrorDetail = err instanceof Error ? err.message : 'Worker unavailable'
   }
 
-  if (workerJobId) {
-    const job = await prisma.translationJob.create({
+  const chunks = parseData?.chunks ?? []
+
+  if (chunks.length > 0 && parseData) {
+    await prisma.$transaction([
+      prisma.chapter.createMany({
+        data: chunks.map((ch) => ({
+          projectId: project.id,
+          number: ch.chunk_id,
+          title: ch.title,
+          startPage: ch.start_page,
+          endPage: ch.end_page,
+          pageCount: ch.page_count,
+        })),
+      }),
+      prisma.translationJob.create({
+        data: {
+          projectId: project.id,
+          status: 'COMPLETED',
+          workerId: parseData.job_id,
+        },
+      }),
+      prisma.project.update({
+        where: { id: project.id },
+        data: { status: 'READY' },
+      }),
+    ])
+    return NextResponse.json({ projectId: project.id })
+  }
+
+  const errorMessage = workerErrorDetail ?? 'Worker returned no chapters'
+  await prisma.$transaction([
+    prisma.translationJob.create({
       data: {
         projectId: project.id,
-        status: 'QUEUED',
-        workerId: workerJobId,
+        status: 'FAILED',
+        workerId: parseData?.job_id ?? null,
+        error: errorMessage,
       },
-    })
+    }),
+    prisma.project.update({
+      where: { id: project.id },
+      data: { status: 'DRAFT' },
+    }),
+  ])
 
-    const jobStatus = await pollJobUntilDone(workerJobId)
-
-    if (jobStatus?.status === 'completed' && Array.isArray(jobStatus.chunks)) {
-      for (const ch of jobStatus.chunks) {
-        await prisma.chapter.create({
-          data: {
-            projectId: project.id,
-            number: ch.chunk_id,
-            title: ch.title,
-            startPage: ch.start_page,
-            endPage: ch.end_page,
-            pageCount: ch.page_count,
-          },
-        })
-      }
-      await prisma.translationJob.update({
-        where: { id: job.id },
-        data: { status: 'COMPLETED' },
-      })
-    } else if (jobStatus?.status === 'failed') {
-      await prisma.translationJob.update({
-        where: { id: job.id },
-        data: { status: 'FAILED', error: jobStatus.error ?? 'Worker failed' },
-      })
-    }
-  }
-
-  await prisma.project.update({
-    where: { id: project.id },
-    data: { status: 'READY' },
-  })
-
-  return NextResponse.json({ projectId: project.id })
+  const clientStatus = workerErrorStatus === 422 || workerErrorStatus === 413 ? workerErrorStatus : 502
+  return NextResponse.json(
+    { projectId: project.id, error: errorMessage },
+    { status: clientStatus }
+  )
 }

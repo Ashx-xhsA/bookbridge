@@ -8,17 +8,18 @@ class TranslateChunkRequest(BaseModel):
     chunk_id: str
 
 
-class TranslateChunkResponse(BaseModel):
-    job_id: str
-    status: str = "queued"
-
-
 class ChunkData(BaseModel):
     chunk_id: int
     title: str
     start_page: int
     end_page: int
     page_count: int
+
+
+class TranslateChunkResponse(BaseModel):
+    job_id: str
+    status: str = "queued"
+    chunks: list[ChunkData] | None = None
 
 
 class JobStatusResponse(BaseModel):

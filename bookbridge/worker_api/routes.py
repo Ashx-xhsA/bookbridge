@@ -42,7 +42,6 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
         raise HTTPException(status_code=413, detail="PDF exceeds maximum allowed size (50 MB).")
 
     tmp_path: Path | None = None
-    manifest = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(data)
@@ -65,11 +64,17 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
             end_page=c.end_page,
             page_count=c.page_count,
         )
-        for c in (manifest.chunks if manifest else [])
+        for c in manifest.chunks
     ]
+    if not chunks:
+        raise HTTPException(
+            status_code=422,
+            detail="No chapter markers found in the PDF.",
+        )
+
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {"status": "completed", "chunks": chunks, "error": None}
-    return TranslateChunkResponse(job_id=job_id)
+    return TranslateChunkResponse(job_id=job_id, status="completed", chunks=chunks)
 
 
 @router.post("/translate/chunk", response_model=TranslateChunkResponse)
