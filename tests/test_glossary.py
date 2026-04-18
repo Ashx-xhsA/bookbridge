@@ -1,6 +1,5 @@
 """Tests for the glossary store module."""
 
-import pytest
 
 from bookbridge.glossary.models import Term, Translation
 from bookbridge.glossary.store import GlossaryStore

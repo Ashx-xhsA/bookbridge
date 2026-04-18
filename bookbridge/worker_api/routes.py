@@ -64,7 +64,12 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
 def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     job_id = str(uuid.uuid4())
     # Stub: enqueues job but does not invoke harness/ yet — wired in S2-3.
-    _jobs[job_id] = {"status": "queued", "project_id": body.project_id, "chunk_id": body.chunk_id, "error": None}
+    _jobs[job_id] = {
+        "status": "queued",
+        "project_id": body.project_id,
+        "chunk_id": body.chunk_id,
+        "error": None,
+    }
     return TranslateChunkResponse(job_id=job_id)
 
 
