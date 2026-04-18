@@ -1,11 +1,14 @@
 """FastAPI route handlers wrapping bookbridge ingestion and harness modules."""
 
+import logging
 import tempfile
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
+from bookbridge.harness import get_translator
+from bookbridge.harness.translator import TranslatorError
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
 from bookbridge.worker_api.models import (
@@ -16,12 +19,14 @@ from bookbridge.worker_api.models import (
     TranslateChunkResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
 
-# In-memory job store — stub only; replaced by PostgreSQL in S2-3.
-# Lost on any process restart (Railway ON_FAILURE policy makes this realistic).
+# In-memory job store — used only by /parse for the deprecated async polling path.
+# /translate/chunk is now synchronous and does not write here (ref issue #52).
 _jobs: dict[str, dict] = {}
 
 
@@ -79,15 +84,33 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
 
 @router.post("/translate/chunk", response_model=TranslateChunkResponse)
 def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
-    job_id = str(uuid.uuid4())
-    # Stub: enqueues job but does not invoke harness/ yet — wired in S2-3.
-    _jobs[job_id] = {
-        "status": "queued",
-        "project_id": body.project_id,
-        "chunk_id": body.chunk_id,
-        "error": None,
-    }
-    return TranslateChunkResponse(job_id=job_id)
+    """Translate a chunk synchronously via the configured harness provider."""
+    try:
+        translator = get_translator()
+    except ValueError as exc:
+        logger.error("translator configuration error: %s", exc)
+        raise HTTPException(status_code=500, detail="Translation provider misconfigured") from exc
+
+    try:
+        translation = translator.translate(
+            text=body.source_text,
+            source_lang="en",
+            target_lang=body.target_lang,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TranslatorError as exc:
+        logger.warning("translator provider returned no result: %s", exc)
+        raise HTTPException(status_code=502, detail="Translation provider failed") from exc
+    except Exception as exc:
+        logger.exception("translator raised unexpected error: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Translation provider failed") from exc
+
+    return TranslateChunkResponse(
+        job_id=str(uuid.uuid4()),
+        status="completed",
+        translation=translation,
+    )
 
 
 @router.get("/job/{job_id}", response_model=JobStatusResponse)
