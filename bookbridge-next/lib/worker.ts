@@ -1,18 +1,22 @@
 const WORKER_URL = process.env.WORKER_URL || 'http://localhost:8000'
+const TIMEOUT_MS = 8000
 
 export async function workerFetch(
   path: string,
   init?: RequestInit
 ): Promise<Response> {
-  const url = `${WORKER_URL}${path}`
+  if (process.env.NODE_ENV === 'production' && !process.env.WORKER_URL) {
+    throw new Error('Worker unavailable')
+  }
   try {
-    return await fetch(url, {
+    return await fetch(`${WORKER_URL}${path}`, {
       ...init,
-      headers: {
-        ...init?.headers,
-      },
+      headers: { ...init?.headers },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     })
-  } catch {
-    throw new Error(`Worker unavailable at ${WORKER_URL}`)
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'TimeoutError'
+    console.error(`[workerFetch] ${isTimeout ? 'timeout' : 'connection error'} — ${path}`)
+    throw new Error(isTimeout ? 'Worker timeout' : 'Worker unavailable')
   }
 }
