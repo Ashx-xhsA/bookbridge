@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from bookbridge.harness import get_translator
 from bookbridge.harness.providers.claude import ClaudeTranslator
 from bookbridge.harness.providers.mock import MockTranslator
