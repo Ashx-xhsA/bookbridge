@@ -1,25 +1,28 @@
 import Link from 'next/link'
-import { BookOpen, Globe, Sparkles, ArrowRight } from 'lucide-react'
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+    <div className="flex min-h-screen flex-col bg-cream">
+      <header className="border-b border-parchment">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2 text-lg font-bold">
-            <BookOpen className="h-6 w-6 text-blue-600" />
-            BookBridge
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-white font-serif text-lg font-bold">
+              B
+            </div>
+            <span className="font-serif text-xl font-bold text-ink">
+              BookBridge
+            </span>
           </div>
           <div className="flex items-center gap-4">
             <Link
               href="/sign-in"
-              className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              className="text-sm font-medium text-ink-light hover:text-ink"
             >
               Sign In
             </Link>
             <Link
               href="/sign-up"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
             >
               Get Started
             </Link>
@@ -27,64 +30,133 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="mx-auto max-w-3xl text-center">
-          <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">
-            Translate books with
-            <span className="text-blue-600"> AI precision</span>
-          </h1>
-          <p className="mt-6 text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Upload a PDF, select chapters to translate, and read the results in
-            an immersive bilingual view. Terminology stays consistent across the
-            entire book via a project-scoped glossary.
-          </p>
-          <div className="mt-10 flex items-center justify-center gap-4">
-            <Link
-              href="/sign-up"
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-            >
-              Start Translating
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              href="/read/demo"
-              className="rounded-lg border border-zinc-300 px-6 py-3 text-sm font-semibold shadow-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
-              View Demo
-            </Link>
-          </div>
-        </div>
+      <main className="flex-1">
+        <section className="mx-auto max-w-6xl px-6 pt-20 pb-16">
+          <div className="grid items-center gap-16 lg:grid-cols-2">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-widest text-accent">
+                AI-Powered Translation
+              </p>
+              <h1 className="mt-4 font-serif text-5xl font-bold leading-tight text-ink sm:text-6xl">
+                Read any book
+                <br />
+                in your language
+              </h1>
+              <p className="mt-6 text-lg leading-relaxed text-ink-light">
+                Upload a book, translate it chapter by chapter with AI, and read
+                in an immersive bilingual view. Smart glossary keeps names and
+                terms consistent across the entire story.
+              </p>
+              <div className="mt-10 flex items-center gap-4">
+                <Link
+                  href="/sign-up"
+                  className="rounded-lg bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover transition-colors"
+                >
+                  Start Translating
+                </Link>
+                <Link
+                  href="/read/demo"
+                  className="rounded-lg border border-spine/30 bg-white px-7 py-3.5 text-sm font-semibold text-ink hover:bg-paper transition-colors"
+                >
+                  View Demo
+                </Link>
+              </div>
+            </div>
 
-        <div className="mx-auto mt-24 grid max-w-5xl gap-8 md:grid-cols-3">
-          <div className="rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
-            <Globe className="mb-4 h-8 w-8 text-blue-600" />
-            <h3 className="text-lg font-semibold">Multi-Language</h3>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Translate to Chinese, Spanish, Arabic, and more. Each language has
-              dedicated quality checks.
-            </p>
+            <div className="relative hidden lg:block">
+              <div className="rounded-2xl border border-parchment bg-white p-8 shadow-xl shadow-parchment/50">
+                <div className="flex items-center gap-3 border-b border-parchment pb-4">
+                  <div className="h-3 w-3 rounded-full bg-accent/30" />
+                  <div className="h-3 w-3 rounded-full bg-highlight" />
+                  <div className="h-3 w-3 rounded-full bg-parchment" />
+                  <span className="ml-2 text-xs text-ink-muted">The Little Prince — Chapter 1</span>
+                </div>
+                <div className="mt-6 grid grid-cols-2 gap-6">
+                  <div>
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+                      English
+                    </p>
+                    <p className="font-serif text-sm leading-relaxed text-ink">
+                      Once when I was six years old I saw a magnificent picture
+                      in a book, called True Stories from Nature, about the
+                      primeval forest.
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-accent-light/50 p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                      中文翻译
+                    </p>
+                    <p className="font-serif text-sm leading-relaxed text-ink">
+                      当我六岁的时候，在一本描写原始森林的名叫《真实的故事》的书中，
+                      看到了一幅精彩的插画。
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="rounded-full bg-highlight/50 px-2.5 py-1 text-[10px] font-medium text-ink-light">
+                    primeval forest → 原始森林
+                  </span>
+                  <span className="rounded-full bg-highlight/50 px-2.5 py-1 text-[10px] font-medium text-ink-light">
+                    True Stories → 真实的故事
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
-            <BookOpen className="mb-4 h-8 w-8 text-blue-600" />
-            <h3 className="text-lg font-semibold">Glossary Consistency</h3>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              AI-managed glossary ensures character names and terminology stay
-              consistent across all chapters.
+        </section>
+
+        <section className="border-t border-parchment bg-paper/50">
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <p className="text-center text-sm font-medium uppercase tracking-widest text-accent">
+              How It Works
             </p>
+            <h2 className="mt-3 text-center font-serif text-3xl font-bold text-ink">
+              Three steps to your translated book
+            </h2>
+            <div className="mt-14 grid gap-8 md:grid-cols-3">
+              <div className="text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent-light text-2xl">
+                  📄
+                </div>
+                <h3 className="mt-5 font-serif text-lg font-semibold text-ink">
+                  Upload
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-ink-light">
+                  Upload your PDF book. We parse it into chapters automatically
+                  and build a table of contents.
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent-light text-2xl">
+                  🌐
+                </div>
+                <h3 className="mt-5 font-serif text-lg font-semibold text-ink">
+                  Translate
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-ink-light">
+                  Translate chapter by chapter with AI. A project glossary keeps
+                  character names and terms consistent.
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent-light text-2xl">
+                  📖
+                </div>
+                <h3 className="mt-5 font-serif text-lg font-semibold text-ink">
+                  Read
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-ink-light">
+                  Read in our bilingual reader — original and translation side
+                  by side, like a real book.
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
-            <Sparkles className="mb-4 h-8 w-8 text-blue-600" />
-            <h3 className="text-lg font-semibold">Chapter-by-Chapter</h3>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Translate selectively. Start reading immediately — no need to wait
-              for the entire book.
-            </p>
-          </div>
-        </div>
+        </section>
       </main>
 
-      <footer className="border-t border-zinc-200 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-        BookBridge &mdash; AI-Powered Book Translation Platform
+      <footer className="border-t border-parchment bg-cream py-8 text-center text-sm text-ink-muted">
+        BookBridge &mdash; AI-Powered Book Translation
       </footer>
     </div>
   )

@@ -5,10 +5,10 @@ import { Plus, FileText, Clock, CheckCircle } from 'lucide-react'
 import prisma from '@/lib/prisma'
 
 const statusColors: Record<string, string> = {
-  DRAFT: 'bg-zinc-100 text-zinc-700',
-  PARSING: 'bg-yellow-100 text-yellow-700',
-  READY: 'bg-blue-100 text-blue-700',
-  TRANSLATING: 'bg-purple-100 text-purple-700',
+  DRAFT: 'bg-parchment text-ink-light',
+  PARSING: 'bg-highlight text-ink-light',
+  READY: 'bg-accent-light text-accent',
+  TRANSLATING: 'bg-highlight text-ink',
   COMPLETED: 'bg-green-100 text-green-700',
 }
 
@@ -26,14 +26,14 @@ export default async function DashboardPage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">My Projects</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Manage your translation projects
+          <h1 className="font-serif text-2xl font-bold text-ink">My Library</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Your translation projects
           </p>
         </div>
         <Link
           href="/dashboard/new"
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
         >
           <Plus className="h-4 w-4" />
           New Project
@@ -42,14 +42,14 @@ export default async function DashboardPage() {
 
       {projects.length === 0 ? (
         <div className="mt-16 text-center">
-          <FileText className="mx-auto h-12 w-12 text-zinc-300" />
-          <h3 className="mt-4 text-lg font-medium">No projects yet</h3>
-          <p className="mt-2 text-sm text-zinc-500">
+          <FileText className="mx-auto h-12 w-12 text-parchment" />
+          <h3 className="mt-4 font-serif text-lg font-medium text-ink">No books yet</h3>
+          <p className="mt-2 text-sm text-ink-muted">
             Upload a PDF to start translating.
           </p>
           <Link
             href="/dashboard/new"
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
           >
             <Plus className="h-4 w-4" />
             Create your first project
@@ -71,10 +71,10 @@ export default async function DashboardPage() {
               <Link
                 key={project.id}
                 href={`/dashboard/projects/${project.id}`}
-                className="group rounded-xl border border-zinc-200 p-5 transition hover:border-blue-300 hover:shadow-md dark:border-zinc-800 dark:hover:border-blue-800"
+                className="group rounded-xl border border-parchment bg-white p-5 transition hover:border-accent/30 hover:shadow-md"
               >
                 <div className="flex items-start justify-between">
-                  <h3 className="font-semibold group-hover:text-blue-600">
+                  <h3 className="font-serif font-semibold text-ink group-hover:text-accent">
                     {project.title}
                   </h3>
                   <span
@@ -83,10 +83,10 @@ export default async function DashboardPage() {
                     {project.status}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-zinc-500">
+                <p className="mt-2 text-sm text-ink-muted">
                   {project.sourceLang} &rarr; {project.targetLang}
                 </p>
-                <div className="mt-4 flex items-center gap-4 text-xs text-zinc-400">
+                <div className="mt-4 flex items-center gap-4 text-xs text-ink-muted">
                   <span className="flex items-center gap-1">
                     <FileText className="h-3.5 w-3.5" />
                     {totalChapters} chapters
@@ -101,9 +101,9 @@ export default async function DashboardPage() {
                   </span>
                 </div>
                 {totalChapters > 0 && (
-                  <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                  <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-parchment">
                     <div
-                      className="h-full rounded-full bg-blue-600 transition-all"
+                      className="h-full rounded-full bg-accent transition-all"
                       style={{ width: `${progress}%` }}
                     />
                   </div>
