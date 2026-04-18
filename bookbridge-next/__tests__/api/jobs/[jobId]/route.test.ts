@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 // ---------------------------------------------------------------------------
-// Mock Clerk auth — must be hoisted before any import of @clerk/nextjs/server
+// Mock Clerk auth
 // ---------------------------------------------------------------------------
 vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(),
@@ -24,100 +24,67 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock global fetch (used by workerFetch helper in lib/worker.ts)
+// Mock global fetch (used by workerFetch in lib/worker.ts)
 // ---------------------------------------------------------------------------
 const mockGlobalFetch = vi.fn()
 vi.stubGlobal('fetch', mockGlobalFetch)
 
-// ---------------------------------------------------------------------------
-// Import auth after mocks are registered
-// ---------------------------------------------------------------------------
 import { auth } from '@clerk/nextjs/server'
 
-// ---------------------------------------------------------------------------
-// Helper — build a NextRequest for GET /api/jobs/[jobId]
-// ---------------------------------------------------------------------------
 function makeRequest(jobId: string): NextRequest {
-  return new NextRequest(`http://localhost:3000/api/jobs/${jobId}`, {
-    method: 'GET',
-  })
+  return new NextRequest(`http://localhost:3000/api/jobs/${jobId}`, { method: 'GET' })
 }
 
-// ---------------------------------------------------------------------------
-// Reusable route params object (Next.js App Router passes params as a Promise)
-// ---------------------------------------------------------------------------
 function makeParams(jobId: string) {
   return { params: Promise.resolve({ jobId }) }
 }
 
-// ---------------------------------------------------------------------------
-// Fixture data
-// ---------------------------------------------------------------------------
 const OWNER_ID = 'user_owner'
 const OTHER_USER_ID = 'user_other'
 const JOB_ID = 'clh3p7b1p0000qzrmkf8g4m0h'
+const WORKER_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
 
+// Fixture matches exact Prisma select shape
 const fakeJob = {
   id: JOB_ID,
-  projectId: 'proj_1',
-  chapterId: 'ch_1',
   status: 'PROCESSING',
-  workerId: 'wid_1',
-  result: null,
-  error: null,
-  createdAt: new Date('2025-01-01T00:00:00Z'),
-  updatedAt: new Date('2025-01-01T00:01:00Z'),
-  project: {
-    id: 'proj_1',
-    ownerId: OWNER_ID,
-  },
+  workerId: WORKER_ID,
+  project: { ownerId: OWNER_ID },
 }
 
-const workerPayload = {
-  job_id: JOB_ID,
-  status: 'processing',
-  progress: 42,
+const fakeJobNoWorker = {
+  id: JOB_ID,
+  status: 'QUEUED',
+  workerId: null,
+  project: { ownerId: OWNER_ID },
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+const workerPayload = { job_id: WORKER_ID, status: 'processing', error: null }
+
 describe('GET /api/jobs/[jobId]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.resetModules()
   })
 
-  // -------------------------------------------------------------------------
-  // 1. Auth guard — A07 / OWASP
-  // -------------------------------------------------------------------------
   it('returns 401 when user is not authenticated', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: null } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
     )
-
     const { GET } = await import('@/app/api/jobs/[jobId]/route')
     const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
-
     expect(res.status).toBe(401)
-    const body = await res.json()
-    expect(body.error).toBeDefined()
+    expect((await res.json()).error).toBeDefined()
   })
 
-  // -------------------------------------------------------------------------
-  // 2. Not found — job missing from DB
-  // -------------------------------------------------------------------------
   it('returns 404 when job does not exist in the database', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
     )
     mockJobFindUnique.mockResolvedValueOnce(null)
-
     const { GET } = await import('@/app/api/jobs/[jobId]/route')
     const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
-
     expect(res.status).toBe(404)
-    const body = await res.json()
-    expect(body.error).toBeDefined()
     expect(mockJobFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: JOB_ID },
@@ -126,27 +93,32 @@ describe('GET /api/jobs/[jobId]', () => {
     )
   })
 
-  // -------------------------------------------------------------------------
-  // 3. Ownership check — A01 / IDOR prevention
-  // -------------------------------------------------------------------------
   it('returns 403 when the job belongs to a project owned by a different user', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: OTHER_USER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
     )
     mockJobFindUnique.mockResolvedValueOnce(fakeJob)
-
     const { GET } = await import('@/app/api/jobs/[jobId]/route')
     const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
-
     expect(res.status).toBe(403)
-    const body = await res.json()
-    expect(body.error).toBeDefined()
+    expect((await res.json()).error).toBeDefined()
   })
 
-  // -------------------------------------------------------------------------
-  // 4. Happy path — authenticated owner, Worker returns status payload
-  // -------------------------------------------------------------------------
-  it('returns 200 with the proxied Worker response body on happy path', async () => {
+  it('returns DB status when workerId is null (job not yet dispatched to Worker)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce(
+      { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
+    )
+    mockJobFindUnique.mockResolvedValueOnce(fakeJobNoWorker)
+    const { GET } = await import('@/app/api/jobs/[jobId]/route')
+    const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.status).toBe('QUEUED')
+    expect(body.job_id).toBe(JOB_ID)
+    expect(mockGlobalFetch).not.toHaveBeenCalled()
+  })
+
+  it('returns 200 with proxied Worker response using workerId (not Postgres ID)', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
     )
@@ -157,38 +129,30 @@ describe('GET /api/jobs/[jobId]', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     )
-
     const { GET } = await import('@/app/api/jobs/[jobId]/route')
     const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
-
     expect(res.status).toBe(200)
     const body = await res.json()
-    // The BFF must forward whatever the Worker returns
-    expect(body).toMatchObject({
-      job_id: JOB_ID,
-      status: 'processing',
-      progress: 42,
-    })
+    expect(body).toMatchObject({ status: 'processing', error: null })
+    // Must use workerId (Worker UUID), not the Postgres CUID
+    const fetchCall = mockGlobalFetch.mock.calls[0][0] as string
+    expect(fetchCall).toContain(WORKER_ID)
+    expect(fetchCall).not.toContain(JOB_ID)
+    // Must set Cache-Control: no-store on polling endpoint
+    expect(res.headers.get('cache-control')).toBe('no-store')
   })
 
-  // -------------------------------------------------------------------------
-  // 5. Edge case — Worker unreachable → 502, no stack trace in response
-  // -------------------------------------------------------------------------
-  it('returns 502 with a generic message and no stack trace when Worker is unreachable', async () => {
+  it('returns 502 with generic message when Worker is unreachable', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never,
     )
     mockJobFindUnique.mockResolvedValueOnce(fakeJob)
-    // Simulate network failure — fetch throws
     mockGlobalFetch.mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:8000'))
-
     const { GET } = await import('@/app/api/jobs/[jobId]/route')
     const res = await GET(makeRequest(JOB_ID), makeParams(JOB_ID))
-
     expect(res.status).toBe(502)
     const body = await res.json()
     expect(body.error).toBeDefined()
-    // Must NOT leak internal error details or stack traces to the client
     expect(JSON.stringify(body)).not.toContain('ECONNREFUSED')
     expect(JSON.stringify(body)).not.toContain('stack')
   })
