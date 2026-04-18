@@ -1,13 +1,10 @@
-const WORKER_URL = process.env.WORKER_URL || 'http://localhost:8000'
+const WORKER_URL = process.env.WORKER_URL || 'https://passionate-serenity-production-3cdd.up.railway.app'
 const TIMEOUT_MS = 8000
 
 export async function workerFetch(
   path: string,
   init?: RequestInit
 ): Promise<Response> {
-  if (process.env.NODE_ENV === 'production' && !process.env.WORKER_URL) {
-    throw new Error('Worker unavailable')
-  }
   try {
     return await fetch(`${WORKER_URL}${path}`, {
       ...init,
