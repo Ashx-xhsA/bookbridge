@@ -52,12 +52,12 @@ export default async function ProjectPage({
             <BookOpen className="mr-1 inline h-4 w-4" />
             Glossary ({project.glossary.length})
           </Link>
-          {project.isPublic && (
+          {project.chapters.length > 0 && (
             <Link
               href={`/read/${id}`}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
             >
-              View Published
+              Start Reading
             </Link>
           )}
         </div>

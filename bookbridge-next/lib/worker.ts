@@ -1,4 +1,11 @@
-const TIMEOUT_MS = 8000
+// Per-call timeout (ms). The default is scoped to synchronous /translate/chunk
+// calls that must fit under Vercel's hobby-tier 10 s function ceiling so the
+// route can still return its own 502 instead of hitting a gateway 504.
+// Longer-running endpoints (notably /parse on a multi-hundred-page PDF) must
+// pass an explicit timeoutMs via the options argument.
+const DEFAULT_TIMEOUT_MS = 6000
+
+type WorkerFetchInit = RequestInit & { timeoutMs?: number }
 
 function getWorkerUrl(): string {
   const url = process.env.WORKER_URL
@@ -12,13 +19,15 @@ function getWorkerUrl(): string {
 
 export async function workerFetch(
   path: string,
-  init?: RequestInit
+  init?: WorkerFetchInit
 ): Promise<Response> {
+  const { timeoutMs, ...fetchInit } = init ?? {}
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS
   try {
     return await fetch(`${getWorkerUrl()}${path}`, {
-      ...init,
-      headers: { ...init?.headers },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      ...fetchInit,
+      headers: { ...fetchInit.headers },
+      signal: AbortSignal.timeout(timeout),
     })
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === 'TimeoutError'
