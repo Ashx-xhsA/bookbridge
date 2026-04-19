@@ -3,6 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
 
+// /parse walks every page of the PDF and runs OCR-cleanup; a 300-page book can
+// legitimately take 30+ seconds on a cold worker. Lift the route budget so the
+// platform doesn't kill us before the worker responds. maxDuration is a no-op
+// on local dev and on Vercel hobby (capped at 10s) but required for Pro.
+export const maxDuration = 60
+const PARSE_TIMEOUT_MS = 55_000
+
 interface WorkerChunk {
   chunk_id: number
   title: string
@@ -61,7 +68,11 @@ export async function POST(req: NextRequest) {
   let workerErrorStatus: number | null = null
 
   try {
-    const workerRes = await workerFetch('/parse', { method: 'POST', body: workerForm })
+    const workerRes = await workerFetch('/parse', {
+      method: 'POST',
+      body: workerForm,
+      timeoutMs: PARSE_TIMEOUT_MS,
+    })
     if (workerRes.ok) {
       parseData = (await workerRes.json()) as WorkerParseResponse
     } else {
