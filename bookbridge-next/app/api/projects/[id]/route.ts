@@ -68,7 +68,7 @@ export async function PATCH(
 
   const guard = await requireProjectOwner(id, userId)
   if (!guard.ok) {
-    if (isPublishAttempt && guard.response.status === 403) {
+    if (isPublishAttempt && guard.reason === 'forbidden') {
       return NextResponse.json(
         { error: 'Forbidden', publicUrl: null },
         { status: 403 },
