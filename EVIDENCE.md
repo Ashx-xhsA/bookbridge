@@ -6,24 +6,28 @@ Items required to satisfy rubric grading — screenshots, links, or command outp
 
 ## Claude Code Mastery
 
-- [x] **Auto-memory** — Claude Code persists cross-session memory at `.claude/projects/-Users-mineral-Desktop-bookbridge/memory/`. The index file (`MEMORY.md`) and four per-topic files are active and recalled automatically at the start of each session.
+- [x] **Auto-memory** — Claude Code persists cross-session memory at `~/.claude/projects/-Users-mineral-Desktop-bookbridge/memory/`. The index file (`MEMORY.md`) and per-topic files are active and recalled automatically at the start of each session.
 
-  Memory files present:
+  Memory files present (as of 2026-04-18):
   - `MEMORY.md` (index)
   - `user_profile.md`
   - `project_status.md`
   - `evidence_collected.md`
   - `workflow_preferences.md`
+  - `harness_provider_decisions.md`
 
   `MEMORY.md` contents (recalled each session):
   ```markdown
   # Memory Index
 
   - [User Profile](user_profile.md) — CS student, BookBridge pair project, comfortable with git/GitHub CLI
-  - [Project Status](project_status.md) — Sprint 2 in progress; Python core done; Next.js BFF partially built
+  - [Project Status](project_status.md) — Sprint 4 in progress; reader-view loop complete; PR #54 open
   - [Evidence Collected](evidence_collected.md) — Rubric evidence gathered so far (PRs, TDD commits, etc.)
   - [Workflow Preferences](workflow_preferences.md) — Prefers concise responses; uses gh CLI; evidence-first approach
+  - [Harness / Worker Provider Decisions](harness_provider_decisions.md) — provider tradeoffs, local run command, mac SSL fix, timeout split
   ```
+
+  > **TODO before final submission**: snapshot the full `~/.claude/projects/-Users-mineral-Desktop-bookbridge/memory/` directory into `docs/claude-memory/` and commit so graders can read the memory contents directly from the repo. Do this **once** at end-of-project — memory evolves mid-sprint, a late snapshot captures the richest state.
 - [ ] **Custom Skills usage** — session logs or screenshots showing team using `tdd-add-module`, `start-issue`, `create-pr`
 
   - Create-pr
