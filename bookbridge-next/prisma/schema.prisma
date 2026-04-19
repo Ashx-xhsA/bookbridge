@@ -32,6 +32,7 @@ model Project {
   targetLang  String           @default("zh-Hans")
   status      ProjectStatus    @default(DRAFT)
   isPublic    Boolean          @default(false)
+  publicToken String?          @unique
   ownerId     String
   owner       User             @relation(fields: [ownerId], references: [clerkId])
   chapters    Chapter[]
