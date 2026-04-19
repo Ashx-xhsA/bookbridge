@@ -1,9 +1,26 @@
+import { z } from 'zod'
 import prisma from '@/lib/prisma'
+
+// publicToken is minted via crypto.randomUUID() in the project publish flow, so
+// the format is strict — reject anything non-UUID at the edge to shrink the
+// attack surface before the DB is touched.
+export const tokenSchema = z.string().uuid()
 
 // Filters on isPublic=true so unknown tokens and unpublished projects both
 // resolve to null. Callers must return 404 (never 403) on null — a 403 would
 // confirm the project exists and enable enumeration (OWASP A01).
-export async function getPublishedProject(token: string) {
+
+export async function getPublishedProjectId(
+  token: string,
+): Promise<string | null> {
+  const project = await prisma.project.findFirst({
+    where: { publicToken: token, isPublic: true },
+    select: { id: true },
+  })
+  return project?.id ?? null
+}
+
+export async function getPublishedProjectWithChapters(token: string) {
   return prisma.project.findFirst({
     where: { publicToken: token, isPublic: true },
     include: {

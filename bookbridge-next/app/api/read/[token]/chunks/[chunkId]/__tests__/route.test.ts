@@ -40,7 +40,9 @@ vi.mock('@/lib/prisma', () => ({
 // Test constants
 // ---------------------------------------------------------------------------
 const VALID_TOKEN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
-const INVALID_TOKEN = 'zzzzzzzz-0000-4000-a000-000000000000'
+// Valid UUID format but unknown to the DB — tests the "no such published
+// project" branch while still passing the route's UUID format validation.
+const INVALID_TOKEN = 'deadbeef-dead-4bee-8ead-deadbeefcafe'
 const PROJECT_ID = 'clh3p7b1p0001qzrmkf8g4m0i'
 const OTHER_PROJECT_ID = 'clh3p7b1p0001qzrmkf8g4m0j'
 const CHUNK_ID = 'clh4c1a2b0002qzrmkf8g4n1j'
@@ -213,5 +215,21 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
     const body = await res.json()
     expect(body.data.originalText).toBe(fakeChapter.sourceContent)
     expect(body.data.translatedText).toBeNull()
+  })
+
+  // Edge case — chapter exists but sourceContent has not been ingested yet.
+  // Returning 200 with originalText: null would give the reader a blank screen
+  // and no signal. Treat this as "not yet available" → 404 so the caller can
+  // retry or surface a clear message.
+  it('returns 404 when the chapter has not been ingested (sourceContent is null)', async () => {
+    const unIngestedChapter = { ...fakeChapter, sourceContent: null }
+    mockProjectFindFirst.mockResolvedValueOnce(publishedProject)
+    mockChapterFindUnique.mockResolvedValueOnce(unIngestedChapter)
+    const { GET } = await import('@/app/api/read/[token]/chunks/[chunkId]/route')
+    const res = await GET(
+      makeGetRequest(VALID_TOKEN, CHUNK_ID),
+      makeParams(VALID_TOKEN, CHUNK_ID),
+    )
+    expect(res.status).toBe(404)
   })
 })

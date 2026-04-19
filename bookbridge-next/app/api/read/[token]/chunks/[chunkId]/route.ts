@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
-import { getPublishedProject } from '@/lib/public-project'
+import { getPublishedProjectId, tokenSchema } from '@/lib/public-project'
 
 const paramsSchema = z.object({
-  token: z.string().min(1),
-  chunkId: z.string().min(1),
+  token: tokenSchema,
+  chunkId: z.string().min(1).max(256),
 })
 
 export async function GET(
@@ -20,20 +20,31 @@ export async function GET(
 
   const { token, chunkId } = parsed.data
 
-  const project = await getPublishedProject(token)
-  if (!project) {
+  // Run both queries in parallel so "unknown token" and "token ok but chunk
+  // missing/cross-project" take identical wall-clock time — closes the timing
+  // side-channel an attacker could otherwise use to enumerate valid tokens.
+  const [projectId, chapter] = await Promise.all([
+    getPublishedProjectId(token),
+    prisma.chapter.findUnique({
+      where: { id: chunkId },
+      select: { projectId: true, sourceContent: true, translation: true },
+    }),
+  ])
+
+  if (!projectId) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
   }
 
-  const chapter = await prisma.chapter.findUnique({
-    where: { id: chunkId },
-    select: { projectId: true, sourceContent: true, translation: true },
-  })
-
-  // Cross-project access returns 404 (not 403) so we never confirm the chunk
-  // exists outside the token's project scope.
-  if (!chapter || chapter.projectId !== project.id) {
-    return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
+  // Chunk-level 404: missing, cross-project IDOR, or source not yet ingested.
+  // Different error body ("Not found") than the project-level 404 because the
+  // token is valid here — the ambiguity the enumeration-prevention rule is
+  // about (project existence) is not at risk from this branch.
+  if (
+    !chapter ||
+    chapter.projectId !== projectId ||
+    chapter.sourceContent === null
+  ) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   return NextResponse.json({

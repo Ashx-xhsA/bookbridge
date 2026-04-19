@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
-import { getPublishedProject } from '@/lib/public-project'
-
-const tokenSchema = z.string().min(1)
+import {
+  getPublishedProjectWithChapters,
+  tokenSchema,
+} from '@/lib/public-project'
 
 export async function GET(
   _req: NextRequest,
@@ -15,7 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
-  const project = await getPublishedProject(parsed.data)
+  const project = await getPublishedProjectWithChapters(parsed.data)
   if (!project) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
   }
@@ -25,6 +25,8 @@ export async function GET(
       title: project.title,
       sourceLanguage: project.sourceLang,
       targetLanguage: project.targetLang,
+      // Intentionally exposed so the reading view can render a progress badge
+      // for projects still translating; no other workflow details are shared.
       status: project.status,
       chapters: project.chapters,
     },

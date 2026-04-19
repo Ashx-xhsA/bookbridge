@@ -36,7 +36,9 @@ vi.mock('@/lib/prisma', () => ({
 // Test constants
 // ---------------------------------------------------------------------------
 const VALID_TOKEN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
-const INVALID_TOKEN = 'zzzzzzzz-0000-4000-a000-000000000000'
+// Valid UUID format but unknown to the DB — tests "no such published project"
+// while still passing the route's UUID format validation.
+const INVALID_TOKEN = 'deadbeef-dead-4bee-8ead-deadbeefcafe'
 const PROJECT_ID = 'clh3p7b1p0001qzrmkf8g4m0i'
 const OWNER_ID = 'user_owner_abc'
 
@@ -161,6 +163,16 @@ describe('GET /api/read/[token]', () => {
     const res = await GET(makeGetRequest(''), makeParams(''))
     expect(res.status).toBe(400)
     // Prisma must never be called for an invalid token
+    expect(mockProjectFindFirst).not.toHaveBeenCalled()
+  })
+
+  // Input validation — tokens that are not UUID format must be rejected with 400
+  // before reaching Prisma (whitespace, garbage strings, newline-injection, etc).
+  it('returns 400 when token path param is a non-UUID string', async () => {
+    const { GET } = await import('@/app/api/read/[token]/route')
+    const garbage = '   '
+    const res = await GET(makeGetRequest(garbage), makeParams(garbage))
+    expect(res.status).toBe(400)
     expect(mockProjectFindFirst).not.toHaveBeenCalled()
   })
 
