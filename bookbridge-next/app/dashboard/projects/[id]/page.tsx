@@ -4,6 +4,7 @@ import Link from 'next/link'
 import prisma from '@/lib/prisma'
 import { FileText, BookOpen, ArrowLeft } from 'lucide-react'
 import TranslateButton from './TranslateButton'
+import DeleteProjectButton from './DeleteProjectButton'
 
 export default async function ProjectPage({
   params,
@@ -60,6 +61,7 @@ export default async function ProjectPage({
               Start Reading
             </Link>
           )}
+          <DeleteProjectButton projectId={project.id} />
         </div>
       </div>
 

@@ -26,7 +26,6 @@ const PROJECT_ID = 'clh3p7b1p0001qzrmkf8g4m0i'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // @ts-expect-error overriding global.fetch for the test
   global.fetch = vi.fn()
 })
 
