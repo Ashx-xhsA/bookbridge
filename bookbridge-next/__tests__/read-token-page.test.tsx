@@ -35,10 +35,18 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 const mockGetPublished = vi.fn()
-vi.mock('@/lib/public-project', () => ({
-  getPublishedProjectWithChapters: vi.fn(),
-  getPublishedProjectForReader: (token: string) => mockGetPublished(token),
-}))
+// Use importOriginal so the real `tokenSchema` (z.string().uuid()) is
+// exposed — the page now dispatches on it, so stubbing it out would break
+// the UUID branch entirely. We only replace the DB-touching helper.
+vi.mock('@/lib/public-project', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/public-project')>()
+  return {
+    ...actual,
+    getPublishedProjectWithChapters: vi.fn(),
+    getPublishedProjectForReader: (token: string) => mockGetPublished(token),
+  }
+})
 
 import { notFound } from 'next/navigation'
 const mockNotFound = vi.mocked(notFound)

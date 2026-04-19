@@ -2,7 +2,10 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
-import { getPublishedProjectForReader } from '@/lib/public-project'
+import {
+  getPublishedProjectForReader,
+  tokenSchema,
+} from '@/lib/public-project'
 
 const demoChapters = [
   {
@@ -47,14 +50,6 @@ Then I would never talk to that person about boa constrictors, or primeval fores
   },
 ]
 
-// Public tokens are minted with crypto.randomUUID() in the PATCH publish
-// flow (#24). Matching this format lets /read/[id] serve both owner URLs
-// (/read/<cuid>) and public URLs (/read/<uuid>) from one route segment —
-// Next 16 disallows sibling dynamic slugs with different names, so the two
-// surfaces must share one [id] folder.
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 export default async function ReaderPage({
   params,
 }: {
@@ -81,11 +76,15 @@ export default async function ReaderPage({
   }
 
   // Public-token branch: the token IS the authorization (OWASP A01 per #32).
-  // Unknown or unpublished tokens return the same notFound() response so an
-  // attacker cannot differentiate "doesn't exist" from "exists but private".
-  if (UUID_RE.test(id)) {
+  // Dispatch on `tokenSchema` (the same z.string().uuid() used elsewhere for
+  // public tokens) rather than a hand-rolled regex so validation stays in one
+  // place. Unknown or unpublished tokens return the same notFound() response
+  // so an attacker cannot differentiate "doesn't exist" from "exists but
+  // private". Next 16 forbids sibling [id]/[token] slugs, so owner cuids and
+  // public uuids must share this one segment.
+  if (tokenSchema.safeParse(id).success) {
     const project = await getPublishedProjectForReader(id)
-    if (!project) notFound()
+    if (!project) return notFound()
 
     const chapters = project.chapters.map((ch) => ({
       number: ch.number,
@@ -105,15 +104,15 @@ export default async function ReaderPage({
   }
 
   const { userId } = await auth()
-  if (!userId) redirect('/sign-in')
+  if (!userId) return redirect('/sign-in')
 
   const project = await prisma.project.findUnique({
     where: { id },
     include: { chapters: { orderBy: { number: 'asc' } } },
   })
 
-  if (!project) notFound()
-  if (project.ownerId !== userId && !project.isPublic) notFound()
+  if (!project) return notFound()
+  if (project.ownerId !== userId && !project.isPublic) return notFound()
 
   const chapters = project.chapters.map((ch) => ({
     number: ch.number,
