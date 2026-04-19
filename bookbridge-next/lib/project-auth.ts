@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
-type GuardResult =
+export type GuardResult =
   | { ok: true }
   | { ok: false; response: NextResponse }
 

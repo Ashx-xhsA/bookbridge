@@ -1,8 +1,13 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { Prisma } from '@/app/generated/prisma/client'
 import prisma from '@/lib/prisma'
 import { requireProjectOwner } from '@/lib/project-auth'
+
+function isRecordNotFound(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025'
+}
 
 const patchSchema = z
   .object({
@@ -63,7 +68,13 @@ export async function PATCH(
 
   const parsed = patchSchema.safeParse(raw)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    return NextResponse.json(
+      {
+        error: 'Invalid request body',
+        details: parsed.error.flatten().fieldErrors,
+      },
+      { status: 400 },
+    )
   }
 
   const data: { title?: string; targetLang?: string; isPublic?: boolean } = {}
@@ -71,8 +82,23 @@ export async function PATCH(
   if (parsed.data.targetLanguage !== undefined) data.targetLang = parsed.data.targetLanguage
   if (parsed.data.isPublic !== undefined) data.isPublic = parsed.data.isPublic
 
-  const updated = await prisma.project.update({ where: { id }, data })
-  return NextResponse.json(updated)
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json(
+      { error: 'At least one updatable field is required' },
+      { status: 400 },
+    )
+  }
+
+  try {
+    const updated = await prisma.project.update({ where: { id }, data })
+    return NextResponse.json({ data: updated })
+  } catch (err) {
+    // TOCTOU: project may be deleted between the guard's findUnique and this update.
+    if (isRecordNotFound(err)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    throw err
+  }
 }
 
 export async function DELETE(
@@ -88,6 +114,13 @@ export async function DELETE(
   const guard = await requireProjectOwner(id, userId)
   if (!guard.ok) return guard.response
 
-  await prisma.project.delete({ where: { id } })
+  try {
+    await prisma.project.delete({ where: { id } })
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    throw err
+  }
   return new NextResponse(null, { status: 204 })
 }

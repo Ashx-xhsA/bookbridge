@@ -18,6 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { Prisma } from '@/app/generated/prisma/client'
 
 vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(),
@@ -50,20 +51,33 @@ const OWNER_ID = 'user_owner_abc'
 const OTHER_USER_ID = 'user_intruder_xyz'
 const PROJECT_ID = 'clh3p7b1p0001qzrmkf8g4m0i'
 
-const fakeProject = {
+// Slim shape returned by requireProjectOwner's `select: { id, ownerId }`.
+const fakeProjectSlim = {
   id: PROJECT_ID,
+  ownerId: OWNER_ID,
+}
+
+// Full shape returned by GET's findUnique with includes.
+const fakeProject = {
+  ...fakeProjectSlim,
   title: 'My Novel',
   sourceFile: 'novel.pdf',
   sourceLang: 'en',
   targetLang: 'zh-Hans',
   status: 'READY',
   isPublic: false,
-  ownerId: OWNER_ID,
   createdAt: new Date(),
   updatedAt: new Date(),
   chapters: [],
   jobs: [],
   glossary: [],
+}
+
+function makeP2025(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    'Record to update not found',
+    { code: 'P2025', clientVersion: '7.7.0' },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +173,7 @@ describe('PATCH /api/projects/[id]', () => {
   // OWASP A01 — ownership check  (required: test_patch_project_checks_ownership)
   it('returns 403 when authenticated non-owner calls PATCH', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OTHER_USER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce({ ...fakeProject, ownerId: OWNER_ID })
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const { PATCH } = await import('@/app/api/projects/[id]/route')
     const res = await PATCH(
       makePatchRequest(PROJECT_ID, { title: 'Stolen Title' }),
@@ -169,32 +183,43 @@ describe('PATCH /api/projects/[id]', () => {
   })
 
   // OWASP A03 — Zod validation  (required: test_patch_validates_body_with_zod)
-  it('returns 400 when PATCH body contains an invalid field type', async () => {
+  it('returns 400 with details when PATCH body contains an invalid field type', async () => {
     // isPublic must be boolean; sending a string should trigger Zod rejection
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce(fakeProject)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const { PATCH } = await import('@/app/api/projects/[id]/route')
     const res = await PATCH(
       makePatchRequest(PROJECT_ID, { isPublic: 'yes' }),  // wrong type
       makeParams(PROJECT_ID),
     )
     expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('Invalid request body')
+    // Surface Zod's structured field errors (review #6) — no PII, just field names.
+    expect(body.details).toBeDefined()
+    expect(body.details.isPublic).toBeDefined()
   })
 
   // OWASP A03 — Zod validation rejects unknown fields when schema is strict
   it('returns 400 when PATCH body contains only unknown/extra fields', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce(fakeProject)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const { PATCH } = await import('@/app/api/projects/[id]/route')
     const res = await PATCH(
       makePatchRequest(PROJECT_ID, { nonExistentField: 'value' }),
       makeParams(PROJECT_ID),
     )
-    // Either 400 (strict schema) or the field is silently stripped — the key
-    // guarantee is that a body with ONLY an unknown field and no valid field
-    // never produces a 200 update of nothing.  Strict Zod (strip vs. strict)
-    // will return 400.
     expect(res.status).toBe(400)
+  })
+
+  // Review #1 — empty body must not reach Prisma as a no-op UPDATE
+  it('returns 400 when PATCH body is empty after mapping', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(makePatchRequest(PROJECT_ID, {}), makeParams(PROJECT_ID))
+    expect(res.status).toBe(400)
+    expect(mockProjectUpdate).not.toHaveBeenCalled()
   })
 
   // Edge case — project not found before ownership check ordering
@@ -209,10 +234,23 @@ describe('PATCH /api/projects/[id]', () => {
     expect(res.status).toBe(404)
   })
 
-  // Happy path — update title/targetLanguage/style
-  it('returns updated project when owner sends a valid PATCH body', async () => {
+  // Review #2 — P2025 from a racing delete must become a 404, not a 500
+  it('returns 404 when prisma.project.update throws P2025 (concurrent delete)', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce(fakeProject)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    mockProjectUpdate.mockRejectedValueOnce(makeP2025())
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { name: 'New Title' }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(404)
+  })
+
+  // Happy path — update title/targetLanguage (wrapped in { data: ... } to match GET)
+  it('returns updated project in { data } envelope when owner sends a valid PATCH body', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const updatedProject = { ...fakeProject, title: 'New Title', targetLang: 'ja' }
     mockProjectUpdate.mockResolvedValueOnce(updatedProject)
     const { PATCH } = await import('@/app/api/projects/[id]/route')
@@ -222,13 +260,14 @@ describe('PATCH /api/projects/[id]', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.id).toBe(PROJECT_ID)
+    expect(body.data).toBeDefined()
+    expect(body.data.id).toBe(PROJECT_ID)
   })
 
   // Happy path — isPublic toggle
   it('returns updated project when owner toggles isPublic to true', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce(fakeProject)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const updatedProject = { ...fakeProject, isPublic: true }
     mockProjectUpdate.mockResolvedValueOnce(updatedProject)
     const { PATCH } = await import('@/app/api/projects/[id]/route')
@@ -238,7 +277,7 @@ describe('PATCH /api/projects/[id]', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.isPublic).toBe(true)
+    expect(body.data.isPublic).toBe(true)
   })
 })
 
@@ -260,7 +299,7 @@ describe('DELETE /api/projects/[id]', () => {
   // OWASP A01 — ownership check  (required: test_delete_project_checks_ownership)
   it('returns 403 when authenticated non-owner calls DELETE', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OTHER_USER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce({ ...fakeProject, ownerId: OWNER_ID })
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     const { DELETE } = await import('@/app/api/projects/[id]/route')
     const res = await DELETE(makeDeleteRequest(PROJECT_ID), makeParams(PROJECT_ID))
     expect(res.status).toBe(403)
@@ -275,10 +314,20 @@ describe('DELETE /api/projects/[id]', () => {
     expect(res.status).toBe(404)
   })
 
+  // Review #2 — P2025 from a racing delete must become a 404, not a 500
+  it('returns 404 when prisma.project.delete throws P2025 (concurrent delete)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    mockProjectDelete.mockRejectedValueOnce(makeP2025())
+    const { DELETE } = await import('@/app/api/projects/[id]/route')
+    const res = await DELETE(makeDeleteRequest(PROJECT_ID), makeParams(PROJECT_ID))
+    expect(res.status).toBe(404)
+  })
+
   // Happy path — delete cascades via Prisma schema (onDelete: Cascade on Chapter/Job)
   it('returns 204 and calls prisma.project.delete for the owning user', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
-    mockProjectFindUnique.mockResolvedValueOnce(fakeProject)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
     mockProjectDelete.mockResolvedValueOnce(fakeProject)
     const { DELETE } = await import('@/app/api/projects/[id]/route')
     const res = await DELETE(makeDeleteRequest(PROJECT_ID), makeParams(PROJECT_ID))
