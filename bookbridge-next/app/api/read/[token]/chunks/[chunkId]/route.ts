@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { getPublishedProject } from '@/lib/public-project'
 
 const paramsSchema = z.object({
   token: z.string().min(1),
@@ -19,10 +20,7 @@ export async function GET(
 
   const { token, chunkId } = parsed.data
 
-  const project = await prisma.project.findFirst({
-    where: { publicToken: token, isPublic: true },
-    select: { id: true },
-  })
+  const project = await getPublishedProject(token)
   if (!project) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
   }

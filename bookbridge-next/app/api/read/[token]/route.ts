@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import prisma from '@/lib/prisma'
+import { getPublishedProject } from '@/lib/public-project'
 
 const tokenSchema = z.string().min(1)
 
@@ -15,18 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
-  // Single query gates both existence and publish-state. Unknown token and
-  // unpublished project both return null → identical 404 prevents enumeration.
-  const project = await prisma.project.findFirst({
-    where: { publicToken: parsed.data, isPublic: true },
-    include: {
-      chapters: {
-        orderBy: { number: 'asc' },
-        select: { id: true, number: true, title: true },
-      },
-    },
-  })
-
+  const project = await getPublishedProject(parsed.data)
   if (!project) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
   }
