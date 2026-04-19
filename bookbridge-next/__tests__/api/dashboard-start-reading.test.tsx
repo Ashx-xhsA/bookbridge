@@ -55,6 +55,18 @@ vi.mock(
   })
 )
 
+// Mock DeleteProjectButton (client component — uses useRouter which is not mocked here)
+vi.mock(
+  '@/app/dashboard/projects/[id]/DeleteProjectButton',
+  () => ({
+    default: ({ projectId }: { projectId: string }) => (
+      <button data-testid="delete-project-btn" data-project={projectId}>
+        Delete
+      </button>
+    ),
+  })
+)
+
 const mockProjectFindUnique = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
