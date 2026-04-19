@@ -57,12 +57,6 @@ const publishedProject = {
   ],
 }
 
-const unpublishedProject = {
-  ...publishedProject,
-  isPublic: false,
-  publicToken: VALID_TOKEN,
-}
-
 // ---------------------------------------------------------------------------
 // Request factory helpers
 // ---------------------------------------------------------------------------
