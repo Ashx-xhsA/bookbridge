@@ -53,6 +53,11 @@ export default async function ReaderPage({
 }) {
   const { id } = await params
 
+  // Intentional public bypass: /read/demo serves static marketing content
+  // (public-domain Little Prince excerpts) and must remain reachable without
+  // auth so the landing page can link signed-out visitors straight into the
+  // demo. Any non-public content added here in future MUST move below the
+  // auth() gate.
   if (id === 'demo') {
     return <ReaderView title="The Little Prince" subtitle="小王子" sourceLang="English" targetLang="中文" chapters={demoChapters} isDemo />
   }

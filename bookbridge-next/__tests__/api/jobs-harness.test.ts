@@ -27,6 +27,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 const mockJobCreate = vi.fn()
 const mockJobUpdate = vi.fn()
 const mockJobFindUnique = vi.fn()
+const mockJobFindFirst = vi.fn()
 const mockProjectFindUnique = vi.fn()
 const mockChapterFindUnique = vi.fn()
 const mockChapterUpdate = vi.fn()
@@ -38,6 +39,7 @@ vi.mock('@/lib/prisma', () => ({
       create: (...args: unknown[]) => mockJobCreate(...args),
       update: (...args: unknown[]) => mockJobUpdate(...args),
       findUnique: (...args: unknown[]) => mockJobFindUnique(...args),
+      findFirst: (...args: unknown[]) => mockJobFindFirst(...args),
     },
     project: {
       findUnique: (...args: unknown[]) => mockProjectFindUnique(...args),
@@ -77,9 +79,16 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
-    // Default: transaction executes the callback
+    // Drain any leftover mockResolvedValueOnce entries from previous tests —
+    // vi.clearAllMocks() doesn't clear the Once queue.
+    mockJobFindFirst.mockReset()
+    // Default: no existing active job (idempotency check falls through)
+    mockJobFindFirst.mockResolvedValue(null)
+    // Default: transaction executes the callback with a fake tx client
     mockTransaction.mockImplementation(async (fn: unknown) =>
-      typeof fn === 'function' ? fn({ chapter: { update: mockChapterUpdate }, translationJob: { update: mockJobUpdate } }) : fn
+      typeof fn === 'function'
+        ? fn({ chapter: { update: mockChapterUpdate }, translationJob: { update: mockJobUpdate } })
+        : fn,
     )
   })
 
@@ -104,11 +113,9 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
     const { POST } = await import('@/app/api/jobs/route')
     // Submit without chapterId — the route must reject this for harness mode
     const res = await POST(makeRequest({ projectId: PROJECT_ID }))
-    // THE FAILING ASSERTION: current route accepts missing chapterId and creates
-    // a QUEUED job + returns 201 without attempting translation. Harness mode
-    // must require chapterId OR fail gracefully with 4xx, not silently succeed.
-    // The current implementation returns 201.
-    expect(res.status).not.toBe(201)
+    // chapterId is required by the Zod schema (z.string().cuid()); missing
+    // field must surface as 400 Invalid request body, not any other code.
+    expect(res.status).toBe(400)
   })
 
   // -------------------------------------------------------------------------
@@ -125,7 +132,7 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       )
     )
-    mockTransaction.mockResolvedValueOnce([{}, { id: JOB_ID, status: 'COMPLETED' }])
+    mockTransaction.mockResolvedValueOnce({ id: JOB_ID, status: 'COMPLETED' })
 
     const { POST } = await import('@/app/api/jobs/route')
     const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
@@ -168,7 +175,7 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       )
     )
-    mockTransaction.mockResolvedValueOnce([{}, { id: JOB_ID, status: 'COMPLETED' }])
+    mockTransaction.mockResolvedValueOnce({ id: JOB_ID, status: 'COMPLETED' })
 
     const { POST } = await import('@/app/api/jobs/route')
     const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
@@ -255,7 +262,7 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       )
     )
-    mockTransaction.mockResolvedValueOnce([{}, { id: JOB_ID, status: 'COMPLETED' }])
+    mockTransaction.mockResolvedValueOnce({ id: JOB_ID, status: 'COMPLETED' })
 
     const { POST } = await import('@/app/api/jobs/route')
     await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
@@ -263,5 +270,49 @@ describe('POST /api/jobs — harness integration (issue #51)', () => {
     // THE FAILING ASSERTION: current route does not use $transaction for
     // the harness result writes. It must wrap both updates atomically.
     expect(mockTransaction).toHaveBeenCalled()
+  })
+
+  // -------------------------------------------------------------------------
+  // Idempotency — double-submit must not create duplicate QUEUED rows
+  // (C.L.E.A.R. review MUST FIX #2)
+  // -------------------------------------------------------------------------
+  it('returns 409 and does not call worker when an active job already exists for the chapter', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({ id: CHAPTER_ID, sourceContent: SOURCE_TEXT, projectId: PROJECT_ID })
+    const existingJobId = 'clh3p7b1p0099qzrmkf8g4m0z'
+    mockJobFindFirst.mockResolvedValueOnce({ id: existingJobId, status: 'QUEUED' })
+
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.id).toBe(existingJobId)
+    expect(body.status).toBe('QUEUED')
+    // Must NOT create a second row or contact the worker
+    expect(mockJobCreate).not.toHaveBeenCalled()
+    expect(mockGlobalFetch).not.toHaveBeenCalled()
+  })
+
+  // -------------------------------------------------------------------------
+  // Whitespace guard (C.L.E.A.R. review SHOULD CONSIDER #1)
+  // -------------------------------------------------------------------------
+  it('rejects whitespace-only sourceContent as empty (does not send to worker)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({ id: CHAPTER_ID, sourceContent: '   \n\n   ', projectId: PROJECT_ID })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'QUEUED' })
+
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/no source content/i)
+    expect(mockGlobalFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/translate/chunk'),
+      expect.anything(),
+    )
   })
 })

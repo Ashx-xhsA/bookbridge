@@ -13,6 +13,19 @@ const workerResponseSchema = z.object({
   translation: z.string(),
 })
 
+const ACTIVE_JOB_STATUSES = ['QUEUED', 'PROCESSING', 'COMPLETED'] as const
+
+async function markJobFailed(jobId: string, error: string): Promise<void> {
+  try {
+    await prisma.translationJob.update({
+      where: { id: jobId },
+      data: { status: 'FAILED', error },
+    })
+  } catch (dbErr) {
+    console.error('[api/jobs] failed to mark job FAILED', { jobId, error, dbErr })
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { userId } = await auth()
   if (!userId) {
@@ -52,15 +65,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
+  const existingJob = await prisma.translationJob.findFirst({
+    where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
+    select: { id: true, status: true },
+  })
+  if (existingJob) {
+    return NextResponse.json(
+      { id: existingJob.id, status: existingJob.status, error: 'Job already exists for this chapter' },
+      { status: 409 }
+    )
+  }
+
   const job = await prisma.translationJob.create({
     data: { projectId, chapterId, status: 'QUEUED' },
   })
 
-  if (!chapter.sourceContent) {
-    await prisma.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', error: 'No source content to translate' },
-    })
+  if (!chapter.sourceContent?.trim()) {
+    await markJobFailed(job.id, 'No source content to translate')
     return NextResponse.json(
       { id: job.id, status: 'FAILED', error: 'No source content to translate' },
       { status: 400 }
@@ -78,10 +99,7 @@ export async function POST(req: NextRequest) {
       }),
     })
   } catch {
-    await prisma.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', error: 'Worker unavailable' },
-    })
+    await markJobFailed(job.id, 'Worker unavailable')
     return NextResponse.json(
       { id: job.id, status: 'FAILED', error: 'Worker unavailable' },
       { status: 502 }
@@ -89,10 +107,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!workerRes.ok) {
-    await prisma.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', error: 'Translation provider failed' },
-    })
+    await markJobFailed(job.id, 'Translation provider failed')
     return NextResponse.json(
       { id: job.id, status: 'FAILED', error: 'Translation provider failed' },
       { status: 502 }
@@ -103,10 +118,7 @@ export async function POST(req: NextRequest) {
   try {
     workerData = await workerRes.json()
   } catch {
-    await prisma.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', error: 'Invalid worker response' },
-    })
+    await markJobFailed(job.id, 'Invalid worker response')
     return NextResponse.json(
       { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
       { status: 502 }
@@ -115,27 +127,24 @@ export async function POST(req: NextRequest) {
 
   const safe = workerResponseSchema.safeParse(workerData)
   if (!safe.success) {
-    await prisma.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'FAILED', error: 'Invalid worker response' },
-    })
+    await markJobFailed(job.id, 'Invalid worker response')
     return NextResponse.json(
       { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
       { status: 502 }
     )
   }
 
-  const result = await prisma.$transaction([
-    prisma.chapter.update({
+  const updatedJob = await prisma.$transaction(async (tx) => {
+    await tx.chapter.update({
       where: { id: chapter.id },
       data: { translation: safe.data.translation },
-    }),
-    prisma.translationJob.update({
+    })
+    return tx.translationJob.update({
       where: { id: job.id },
       data: { status: 'COMPLETED' },
-    }),
-  ])
-  const [, updatedJob] = result as [unknown, { id: string; status: string }]
+      select: { id: true, status: true },
+    })
+  })
 
   return NextResponse.json({ id: updatedJob.id, status: updatedJob.status }, { status: 200 })
 }

@@ -1,4 +1,6 @@
-const TIMEOUT_MS = 8000
+// Kept under Vercel's 10 s function ceiling (hobby tier) so the route can
+// still return its own 502 / FAILED writes instead of hitting a gateway 504.
+const TIMEOUT_MS = 6000
 
 function getWorkerUrl(): string {
   const url = process.env.WORKER_URL
