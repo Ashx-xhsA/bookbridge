@@ -88,21 +88,13 @@ export async function PATCH(
     )
   }
 
-  const data: {
-    title?: string
-    targetLang?: string
-    isPublic?: boolean
-    publicToken?: string | null
-  } = {}
+  const data: Prisma.ProjectUpdateInput = {}
   if (parsed.data.name !== undefined) data.title = parsed.data.name
   if (parsed.data.targetLanguage !== undefined) data.targetLang = parsed.data.targetLanguage
-  if (parsed.data.isPublic === true) {
-    // Always rotate the token on publish so previously-shared links are invalidated.
-    data.isPublic = true
-    data.publicToken = crypto.randomUUID()
-  } else if (parsed.data.isPublic === false) {
-    data.isPublic = false
-    data.publicToken = null
+  if (parsed.data.isPublic !== undefined) {
+    // Rotate the token on every publish so previously-shared links are invalidated.
+    data.isPublic = parsed.data.isPublic
+    data.publicToken = parsed.data.isPublic ? crypto.randomUUID() : null
   }
 
   if (Object.keys(data).length === 0) {
