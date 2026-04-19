@@ -8,9 +8,7 @@ import re
 from pathlib import Path
 
 RUNNING_HEADER_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(
-        r"^\s*CHINA\s+MI[A-Z\^£$]*V[A-Z\^£$]*[LI][A-Z\^£$]*E?\s*$", re.IGNORECASE
-    ),
+    re.compile(r"^\s*CHINA\s+MI[A-Z\^£$]*V[A-Z\^£$]*[LI][A-Z\^£$]*E?\s*$", re.IGNORECASE),
     re.compile(r"^\s*EMBA.{0,3}S?Y?\s*TOWN\s*$", re.IGNORECASE),
     re.compile(r"^\s*EMBA.{0,3}SYTOWN\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*\d{1,3}\s+CHINA\s+MI", re.IGNORECASE),

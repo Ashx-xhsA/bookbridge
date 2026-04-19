@@ -24,11 +24,7 @@ MAX_TITLE_LENGTH: int = 80
 def _has_chapter_marker(text: str) -> bool:
     """Check if a page's opening lines contain a chapter marker."""
     first_lines = text.strip().split("\n")[:HEADER_SCAN_LINES]
-    return any(
-        pattern.search(line)
-        for line in first_lines
-        for pattern in CHAPTER_PATTERNS
-    )
+    return any(pattern.search(line) for line in first_lines for pattern in CHAPTER_PATTERNS)
 
 
 def detect_chapter_breaks(pages: dict[int, str]) -> set[int]:
@@ -38,9 +34,7 @@ def detect_chapter_breaks(pages: dict[int, str]) -> set[int]:
     like 'PART ONE', 'Chapter 3', 'PROEM', etc.
     """
     return {
-        page_num
-        for page_num, text in pages.items()
-        if text.strip() and _has_chapter_marker(text)
+        page_num for page_num, text in pages.items() if text.strip() and _has_chapter_marker(text)
     }
 
 
