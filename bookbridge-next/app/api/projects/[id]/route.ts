@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { requireProjectOwner } from '@/lib/project-auth'
 
 const patchSchema = z
   .object({
@@ -50,16 +51,8 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id },
-    select: { id: true, ownerId: true },
-  })
-  if (!project) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-  if (project.ownerId !== userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const guard = await requireProjectOwner(id, userId)
+  if (!guard.ok) return guard.response
 
   let raw: unknown
   try {
@@ -92,16 +85,8 @@ export async function DELETE(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id },
-    select: { id: true, ownerId: true },
-  })
-  if (!project) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-  if (project.ownerId !== userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const guard = await requireProjectOwner(id, userId)
+  if (!guard.ok) return guard.response
 
   await prisma.project.delete({ where: { id } })
   return new NextResponse(null, { status: 204 })
