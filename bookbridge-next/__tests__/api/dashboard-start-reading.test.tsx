@@ -67,6 +67,18 @@ vi.mock(
   })
 )
 
+// Mock PublishToggle (client component — imports lucide icons not stubbed here)
+vi.mock(
+  '@/app/dashboard/projects/[id]/PublishToggle',
+  () => ({
+    default: ({ projectId }: { projectId: string }) => (
+      <button data-testid="publish-toggle" data-project={projectId}>
+        Publish
+      </button>
+    ),
+  })
+)
+
 const mockProjectFindUnique = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({

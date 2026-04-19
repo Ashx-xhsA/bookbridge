@@ -2,6 +2,10 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
+import {
+  getPublishedProjectForReader,
+  tokenSchema,
+} from '@/lib/public-project'
 
 const demoChapters = [
   {
@@ -59,19 +63,56 @@ export default async function ReaderPage({
   // demo. Any non-public content added here in future MUST move below the
   // auth() gate.
   if (id === 'demo') {
-    return <ReaderView title="The Little Prince" subtitle="小王子" sourceLang="English" targetLang="中文" chapters={demoChapters} isDemo />
+    return (
+      <ReaderView
+        title="The Little Prince"
+        subtitle="小王子"
+        sourceLang="English"
+        targetLang="中文"
+        chapters={demoChapters}
+        isDemo
+      />
+    )
+  }
+
+  // Public-token branch: the token IS the authorization (OWASP A01 per #32).
+  // Dispatch on `tokenSchema` (the same z.string().uuid() used elsewhere for
+  // public tokens) rather than a hand-rolled regex so validation stays in one
+  // place. Unknown or unpublished tokens return the same notFound() response
+  // so an attacker cannot differentiate "doesn't exist" from "exists but
+  // private". Next 16 forbids sibling [id]/[token] slugs, so owner cuids and
+  // public uuids must share this one segment.
+  if (tokenSchema.safeParse(id).success) {
+    const project = await getPublishedProjectForReader(id)
+    if (!project) return notFound()
+
+    const chapters = project.chapters.map((ch) => ({
+      number: ch.number,
+      title: ch.title,
+      source: ch.sourceContent || '',
+      translation: ch.translation || '',
+    }))
+
+    return (
+      <ReaderView
+        title={project.title}
+        sourceLang={project.sourceLang}
+        targetLang={project.targetLang}
+        chapters={chapters}
+      />
+    )
   }
 
   const { userId } = await auth()
-  if (!userId) redirect('/sign-in')
+  if (!userId) return redirect('/sign-in')
 
   const project = await prisma.project.findUnique({
     where: { id },
     include: { chapters: { orderBy: { number: 'asc' } } },
   })
 
-  if (!project) notFound()
-  if (project.ownerId !== userId && !project.isPublic) notFound()
+  if (!project) return notFound()
+  if (project.ownerId !== userId && !project.isPublic) return notFound()
 
   const chapters = project.chapters.map((ch) => ({
     number: ch.number,
@@ -80,7 +121,14 @@ export default async function ReaderPage({
     translation: ch.translation || '',
   }))
 
-  return <ReaderView title={project.title} sourceLang={project.sourceLang} targetLang={project.targetLang} chapters={chapters} />
+  return (
+    <ReaderView
+      title={project.title}
+      sourceLang={project.sourceLang}
+      targetLang={project.targetLang}
+      chapters={chapters}
+    />
+  )
 }
 
 function ReaderView({

@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma'
 import { FileText, BookOpen, ArrowLeft } from 'lucide-react'
 import TranslateButton from './TranslateButton'
 import DeleteProjectButton from './DeleteProjectButton'
+import PublishToggle from './PublishToggle'
 
 export default async function ProjectPage({
   params,
@@ -62,6 +63,22 @@ export default async function ProjectPage({
             </Link>
           )}
           <DeleteProjectButton projectId={project.id} />
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold">Public link</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Publish this book to share a read-only link with anyone — no sign-in required.
+            </p>
+          </div>
+          <PublishToggle
+            projectId={project.id}
+            initialIsPublic={project.isPublic}
+            initialPublicToken={project.publicToken}
+          />
         </div>
       </div>
 

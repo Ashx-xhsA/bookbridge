@@ -31,3 +31,18 @@ export async function getPublishedProjectWithChapters(token: string) {
     },
   })
 }
+
+// Reader-page variant: includes sourceContent + translation so the public
+// reader can render the full two-column view in one Server Component pass.
+// Exposing chunks in bulk is OK here because the token IS the authorization —
+// same privilege as the per-chunk endpoint, just batched.
+export async function getPublishedProjectForReader(token: string) {
+  return prisma.project.findFirst({
+    where: { publicToken: token, isPublic: true },
+    include: {
+      chapters: {
+        orderBy: { number: 'asc' },
+      },
+    },
+  })
+}
