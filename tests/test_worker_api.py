@@ -33,15 +33,22 @@ def test_health_check_returns_200(client: TestClient) -> None:
 
 
 def test_parse_endpoint_returns_job_id_status_and_chunks(client: TestClient) -> None:
-    """POST /parse returns {job_id, status: "completed", chunks: [...]} synchronously."""
+    """POST /parse returns {job_id, status: "completed", chunks: [...]} synchronously.
+
+    Each chunk includes a ``content`` field — joined page text for start_page..end_page
+    separated by ``\\n\\n`` (issue #51).
+    """
     fake_manifest = ChunkManifest(
         source_file="test.pdf",
-        total_pages=5,
-        chunks=[ChunkInfo(chunk_id=1, title="Chapter 1", start_page=1, end_page=5, page_count=5)],
+        total_pages=2,
+        chunks=[ChunkInfo(chunk_id=1, title="Chapter 1", start_page=1, end_page=2, page_count=2)],
     )
     fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
     with (
-        patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}),
+        patch(
+            "bookbridge.worker_api.routes.extract_pages",
+            return_value={1: "page one text", 2: "page two text"},
+        ),
         patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest),
     ):
         response = client.post(
@@ -57,8 +64,9 @@ def test_parse_endpoint_returns_job_id_status_and_chunks(client: TestClient) -> 
             "chunk_id": 1,
             "title": "Chapter 1",
             "start_page": 1,
-            "end_page": 5,
-            "page_count": 5,
+            "end_page": 2,
+            "page_count": 2,
+            "content": "page one text\n\npage two text",
         }
     ]
 

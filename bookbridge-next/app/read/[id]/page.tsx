@@ -1,5 +1,6 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
 
 const demoChapters = [
@@ -56,12 +57,16 @@ export default async function ReaderPage({
     return <ReaderView title="The Little Prince" subtitle="小王子" sourceLang="English" targetLang="中文" chapters={demoChapters} isDemo />
   }
 
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
+
   const project = await prisma.project.findUnique({
-    where: { id, isPublic: true },
+    where: { id },
     include: { chapters: { orderBy: { number: 'asc' } } },
   })
 
   if (!project) notFound()
+  if (project.ownerId !== userId && !project.isPublic) notFound()
 
   const chapters = project.chapters.map((ch) => ({
     number: ch.number,

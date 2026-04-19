@@ -68,6 +68,7 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
             start_page=c.start_page,
             end_page=c.end_page,
             page_count=c.page_count,
+            content="\n\n".join(pages.get(p, "") for p in range(c.start_page, c.end_page + 1)),
         )
         for c in manifest.chunks
     ]

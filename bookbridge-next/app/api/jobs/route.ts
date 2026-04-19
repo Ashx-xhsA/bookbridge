@@ -6,7 +6,11 @@ import { workerFetch } from '@/lib/worker'
 
 const bodySchema = z.object({
   projectId: z.string().cuid(),
-  chapterId: z.string().optional(),
+  chapterId: z.string().cuid(),
+})
+
+const workerResponseSchema = z.object({
+  translation: z.string(),
 })
 
 export async function POST(req: NextRequest) {
@@ -29,7 +33,10 @@ export async function POST(req: NextRequest) {
 
   const { projectId, chapterId } = parsed.data
 
-  const project = await prisma.project.findUnique({ where: { id: projectId } })
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, ownerId: true, targetLang: true },
+  })
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
   }
@@ -37,29 +44,98 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const job = await prisma.translationJob.create({
-    data: { projectId, chapterId: chapterId || null, status: 'QUEUED' },
+  const chapter = await prisma.chapter.findUnique({
+    where: { id: chapterId },
+    select: { id: true, sourceContent: true, projectId: true },
   })
-
-  // Dispatch to Worker stub — harness wired in S3; store workerId for polling
-  try {
-    const workerRes = await workerFetch('/translate/chunk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: projectId, chunk_id: chapterId || job.id }),
-    })
-    if (workerRes.ok) {
-      const workerData = await workerRes.json()
-      if (workerData.job_id) {
-        await prisma.translationJob.update({
-          where: { id: job.id },
-          data: { workerId: workerData.job_id },
-        })
-      }
-    }
-  } catch {
-    // Worker unavailable — job stays QUEUED with null workerId
+  if (!chapter || chapter.projectId !== projectId) {
+    return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
-  return NextResponse.json({ id: job.id, status: job.status }, { status: 201 })
+  const job = await prisma.translationJob.create({
+    data: { projectId, chapterId, status: 'QUEUED' },
+  })
+
+  if (!chapter.sourceContent) {
+    await prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', error: 'No source content to translate' },
+    })
+    return NextResponse.json(
+      { id: job.id, status: 'FAILED', error: 'No source content to translate' },
+      { status: 400 }
+    )
+  }
+
+  let workerRes: Response
+  try {
+    workerRes = await workerFetch('/translate/chunk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source_text: chapter.sourceContent,
+        target_lang: project.targetLang,
+      }),
+    })
+  } catch {
+    await prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', error: 'Worker unavailable' },
+    })
+    return NextResponse.json(
+      { id: job.id, status: 'FAILED', error: 'Worker unavailable' },
+      { status: 502 }
+    )
+  }
+
+  if (!workerRes.ok) {
+    await prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', error: 'Translation provider failed' },
+    })
+    return NextResponse.json(
+      { id: job.id, status: 'FAILED', error: 'Translation provider failed' },
+      { status: 502 }
+    )
+  }
+
+  let workerData: unknown
+  try {
+    workerData = await workerRes.json()
+  } catch {
+    await prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', error: 'Invalid worker response' },
+    })
+    return NextResponse.json(
+      { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
+      { status: 502 }
+    )
+  }
+
+  const safe = workerResponseSchema.safeParse(workerData)
+  if (!safe.success) {
+    await prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'FAILED', error: 'Invalid worker response' },
+    })
+    return NextResponse.json(
+      { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
+      { status: 502 }
+    )
+  }
+
+  const result = await prisma.$transaction([
+    prisma.chapter.update({
+      where: { id: chapter.id },
+      data: { translation: safe.data.translation },
+    }),
+    prisma.translationJob.update({
+      where: { id: job.id },
+      data: { status: 'COMPLETED' },
+    }),
+  ])
+  const [, updatedJob] = result as [unknown, { id: string; status: string }]
+
+  return NextResponse.json({ id: updatedJob.id, status: updatedJob.status }, { status: 200 })
 }

@@ -29,10 +29,10 @@ vi.mock('@clerk/nextjs/server', () => ({
   createRouteMatcher: vi.fn(() => vi.fn()),
 }))
 
-const mockRedirect = vi.fn(() => { throw new Error('NEXT_REDIRECT') })
+const mockRedirect = vi.fn((_url: string) => { throw new Error('NEXT_REDIRECT') })
 const mockNotFound = vi.fn(() => { throw new Error('NEXT_NOT_FOUND') })
 vi.mock('next/navigation', () => ({
-  redirect: (...args: unknown[]) => mockRedirect(...args),
+  redirect: (url: string) => mockRedirect(url),
   notFound: () => mockNotFound(),
 }))
 
@@ -88,6 +88,11 @@ describe('app/read/[id]/page.tsx — access gate (issue #51)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    // clearAllMocks does NOT drain the mockResolvedValueOnce queue; reset
+    // per-test fakes explicitly so earlier tests' unused fixtures don't leak
+    // (e.g. the unauth test sets a prisma fixture that redirect() bypasses).
+    vi.mocked(auth).mockReset()
+    mockProjectFindUnique.mockReset()
   })
 
   // -------------------------------------------------------------------------

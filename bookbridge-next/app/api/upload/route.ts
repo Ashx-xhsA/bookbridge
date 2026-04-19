@@ -9,6 +9,7 @@ interface WorkerChunk {
   start_page: number
   end_page: number
   page_count: number
+  content?: string | null
 }
 
 interface WorkerParseResponse {
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
           startPage: ch.start_page,
           endPage: ch.end_page,
           pageCount: ch.page_count,
+          sourceContent: typeof ch.content === 'string' ? ch.content : null,
         })),
       }),
       prisma.translationJob.create({

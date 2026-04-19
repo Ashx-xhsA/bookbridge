@@ -4,8 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class TranslateChunkRequest(BaseModel):
-    project_id: str
-    chunk_id: str
+    project_id: str | None = None
+    chunk_id: str | None = None
     source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
 
@@ -16,6 +16,7 @@ class ChunkData(BaseModel):
     start_page: int
     end_page: int
     page_count: int
+    content: str = ""
 
 
 class TranslateChunkResponse(BaseModel):
