@@ -6,6 +6,8 @@ BookBridge is an AI-powered long-document translation web platform. Upload a PDF
 
 **Live:** _coming Sprint 2_ · **Stack:** Next.js 15 · Python FastAPI · PostgreSQL · Claude API · Vercel + Railway
 
+> **Grading / Evidence:** Rubric evidence (screenshots, TDD commit SHAs, CI links, deploy URLs) is collected in [EVIDENCE.md](./EVIDENCE.md).
+
 ---
 
 ## Architecture
