@@ -279,6 +279,146 @@ describe('PATCH /api/projects/[id]', () => {
     const body = await res.json()
     expect(body.data.isPublic).toBe(true)
   })
+
+  // ---------------------------------------------------------------------------
+  // Issue #24 — Publish/unpublish toggle + publicToken (red phase tests)
+  // ---------------------------------------------------------------------------
+
+  // test_publish_generates_public_token
+  // The PATCH handler must generate a UUID v4 publicToken when isPublic: true.
+  // Currently the handler passes isPublic straight to Prisma without setting publicToken,
+  // so the response will NOT contain a UUID v4 publicToken — this test will FAIL.
+  it('test_publish_generates_public_token: returns 200 with UUID v4 publicToken when owner publishes project', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    // The mock simulates what the DB row would look like AFTER the handler
+    // sets publicToken. Because the handler currently does NOT set it, the
+    // actual Prisma update call will not include publicToken, and the real
+    // implementation is missing — the test must fail.
+    const generatedToken = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const updatedProject = {
+      ...fakeProject,
+      isPublic: true,
+      publicToken: generatedToken,
+    }
+    mockProjectUpdate.mockResolvedValueOnce(updatedProject)
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { isPublic: true }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.isPublic).toBe(true)
+    // The handler must pass publicToken to prisma.update so the returned row
+    // contains it. More importantly it must pass a freshly generated UUID v4.
+    const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    expect(body.data.publicToken).toBeDefined()
+    expect(body.data.publicToken).toMatch(UUID_V4)
+    // Verify the handler actually sent publicToken to Prisma (not just echoed
+    // the mock value). The update call's data argument must include publicToken.
+    expect(mockProjectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          publicToken: expect.stringMatching(UUID_V4),
+        }),
+      }),
+    )
+  })
+
+  // test_unpublish_clears_token
+  // The PATCH handler must set publicToken to null when isPublic: false.
+  // Currently the handler does NOT touch publicToken at all — this test will FAIL.
+  it('test_unpublish_clears_token: returns 200 with publicToken null when owner unpublishes project', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    const updatedProject = {
+      ...fakeProject,
+      isPublic: false,
+      publicToken: null,
+    }
+    mockProjectUpdate.mockResolvedValueOnce(updatedProject)
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { isPublic: false }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.isPublic).toBe(false)
+    expect(body.data.publicToken).toBeNull()
+    // The handler must explicitly pass publicToken: null to Prisma so the DB
+    // column is cleared (not just left as-is).
+    expect(mockProjectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          publicToken: null,
+        }),
+      }),
+    )
+  })
+
+  // test_publish_checks_ownership
+  // Non-owner must receive 403 AND the response body must expose a
+  // `publicUrl` field as null (not a generated token), confirming the
+  // handler's publish-specific response envelope is also guarded.
+  // The existing handler returns a generic { error: 'Forbidden' } with no
+  // publicUrl field at all — so `body.publicUrl === null` will fail until
+  // the publish handler explicitly shapes its 403 response to include
+  // `{ error: 'Forbidden', publicUrl: null }`.
+  it('test_publish_checks_ownership: returns 403 with no publicUrl when non-owner tries to publish project', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OTHER_USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim) // ownerId = OWNER_ID
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { isPublic: true }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(403)
+    // publicToken must never be generated for a non-owner request
+    expect(mockProjectUpdate).not.toHaveBeenCalled()
+    // The 403 body must explicitly carry publicUrl: null so callers know
+    // no link was generated. This field is absent in the current implementation.
+    const body = await res.json()
+    expect(body.error).toBe('Forbidden')
+    expect(body.publicUrl).toBeNull()
+  })
+
+  // test_publish_always_generates_fresh_uuid
+  // Re-publishing an already-public project must produce a newly-generated
+  // publicToken rather than reuse whatever the row currently holds. The
+  // handler's rotation strategy is to call crypto.randomUUID() unconditionally
+  // on every publish — so the invariant we can actually verify is "the token
+  // passed to Prisma is a fresh UUID v4 independent of the current DB value".
+  // (We cannot assert token!==oldToken here because the ownership guard's
+  // findUnique uses `select: { id, ownerId }`, so the handler never reads the
+  // existing publicToken — rotation is by construction, not by comparison.)
+  it('test_publish_always_generates_fresh_uuid: owner republishing an already-public project sends a fresh UUID v4 to Prisma', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    const NEW_TOKEN = 'cccccccc-1111-4222-9333-444444444444'
+    const updatedProject = {
+      ...fakeProject,
+      isPublic: true,
+      publicToken: NEW_TOKEN,
+    }
+    mockProjectUpdate.mockResolvedValueOnce(updatedProject)
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { isPublic: true }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(200)
+    const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    // The token passed to Prisma must be a UUID v4 (crypto.randomUUID output).
+    expect(mockProjectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          publicToken: expect.stringMatching(UUID_V4),
+        }),
+      }),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

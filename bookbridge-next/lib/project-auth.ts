@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
+export type GuardFailure = 'not_found' | 'forbidden'
+
 export type GuardResult =
   | { ok: true }
-  | { ok: false; response: NextResponse }
+  | { ok: false; reason: GuardFailure; response: NextResponse }
 
 export async function requireProjectOwner(
   projectId: string,
@@ -14,10 +16,18 @@ export async function requireProjectOwner(
     select: { id: true, ownerId: true },
   })
   if (!project) {
-    return { ok: false, response: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
+    return {
+      ok: false,
+      reason: 'not_found',
+      response: NextResponse.json({ error: 'Not found' }, { status: 404 }),
+    }
   }
   if (project.ownerId !== userId) {
-    return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+    return {
+      ok: false,
+      reason: 'forbidden',
+      response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    }
   }
   return { ok: true }
 }

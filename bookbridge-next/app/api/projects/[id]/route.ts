@@ -56,14 +56,25 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const guard = await requireProjectOwner(id, userId)
-  if (!guard.ok) return guard.response
-
   let raw: unknown
   try {
     raw = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const isPublishAttempt =
+    raw !== null && typeof raw === 'object' && 'isPublic' in raw
+
+  const guard = await requireProjectOwner(id, userId)
+  if (!guard.ok) {
+    if (isPublishAttempt && guard.reason === 'forbidden') {
+      return NextResponse.json(
+        { error: 'Forbidden', publicUrl: null },
+        { status: 403 },
+      )
+    }
+    return guard.response
   }
 
   const parsed = patchSchema.safeParse(raw)
@@ -77,10 +88,14 @@ export async function PATCH(
     )
   }
 
-  const data: { title?: string; targetLang?: string; isPublic?: boolean } = {}
+  const data: Prisma.ProjectUpdateInput = {}
   if (parsed.data.name !== undefined) data.title = parsed.data.name
   if (parsed.data.targetLanguage !== undefined) data.targetLang = parsed.data.targetLanguage
-  if (parsed.data.isPublic !== undefined) data.isPublic = parsed.data.isPublic
+  if (parsed.data.isPublic !== undefined) {
+    // Rotate the token on every publish so previously-shared links are invalidated.
+    data.isPublic = parsed.data.isPublic
+    data.publicToken = parsed.data.isPublic ? crypto.randomUUID() : null
+  }
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json(
