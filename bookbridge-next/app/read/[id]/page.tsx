@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
-import { getPublishedProjectWithChapters } from '@/lib/public-project'
+import { getPublishedProjectForReader } from '@/lib/public-project'
 
 const demoChapters = [
   {
@@ -84,15 +84,22 @@ export default async function ReaderPage({
   // Unknown or unpublished tokens return the same notFound() response so an
   // attacker cannot differentiate "doesn't exist" from "exists but private".
   if (UUID_RE.test(id)) {
-    const project = await getPublishedProjectWithChapters(id)
+    const project = await getPublishedProjectForReader(id)
     if (!project) notFound()
 
+    const chapters = project.chapters.map((ch) => ({
+      number: ch.number,
+      title: ch.title,
+      source: ch.sourceContent || '',
+      translation: ch.translation || '',
+    }))
+
     return (
-      <PublicTokenView
+      <ReaderView
         title={project.title}
         sourceLang={project.sourceLang}
         targetLang={project.targetLang}
-        chapters={project.chapters}
+        chapters={chapters}
       />
     )
   }
@@ -122,74 +129,6 @@ export default async function ReaderPage({
       targetLang={project.targetLang}
       chapters={chapters}
     />
-  )
-}
-
-function PublicTokenView({
-  title,
-  sourceLang,
-  targetLang,
-  chapters,
-}: {
-  title: string
-  sourceLang: string
-  targetLang: string
-  chapters: { id: string; number: number; title: string }[]
-}) {
-  return (
-    <div className="min-h-screen bg-cream">
-      <header className="sticky top-0 z-10 border-b border-parchment bg-cream/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-          <Link
-            href="/"
-            className="flex items-center gap-2 font-serif text-sm font-bold text-ink"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-white">
-              B
-            </span>
-            BookBridge
-          </Link>
-          <Link
-            href="/sign-up"
-            className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent-hover"
-          >
-            Translate Your Book
-          </Link>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-5xl px-6 py-10">
-        <div className="mb-12 text-center">
-          <h1 className="font-serif text-4xl font-bold text-ink">{title}</h1>
-          <p className="mt-4 text-sm text-ink-muted">
-            {sourceLang} → {targetLang} &middot; {chapters.length} chapters
-          </p>
-        </div>
-
-        <section>
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-ink-muted">
-            Contents
-          </h2>
-          <ul className="space-y-2">
-            {chapters.map((ch, i) => {
-              const n = ch.number ?? i + 1
-              const label =
-                ch.title && ch.title.trim()
-                  ? `Chapter ${n}: ${ch.title}`
-                  : `Chapter ${n}`
-              return (
-                <li
-                  key={ch.id}
-                  className="rounded-lg border border-parchment bg-paper/50 p-4"
-                >
-                  <span className="font-serif text-lg text-ink">{label}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      </div>
-    </div>
   )
 }
 

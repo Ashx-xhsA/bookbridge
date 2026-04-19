@@ -36,7 +36,8 @@ vi.mock('@/lib/prisma', () => ({
 
 const mockGetPublished = vi.fn()
 vi.mock('@/lib/public-project', () => ({
-  getPublishedProjectWithChapters: (token: string) => mockGetPublished(token),
+  getPublishedProjectWithChapters: vi.fn(),
+  getPublishedProjectForReader: (token: string) => mockGetPublished(token),
 }))
 
 import { notFound } from 'next/navigation'
@@ -52,8 +53,20 @@ function makeProject(overrides: Record<string, unknown> = {}) {
     targetLang: 'English',
     status: 'COMPLETED',
     chapters: [
-      { id: 'ch_1', number: 1, title: 'The Windmills' },
-      { id: 'ch_2', number: 2, title: 'Sancho Panza' },
+      {
+        id: 'ch_1',
+        number: 1,
+        title: 'The Windmills',
+        sourceContent: 'In a village of La Mancha...',
+        translation: 'En un lugar de la Mancha...',
+      },
+      {
+        id: 'ch_2',
+        number: 2,
+        title: 'Sancho Panza',
+        sourceContent: 'Sancho rode behind him...',
+        translation: 'Sancho cabalgaba detrás...',
+      },
     ],
     ...overrides,
   }
@@ -76,7 +89,11 @@ describe('test_read_page_fetches_project_by_token_and_renders_title', () => {
     render(jsx as React.ReactElement)
 
     expect(mockGetPublished).toHaveBeenCalledWith(VALID_TOKEN)
-    expect(screen.getByText('Don Quixote')).toBeInTheDocument()
+    // Title appears in both the sticky header and the <h1>; assert on the <h1>
+    // so the test pins the main reader heading, not any incidental chrome.
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Don Quixote' })
+    ).toBeInTheDocument()
     expect(screen.getByText(/chapter\s+1/i)).toBeInTheDocument()
     expect(screen.getByText(/chapter\s+2/i)).toBeInTheDocument()
   })
