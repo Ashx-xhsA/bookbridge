@@ -29,7 +29,10 @@ vi.mock('@clerk/nextjs/server', () => ({
   createRouteMatcher: vi.fn(() => vi.fn()),
 }))
 
-const mockRedirect = vi.fn((_url: string) => { throw new Error('NEXT_REDIRECT') })
+const mockRedirect = vi.fn((url: string): never => {
+  void url
+  throw new Error('NEXT_REDIRECT')
+})
 const mockNotFound = vi.fn(() => { throw new Error('NEXT_NOT_FOUND') })
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => mockRedirect(url),
