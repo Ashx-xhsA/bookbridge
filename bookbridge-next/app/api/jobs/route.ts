@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
@@ -9,22 +9,12 @@ const bodySchema = z.object({
   chapterId: z.string().cuid(),
 })
 
-const workerResponseSchema = z.object({
-  translation: z.string(),
-})
-
-const ACTIVE_JOB_STATUSES = ['QUEUED', 'PROCESSING', 'COMPLETED'] as const
-
-async function markJobFailed(jobId: string, error: string): Promise<void> {
-  try {
-    await prisma.translationJob.update({
-      where: { id: jobId },
-      data: { status: 'FAILED', error },
-    })
-  } catch (dbErr) {
-    console.error('[api/jobs] failed to mark job FAILED', { jobId, error, dbErr })
-  }
-}
+// The check intentionally does not include SUCCEEDED — users may want to
+// re-translate a chapter after reviewing the first pass (e.g. after adding
+// glossary terms or fixing source text). Concurrent double-clicks from the
+// UI are prevented by the disabled state on the Translate button during
+// polling, so a fresh POST can only land once the previous job is terminal.
+const ACTIVE_JOB_STATUSES = ['PENDING', 'RUNNING'] as const
 
 export async function POST(req: NextRequest) {
   const { userId } = await auth()
@@ -65,6 +55,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
+  if (!chapter.sourceContent?.trim()) {
+    return NextResponse.json(
+      { error: 'No source content to translate' },
+      { status: 400 }
+    )
+  }
+
   const existingJob = await prisma.translationJob.findFirst({
     where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
     select: { id: true, status: true },
@@ -77,74 +74,41 @@ export async function POST(req: NextRequest) {
   }
 
   const job = await prisma.translationJob.create({
-    data: { projectId, chapterId, status: 'QUEUED' },
+    data: { projectId, chapterId, status: 'PENDING' },
+    select: { id: true, status: true },
   })
 
-  if (!chapter.sourceContent?.trim()) {
-    await markJobFailed(job.id, 'No source content to translate')
-    return NextResponse.json(
-      { id: job.id, status: 'FAILED', error: 'No source content to translate' },
-      { status: 400 }
-    )
-  }
-
-  let workerRes: Response
-  try {
-    workerRes = await workerFetch('/translate/chunk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source_text: chapter.sourceContent,
-        target_lang: project.targetLang,
-      }),
-    })
-  } catch {
-    await markJobFailed(job.id, 'Worker unavailable')
-    return NextResponse.json(
-      { id: job.id, status: 'FAILED', error: 'Worker unavailable' },
-      { status: 502 }
-    )
-  }
-
-  if (!workerRes.ok) {
-    await markJobFailed(job.id, 'Translation provider failed')
-    return NextResponse.json(
-      { id: job.id, status: 'FAILED', error: 'Translation provider failed' },
-      { status: 502 }
-    )
-  }
-
-  let workerData: unknown
-  try {
-    workerData = await workerRes.json()
-  } catch {
-    await markJobFailed(job.id, 'Invalid worker response')
-    return NextResponse.json(
-      { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
-      { status: 502 }
-    )
-  }
-
-  const safe = workerResponseSchema.safeParse(workerData)
-  if (!safe.success) {
-    await markJobFailed(job.id, 'Invalid worker response')
-    return NextResponse.json(
-      { id: job.id, status: 'FAILED', error: 'Invalid worker response' },
-      { status: 502 }
-    )
-  }
-
-  const updatedJob = await prisma.$transaction(async (tx) => {
-    await tx.chapter.update({
-      where: { id: chapter.id },
-      data: { translation: safe.data.translation },
-    })
-    return tx.translationJob.update({
-      where: { id: job.id },
-      data: { status: 'COMPLETED' },
-      select: { id: true, status: true },
-    })
+  // Dispatch via next/server `after()` so the Worker call + FAILED-marking
+  // Prisma write run inside the request's managed post-response lifecycle.
+  // A plain `void fetch(...).catch(...)` race-loses on Vercel, where the
+  // Lambda context is frozen the instant the response is sent — the `.catch`
+  // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
+  after(async () => {
+    try {
+      await workerFetch('/translate/chunk/async', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: job.id,
+          source_text: chapter.sourceContent,
+          target_lang: project.targetLang,
+        }),
+      })
+    } catch (err) {
+      console.error('[api/jobs] worker dispatch failed', {
+        jobId: job.id,
+        err: String(err),
+      })
+      try {
+        await prisma.translationJob.update({
+          where: { id: job.id },
+          data: { status: 'FAILED', error: 'Worker unavailable' },
+        })
+      } catch {
+        // best-effort — surface via poller on next GET
+      }
+    }
   })
 
-  return NextResponse.json({ id: updatedJob.id, status: updatedJob.status }, { status: 200 })
+  return NextResponse.json({ id: job.id, status: 'PENDING' }, { status: 202 })
 }

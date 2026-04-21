@@ -1,20 +1,23 @@
 """FastAPI route handlers wrapping bookbridge ingestion and harness modules."""
 
 import logging
+import re
 import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
 from bookbridge.harness.translator import TranslatorError
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
+from bookbridge.worker_api.callback import post_worker_callback
 from bookbridge.worker_api.models import (
     ChunkData,
     HealthResponse,
     JobStatusResponse,
+    TranslateChunkAsyncRequest,
     TranslateChunkRequest,
     TranslateChunkResponse,
 )
@@ -28,6 +31,10 @@ MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
 # In-memory job store — used only by /parse for the deprecated async polling path.
 # /translate/chunk is now synchronous and does not write here (ref issue #52).
 _jobs: dict[str, dict] = {}
+
+# Tight character set so arbitrary URL-unsafe or injection-flavoured values are
+# rejected before reaching the translator or callback. Accepts UUIDs and CUIDs.
+JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -112,6 +119,67 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
         status="completed",
         translation=translation,
     )
+
+
+def translate_and_callback(job_id: str, source_text: str, target_lang: str) -> None:
+    """Background-task worker: translate and POST the result back to Next.js.
+
+    Never raises — any exception is caught and reported via the callback as
+    FAILED with a generic error (no provider stack trace), so the BFF poller
+    can surface it cleanly to the user.
+    """
+    try:
+        translator = get_translator()
+        translation = translator.translate(
+            text=source_text,
+            source_lang="en",
+            target_lang=target_lang,
+        )
+    except Exception as exc:
+        logger.warning(
+            "background translation failed for job %s: %s",
+            job_id,
+            type(exc).__name__,
+        )
+        post_worker_callback(
+            {
+                "job_id": job_id,
+                "status": "FAILED",
+                "error": "Translation failed",
+            }
+        )
+        return
+
+    post_worker_callback(
+        {
+            "job_id": job_id,
+            "status": "SUCCEEDED",
+            "translated_content": translation,
+        }
+    )
+
+
+@router.post("/translate/chunk/async", status_code=202)
+def translate_chunk_async(
+    body: TranslateChunkAsyncRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Accept translation job, return 202 immediately, run work in background.
+
+    The background task POSTs the translation result back to Next.js via
+    post_worker_callback so the BFF can write to Postgres (the Worker has no
+    Postgres driver of its own).
+    """
+    if not JOB_ID_PATTERN.match(body.job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format")
+
+    background_tasks.add_task(
+        translate_and_callback,
+        body.job_id,
+        body.source_text,
+        body.target_lang,
+    )
+    return {"job_id": body.job_id, "status": "accepted"}
 
 
 @router.get("/job/{job_id}", response_model=JobStatusResponse)

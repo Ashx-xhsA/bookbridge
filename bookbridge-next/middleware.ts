@@ -5,6 +5,9 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/read/(.*)',
+  // Server-to-server endpoints. Auth is handled inside the route via a
+  // shared secret header; Clerk must not 404 these before the handler runs.
+  '/api/internal/(.*)',
 ])
 
 export default clerkMiddleware(async (auth, request) => {

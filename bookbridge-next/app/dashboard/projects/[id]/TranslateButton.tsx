@@ -1,7 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Play } from 'lucide-react'
+import { pollJob } from '@/lib/jobPoll'
+
+function formatElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000)
+  const mm = String(Math.floor(total / 60)).padStart(2, '0')
+  const ss = String(total % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+}
 
 export default function TranslateButton({
   projectId,
@@ -12,10 +20,25 @@ export default function TranslateButton({
 }) {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!loading) return
+    const start = Date.now()
+    const t = setInterval(() => setElapsedMs(Date.now() - start), 500)
+    return () => clearInterval(t)
+  }, [loading])
+
+  useEffect(() => {
+    return () => abortRef.current?.abort()
+  }, [])
 
   async function handleTranslate() {
     setLoading(true)
     setErrorMsg(null)
+    setElapsedMs(0)
+
     try {
       const res = await fetch('/api/jobs', {
         method: 'POST',
@@ -23,23 +46,34 @@ export default function TranslateButton({
         body: JSON.stringify({ projectId, chapterId }),
       })
       if (!res.ok) {
-        let message = 'Translation failed. Please try again.'
-        try {
-          const body = (await res.json()) as { error?: string }
-          if (body?.error) message = body.error
-        } catch {
-          // non-JSON response — keep generic message
-        }
-        setErrorMsg(message)
+        setErrorMsg('Translation failed. Please try again.')
         setLoading(false)
         return
       }
-      window.location.reload()
+      const body = (await res.json()) as { id?: string }
+      if (!body.id) {
+        setErrorMsg('Translation failed. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      const final = await pollJob(body.id, { signal: controller.signal })
+      if (final.status === 'SUCCEEDED') {
+        window.location.reload()
+        return
+      }
+      setErrorMsg('Translation failed. Please try again.')
+      setLoading(false)
     } catch {
-      setErrorMsg('Network error. Please try again.')
+      setErrorMsg('Translation failed. Please try again.')
       setLoading(false)
     }
   }
+
+  const label = loading ? `Translating… ${formatElapsed(elapsedMs)}` : 'Translate'
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -53,7 +87,7 @@ export default function TranslateButton({
         ) : (
           <Play className="h-3.5 w-3.5" />
         )}
-        Translate
+        {label}
       </button>
       {errorMsg && (
         <p role="alert" className="text-xs text-red-600">
