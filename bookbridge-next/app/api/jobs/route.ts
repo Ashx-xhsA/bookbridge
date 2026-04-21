@@ -3,6 +3,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
 const bodySchema = z.object({
   projectId: z.string().cuid(),
@@ -125,6 +126,7 @@ export async function POST(req: NextRequest) {
   }
 
   const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
+  const llmCreds = await getUserLLMCredentials(userId)
 
   const job = await prisma.translationJob.create({
     data: { projectId, chapterId, status: 'PENDING' },
@@ -148,6 +150,7 @@ export async function POST(req: NextRequest) {
           source_text: chapter.sourceContent,
           target_lang: project.targetLang,
           context,
+          llm: llmCreds,
         }),
       })
     } catch (err) {

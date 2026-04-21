@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
 export async function POST(
   req: NextRequest,
@@ -33,6 +34,8 @@ export async function POST(
     return NextResponse.json({ message: 'All chapters already have summaries', count: 0 })
   }
 
+  const llmCreds = await getUserLLMCredentials(userId)
+
   const results: { chapterId: string; summary: string }[] = []
 
   for (const chapter of chaptersToSummarize) {
@@ -43,6 +46,7 @@ export async function POST(
         body: JSON.stringify({
           text: chapter.sourceContent!.slice(0, 8000),
           max_words: 100,
+          llm: llmCreds,
         }),
         timeoutMs: 30_000,
       })

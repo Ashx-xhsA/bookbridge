@@ -11,6 +11,8 @@ const mockProjectFindUnique = vi.fn()
 const mockChapterUpdate = vi.fn()
 const mockWorkerFetch = vi.fn()
 
+const mockUserFindUnique = vi.fn()
+
 vi.mock('@/lib/prisma', () => ({
   default: {
     project: {
@@ -18,6 +20,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     chapter: {
       update: (...args: unknown[]) => mockChapterUpdate(...args),
+    },
+    user: {
+      findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
     },
   },
 }))
@@ -35,7 +40,10 @@ function makeParams(): Promise<{ id: string }> {
 }
 
 describe('POST /api/projects/[id]/summarize', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', apiProvider: 'deepseek', apiBaseUrl: null })
+  })
 
   it('returns 401 when unauthenticated', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: null } as ReturnType<typeof auth> extends Promise<infer T> ? T : never)

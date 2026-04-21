@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma'
 
 const updateSchema = z.object({
   apiKey: z.string().max(256).optional().nullable(),
-  apiProvider: z.enum(['openai', 'claude', 'custom']).optional(),
+  apiProvider: z.enum(['openai', 'claude', 'deepseek', 'custom']).optional(),
   apiBaseUrl: z.string().url().max(512).optional().nullable(),
 })
 
