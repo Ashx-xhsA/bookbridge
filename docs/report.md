@@ -10,7 +10,7 @@ Evidence for the Project 3 rubric (200 pts), organized by rubric category.
 
 ### 1.1 Problem statement & real-world use case
 
-> **TODO — teammate to fill.** 3–5 sentences answering: What problem does BookBridge solve? Who is the target user? Why does this matter? What makes it a new idea rather than an off-the-shelf tool?
+BookBridge solves a specific pain for foreign-language readers of long PDFs — novels, non-fiction, academic books — where off-the-shelf tools like Google Translate or DeepL either lose chapter structure entirely or drift in terminology across chapters (a proper noun rendered three different ways in the same book), while dedicated book-translation services are slow and expensive. The platform serves two roles: a **Translator** who uploads a PDF, curates a project glossary, triggers translation one chapter at a time, and publishes the result; and a **guest Reader** who opens the published link in an immersive two-column view (original on the left, translation on the right) without signing up. What makes BookBridge a new idea rather than a thin wrapper over a translation API is the combination of **chapter-selective translation** (each chapter is readable the moment it is done — no waiting for the whole book), **glossary-backed terminology consistency across the entire book** (named entities and recurring terms stay stable from chapter 1 to chapter 30), and **progressive publication via a public read-only link** — together these treat a book as a structured document with internal coherence, not a flat 400-page string.
 
 ### 1.2 User roles
 
@@ -192,26 +192,26 @@ docs/report                                    # current docs worktree
 
 ### 2.7 Writer/Reviewer Pattern + C.L.E.A.R. + AI Disclosure
 
-Each feature PR follows the writer/reviewer flow:
+The rubric defines the writer/reviewer pattern as *"one agent writes, another reviews"* — explicitly allowing an all-AI pair. This project uses exactly that:
 
 1. **Writer** — Claude Code drafts the implementation (typically via `/start-issue` + `/tdd-add-module` skills)
-2. **Reviewer** — `code-reviewer` sub-agent posts a C.L.E.A.R.-framework review on the PR; human partner adds a second pass and merges
+2. **Reviewer** — the `code-reviewer` sub-agent posts a C.L.E.A.R.-framework review as an automated comment on the PR, invoked from Step 7 of the `/create-pr` skill
 
-Representative PRs:
+Human partner review beyond the final merge-click is not claimed on this project — the C.L.E.A.R. quality signal comes from the `code-reviewer` sub-agent, not a second human reader (see §5.4 for the honest disclosure about partner-level coordination).
 
-| PR | Feature | Writer | Reviewer (C.L.E.A.R. visible in comments) |
+Representative PRs (each has a `code-reviewer` C.L.E.A.R. comment visible in its Conversation tab):
+
+| PR | Feature | Writer | Reviewer |
 |---|---|---|---|
-| [#45](https://github.com/UchihaSusie/bookbridge/pull/45) | S3-7 Auth-aware landing page | Claude Code w/ `/start-issue` | `code-reviewer` sub-agent + human |
-| [#48](https://github.com/UchihaSusie/bookbridge/pull/48) | Fix: PDF upload dropzone click | Claude Code w/ `/tdd-add-module` | `code-reviewer` sub-agent + human |
-| [#39](https://github.com/UchihaSusie/bookbridge/pull/39) | PDF upload API route with worker proxy | Claude Code | `code-reviewer` + partner |
+| [#45](https://github.com/UchihaSusie/bookbridge/pull/45) | S3-7 Auth-aware landing page | Claude Code via `/start-issue` | `code-reviewer` sub-agent |
+| [#48](https://github.com/UchihaSusie/bookbridge/pull/48) | Fix: PDF upload dropzone click | Claude Code via `/tdd-add-module` | `code-reviewer` sub-agent |
+| [#39](https://github.com/UchihaSusie/bookbridge/pull/39) | PDF upload API route with worker proxy | Claude Code | `code-reviewer` sub-agent |
 
-**AI disclosure metadata** — every PR description follows the project's `.github/pull_request_template.md`, which includes a dedicated section declaring:
+**AI disclosure metadata** — every PR description follows the project's [`pull_request_template.md`](../.github/pull_request_template.md) structure, which includes:
 
 - Percentage of the change that was AI-generated
 - Tool used (Claude Code + model / skills invoked)
-- Human review applied (reviewer name + verification steps)
-
-The three PRs linked above each carry this metadata in their PR body.
+- Human review status (e.g. "merge-only" vs. "line-by-line reviewed" — this project is predominantly "merge-only + AI review")
 
 ---
 
@@ -292,5 +292,165 @@ Tests assert observable behaviour and reject bad inputs, not just happy paths. R
 - **`tests/test_chunker.py`** — 15 cases covering chapter-boundary detection, manifest integrity, and degenerate inputs (single-page books, no detectable chapters).
 - **`bookbridge-next/__tests__/` (API routes)** — OWASP A01 (Broken Access Control): requests where the authenticated Clerk `userId` does not own the resource receive 403; Zod-based input validation rejects malformed payloads with 400 before any Prisma or Worker call is made.
 - **`bookbridge-next/e2e/landing.spec.ts`** — verifies not only that the hero renders, but that **both** sign-up CTA links (header "Get Started" + hero "Start Translating") are present with `toHaveCount(2)` — a regression guard against accidental removal of either CTA.
+
+---
+
+## Category 4 — CI/CD & Production (35 pts)
+
+> **Rubric target (Excellent, 35 pts):** All 8 pipeline stages green (lint, typecheck, tests, E2E, security, AI review, preview deploy, prod deploy); 4+ security gates; OWASP documented in CLAUDE.md.
+
+### 4.1 Pipeline — 8 stages in GitHub Actions
+
+The pipeline is split across two workflow files:
+
+- [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — build, lint, typecheck, tests, E2E, and AI PR review
+- [`.github/workflows/security.yml`](../.github/workflows/security.yml) — security gates (detailed in §4.2)
+
+| # | Stage | Status | Configured in |
+|---|---|---|---|
+| 1 | Lint (ESLint + Prettier) | ✅ | `ci.yml` — `npm run lint` + `npm run format:check` |
+| 2 | Type check (`tsc --noEmit`) | ✅ | `ci.yml` — `npm run typecheck` |
+| 3 | Unit + integration tests | ✅ | `ci.yml` — `pytest tests/` (Python Worker) + `npm run test:run` (Next.js Vitest) |
+| 4 | E2E tests (Playwright) | ✅ | `ci.yml` — dedicated `e2e` job building the Next.js app and running `npx playwright test` with Chromium |
+| 5 | Security scan (npm audit) | ✅ | `ci.yml:41` + `security.yml:29` — `npm audit --audit-level=high` |
+| 6 | AI PR review | ✅ | **Two complementary mechanisms.** (a) CI: `ci.yml` contains an `ai-review` job using `anthropics/claude-code-action@v1`, gated on an `ANTHROPIC_API_KEY` secret — when the secret is absent the job logs a workflow warning and skips, so the pipeline stays green on forks and on repos where the secret has not yet been provisioned. (b) Dev loop: the `/create-pr` skill (see §2.2) invokes the `code-reviewer` sub-agent at **Step 7**, captures its `## MUST FIX` / `## SHOULD CONSIDER` / `## C.L.E.A.R. SUMMARY` output, and posts it as a PR comment — so every PR receives an AI review regardless of the CI secret's state. |
+| 7 | Preview deploy (Vercel) | 🚧 **TODO — writer teammate** to (i) confirm the Vercel ↔ GitHub integration is active on `UchihaSusie/bookbridge`, (ii) paste a screenshot of a recent per-PR preview check, and (iii) record the preview URL pattern here (e.g. `bookbridge-next-git-<branch>-<team>.vercel.app`). |
+| 8 | Prod deploy on merge to main | 🚧 **TODO — writer teammate** to confirm Vercel main-branch production deploy is wired, paste the production deploy status check, and link the live URL `https://bookbridge-next.vercel.app/` as the deploy target. |
+
+### 4.2 Security gates — 6 configured (rubric minimum: 4)
+
+| # | Gate | Mechanism | Location |
+|---|---|---|---|
+| 1 | Pre-commit secrets detection | Gitleaks v8.18.4 | `.pre-commit-config.yaml` |
+| 2 | Dependency vulnerability scan | `npm audit --audit-level=high` — runs on every PR and every push to `main` | `ci.yml:41` + `security.yml:29` |
+| 3 | SAST — Python | Bandit (HIGH + MEDIUM severity, both JSON and plain-text reports) | `security.yml:36-40` |
+| 4 | SAST — JavaScript / TypeScript | Semgrep with `p/owasp-top-ten`, `p/javascript`, and `p/typescript` rulesets | `security.yml:42-50` |
+| 5 | Security-focused sub-agent | `security-reviewer` Claude Code agent, invoked on-demand via the `/security-review` skill | `.claude/agents/security-reviewer.md` |
+| 6 | Security acceptance criteria in Definition of Done | Issue template's DoD section includes checkboxes for A01 ownership checks, A03 input validation, A07 auth boundaries, and A10 SSRF avoidance | `.github/ISSUE_TEMPLATE/feature.md` |
+
+On every pull request, `security.yml` also **posts an automated comment** summarising Bandit HIGH/MEDIUM findings and reminding the author to run `/security-review` locally before merging (`security.yml:53-85`). This makes security feedback visible inline with the C.L.E.A.R. review, not buried in an Actions tab.
+
+### 4.3 OWASP Top 10 — documented in CLAUDE.md
+
+OWASP awareness is not just referenced — it is a load-bearing section of the root [`CLAUDE.md`](../CLAUDE.md): a 10-row table mapping each OWASP category (A01–A10) to the specific BookBridge defense (Clerk `auth()` + ownership checks, Zod schema validation on every API route, BFF pattern to avoid A10 SSRF, Gitleaks for A02, `npm audit` for A06, etc.). Because `CLAUDE.md` is loaded at the start of every Claude Code session, this OWASP context is present for every AI-assisted code change, and the `security-reviewer` agent (§4.2 row 5) consults the same table when reviewing PRs.
+
+---
+
+## Category 5 — Team Process (25 pts)
+
+> **Rubric target (Excellent, 25 pts):** 2 sprints with planning + retrospectives; branch-per-issue with PR reviews; 3+ async standups per sprint per partner; C.L.E.A.R. in reviews; AI disclosure; thoughtful peer evaluation.
+
+### 5.1 Sprint cadence — 2 sprints with planning + retrospective
+
+| Sprint | Focus | Planning | Retrospective |
+|---|---|---|---|
+| **Sprint 1** | Python Foundation — ingestion, glossary, quality, first MCP server, first custom skill | [`sprint-1-planning.md`](sprint-1-planning.md) | [`sprint-1-retrospective.md`](sprint-1-retrospective.md) |
+| **Sprint 2** | Deploy First — FastAPI Worker, Next.js shell + 15+ TDD feature pairs, CI/CD live | [`sprint-2-planning.md`](sprint-2-planning.md) | [`sprint-2-retrospective.md`](sprint-2-retrospective.md) |
+
+Supporting material: [`HW5_RETROSPECTIVE.md`](HW5_RETROSPECTIVE.md) — a deep-dive retro written mid-Sprint 1 on the custom-skill + MCP work (required for W13 homework). Kept as a reference because it quantifies the `tdd-add-module` v1 → v2 iteration in a way the sprint retros don't.
+
+### 5.2 Issue-driven testable specifications
+
+Every feature was scoped as a GitHub Issue using the project's [`feature.md`](../.github/ISSUE_TEMPLATE/feature.md) template, which pushes acceptance criteria into **testable specifications** rather than narrative descriptions. The template requires:
+
+- **Acceptance Criteria** — bulleted testable conditions (e.g. "returns 403 when `resource.ownerId !== userId`")
+- **Security Definition of Done** — checkboxes for A01 auth + ownership, A03 Zod input validation, A07 no hardcoded secrets, A10 no user-controlled shell/URL; plus dependency integrity (`npm audit`, verify packages are not AI-hallucinated) and data exposure (no PII / secrets / stack traces in logs or error messages)
+
+Completed issues show the AC checkboxes ticked at close time; unchecked ACs block merge.
+
+### 5.3 Branch-per-issue workflow
+
+Every feature lives on its own branch, named `feat/issue-<N>-<slug>` or `fix/issue-<N>-<slug>`. Representative set (15+ total across the two sprints):
+
+```
+feat/issue-16-fastapi-worker-wrap-core
+feat/issue-24-publish-project-public-link
+feat/issue-29-bff-api-projects-crud
+feat/issue-31-bff-job-polling-proxy
+feat/issue-32-bff-api-public-reading-routes
+feat/issue-44-auth-aware-landing-page
+feat/issue-51-enable-reader-view-persist-source
+feat/issue-52-harness-translator-providers
+feat/issue-57-publish-toggle-reader-page
+feat/issue-60-add-openai-compatible-translator-provider
+feat/issue-61-async-jobs-vercel-timeout
+fix/issue-47-upload-dropzone-click
+fix/issue-49-upload-route-parse-fix
+```
+
+The flow is encoded in the `/start-issue` skill (§2.2) — invoked as `/start-issue <N>`, it fetches the issue, creates the correctly-named branch, assigns the issue, and prints the AC checklist so the developer has the acceptance criteria in view for the whole session.
+
+### 5.4 Async standups — acknowledged gap
+
+The rubric asks for **"minimum 3 async standups per sprint per partner"**, interpreted as human-to-human status updates in a persistent channel (Slack, Notion, Discord, GitHub Discussions, etc.).
+
+**The team did not practice human-to-human async standups.** Partner-level coordination was limited to git commit authorship and the GitHub PR queue. All C.L.E.A.R. review comments visible on this repo's PRs are written by the `code-reviewer` sub-agent — we are explicitly **not** framing AI-generated review comments as partner-authored async updates.
+
+What exists as verifiable async activity on the repo:
+
+- **Commit authorship and timestamps** — aggregated per sprint × partner × date in [`standups.md`](standups.md). Sprint 1 authorship was concentrated on one push day (2026-03-22) and driven by Shuai Ren. Sprint 2 authorship spanned 4 distinct days (2026-04-17 through 2026-04-20) and was driven by Ash / Zhanyi Chen.
+- **PR descriptions** — each PR body is a timestamped written-by-author async status record listing what was shipped. 20+ PRs across the two sprints.
+- **Phase-lead model** — Shuai Ren drove Sprint 1 (Python core); Ash drove Sprint 2 (Next.js + submission). Hand-off between sprints is visible in the git log but not in any standup log, because no standup log exists.
+
+We are declaring this as a gap rather than re-labelling activity we did not actually conduct. Grader is free to count the commit + PR activity above as partial credit; we will not claim it as full async-standup compliance.
+
+### 5.5 C.L.E.A.R. reviews · AI disclosure · peer evaluation
+
+- **C.L.E.A.R. framework** — applied on every PR via the `code-reviewer` sub-agent at Step 7 of the `/create-pr` skill (see §2.7). Review comments are AI-authored; human-authored review comments are not claimed (see §5.4 disclosure).
+- **AI disclosure metadata** — every PR description follows [`pull_request_template.md`](../.github/pull_request_template.md), which declares AI-generated percentage, tool used, and human review status (§2.7).
+- **Peer evaluation** — submitted separately via the course's designated peer-evaluation channel. Given the phase-lead model described in §5.4, the peer evaluation reflects a partnership where each partner's strongest contributions were in their lead sprint and real-time partner-to-partner coordination was limited.
+
+---
+
+## Category 6 — Documentation & Demo (15 pts)
+
+> **Rubric target (Excellent, 15 pts):** Clear README with Mermaid architecture diagram; published blog post with AI workflow insights; polished 5-10 min video demo showcasing app + Claude Code workflow; 500-word reflections with specific Claude Code insights.
+
+### 6.1 README with architecture
+
+The repo root [`README.md`](../README.md) is kept deliberately lean — most rubric evidence lives in this submission report (§1–§6), and the README exists to get a first-time reader oriented and point them at the report.
+
+What the README provides:
+
+- A short hero description of BookBridge + live deployment links (Vercel + Railway)
+- A prominent **"For graders — start here"** section linking to this report and to every evidence bundle (`docs/evidence/mcp-playwright/`, `docs/evidence/coverage/`, `docs/claude-memory/`, the 4 sprint docs, `docs/standups.md`)
+- A **Mermaid architecture diagram** (Browser → Next.js on Vercel → Python FastAPI Worker on Railway → PostgreSQL + ChromaDB + Claude API) — required for rubric Excellent
+- Stack table
+- Project structure tree
+- Quick commands for running tests (`pytest --cov=bookbridge`, `npm run test:coverage`, `npx playwright test`)
+- MCP server setup pointer
+
+### 6.2 Blog post
+
+> **🚧 Placeholder — URL to be inserted before final submission.**
+>
+> Target: `https://medium.com/@<author>/<slug>` (Medium) or `https://dev.to/<author>/<slug>` (dev.to).
+>
+> Planned content: the Claude Code workflow used to ship BookBridge — **custom skills** (`tdd-add-module` v1 → v2 iteration, `/start-issue`, `/create-pr`), **hooks** (`PreToolUse` TDD enforcement, `PostToolUse` ruff format, `Stop` pytest gate), **MCP** (custom glossary server + Playwright MCP for UI verification), and **sub-agents** (`code-reviewer`, `security-reviewer`, `test-writer`). Quantified insight: 15+ TDD red-green pairs in 2 sprints with Vitest 86.9% / pytest 77% coverage, and AI-authored C.L.E.A.R. reviews as the de-facto PR review record.
+
+### 6.3 Video demo (5–10 min)
+
+> **🚧 Placeholder — URL to be inserted before final submission.**
+>
+> Target: `https://youtube.com/watch?v=<id>` (YouTube / unlisted) or Loom / Google Drive equivalent.
+>
+> Planned coverage:
+> 1. **App walkthrough** — upload a PDF, watch chapter extraction, trigger per-chapter translation, see the bilingual two-column reader, publish via public link, open the public reader in a guest browser
+> 2. **Claude Code workflow** — `/start-issue <N>` invoking the `test-writer` sub-agent to produce the `test(red):` commit, followed by implementation and `/create-pr` invoking the `code-reviewer` sub-agent
+> 3. **Playwright MCP live** — reproduce the archived session (§2.4) of moving a UI element and verifying the layout in a Clerk-authenticated browser
+> 4. **GitHub Actions pipeline** — show the CI run going green across lint / typecheck / tests / E2E / security / AI review (§4.1)
+
+### 6.4 Individual reflections (500 words per partner)
+
+> **🚧 Placeholders — to be drafted before final submission:**
+>
+> - [`docs/reflections/ash.md`](reflections/ash.md) — 500 words (Ash / Zhanyi Chen)
+> - [`docs/reflections/shuai-ren.md`](reflections/shuai-ren.md) — 500 words (Shuai Ren)
+>
+> Each reflection should include: (a) the strongest Claude Code lesson from this project; (b) one thing that worked better than expected; (c) one thing that didn't; (d) what the author would do differently next time. Specific Claude Code insights expected — skill iteration, hook friction, MCP ergonomics, sub-agent boundaries.
+
+### 6.5 Showcase submission
+
+> **🚧 Placeholder** — Google Form submission confirmation screenshot at `docs/evidence/showcase/submission.png`, to be added immediately after the form is submitted per Deliverable #7 of the rubric.
 
 ---

@@ -97,3 +97,38 @@ jobs:
         with:
           name: playwright-report
           path: bookbridge-next/playwright-report/
+
+  ai-review:
+    name: AI PR review (Claude Code)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Anthropic API key
+        id: key-check
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret is not configured — AI PR review will be skipped. Add the secret under Settings → Secrets and variables → Actions to enable."
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Claude Code AI reviewer
+        if: steps.key-check.outputs.has_key == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request using the C.L.E.A.R. framework
+            (Correct, Legible, Efficient, Abstracted, Risk-aware).
+            Focus on correctness, edge cases, and OWASP Top 10 risks
+            (auth + ownership checks, Zod input validation, SSRF on
+            Worker calls, secret hygiene). Post findings as a PR comment.
