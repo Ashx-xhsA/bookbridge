@@ -1,8 +1,9 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import prisma from '@/lib/prisma'
-import { ArrowLeft, Check, X } from 'lucide-react'
+import GlossaryTable from '@/app/components/glossary/GlossaryTable'
 
 export default async function GlossaryPage({
   params,
@@ -21,6 +22,10 @@ export default async function GlossaryPage({
   if (!project) notFound()
   if (project.ownerId !== userId) notFound()
 
+  const unreviewedCount = project.glossary.filter(
+    (t) => !t.approved && !t.userEdited
+  ).length
+
   return (
     <div>
       <Link
@@ -35,49 +40,31 @@ export default async function GlossaryPage({
         <h1 className="text-2xl font-bold">Glossary</h1>
         <p className="mt-1 text-sm text-zinc-500">
           {project.title} &mdash; {project.glossary.length} terms
+          {unreviewedCount > 0 && (
+            <>
+              {' · '}
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {unreviewedCount} unreviewed
+              </span>
+            </>
+          )}
         </p>
       </div>
 
-      {project.glossary.length === 0 ? (
-        <p className="mt-8 text-center text-sm text-zinc-500">
-          No glossary terms yet. Terms will be extracted during translation.
-        </p>
-      ) : (
-        <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-900">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium">English</th>
-                <th className="px-4 py-3 text-left font-medium">
-                  Translation
-                </th>
-                <th className="px-4 py-3 text-left font-medium">Category</th>
-                <th className="px-4 py-3 text-center font-medium">Approved</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {project.glossary.map((term) => (
-                <tr key={term.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                  <td className="px-4 py-3 font-medium">{term.english}</td>
-                  <td className="px-4 py-3">{term.translation || '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">
-                      {term.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {term.approved ? (
-                      <Check className="mx-auto h-4 w-4 text-green-500" />
-                    ) : (
-                      <X className="mx-auto h-4 w-4 text-zinc-300" />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="mt-6">
+        <GlossaryTable
+          projectId={id}
+          initialTerms={project.glossary.map((t) => ({
+            id: t.id,
+            english: t.english,
+            translation: t.translation,
+            category: t.category,
+            approved: t.approved,
+            userEdited: t.userEdited,
+            notes: t.notes ?? undefined,
+          }))}
+        />
+      </div>
     </div>
   )
 }
