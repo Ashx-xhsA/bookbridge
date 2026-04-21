@@ -63,10 +63,21 @@ export async function POST(req: NextRequest) {
       : { status: 'FAILED' as const, error: payload.error ?? 'Translation failed' }
 
   try {
-    await prisma.translationJob.update({
+    const job = await prisma.translationJob.update({
       where: { id: payload.job_id },
       data,
+      select: { id: true, chapterId: true },
     })
+
+    // Denormalise the translated text onto the chapter row so the reader UI
+    // can display it without joining to the job table. Old sync path wrote
+    // here inside a transaction; we mirror that write on success only.
+    if (payload.status === 'SUCCEEDED' && job.chapterId) {
+      await prisma.chapter.update({
+        where: { id: job.chapterId },
+        data: { translation: payload.translated_content },
+      })
+    }
   } catch (err) {
     if ((err as { code?: string })?.code === 'P2025') {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })

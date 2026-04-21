@@ -16,11 +16,15 @@ import { NextRequest } from 'next/server'
 // Mock Prisma singleton
 // ---------------------------------------------------------------------------
 const mockJobUpdate = vi.fn()
+const mockChapterUpdate = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
     translationJob: {
       update: (...args: unknown[]) => mockJobUpdate(...args),
+    },
+    chapter: {
+      update: (...args: unknown[]) => mockChapterUpdate(...args),
     },
   },
 }))
@@ -29,6 +33,7 @@ vi.mock('@/lib/prisma', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 const JOB_ID = 'clh3p7b1p0003qzrmkf8g4m0k'
+const CHAPTER_ID = 'clh3p7b1p0002qzrmkf8g4m0j'
 const SECRET = 'test-shared-secret'
 
 function makeRequest(
@@ -112,10 +117,16 @@ describe('POST /api/internal/worker-callback', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Happy path — success
+  // Happy path — success (mirrors translation onto chapter.translation so the
+  // reader UI can display it without joining through the job table)
   // -------------------------------------------------------------------------
-  it('updates job with SUCCEEDED + translatedContent when status is SUCCEEDED', async () => {
-    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, status: 'SUCCEEDED' })
+  it('updates job and chapter with translatedContent when status is SUCCEEDED', async () => {
+    mockJobUpdate.mockResolvedValueOnce({
+      id: JOB_ID,
+      chapterId: CHAPTER_ID,
+    })
+    mockChapterUpdate.mockResolvedValueOnce({ id: CHAPTER_ID })
+
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
@@ -137,13 +148,33 @@ describe('POST /api/internal/worker-callback', () => {
         }),
       })
     )
+    expect(mockChapterUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: CHAPTER_ID },
+        data: { translation: '狗咬了那个男人。' },
+      })
+    )
+  })
+
+  it('does not update chapter.translation when job has no chapterId', async () => {
+    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, chapterId: null })
+
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    const res = await POST(
+      makeRequest(
+        { job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' },
+        { 'X-Worker-Secret': SECRET }
+      )
+    )
+    expect(res.status).toBe(200)
+    expect(mockChapterUpdate).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------
-  // Happy path — failure
+  // Happy path — failure (must NOT touch chapter.translation)
   // -------------------------------------------------------------------------
   it('updates job with FAILED + error message when status is FAILED', async () => {
-    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, status: 'FAILED' })
+    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, chapterId: CHAPTER_ID })
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
@@ -161,6 +192,7 @@ describe('POST /api/internal/worker-callback', () => {
         }),
       })
     )
+    expect(mockChapterUpdate).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------
