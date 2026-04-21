@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { CheckCircle, FileText, Search, Download, X } from 'lucide-react'
 
@@ -34,16 +34,16 @@ export default function ReaderView({
   chapters: ChapterData[]
   isDemo?: boolean
 }) {
-  const [mode, setMode] = useState<ViewMode>('bilingual')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
-
-  useEffect(() => {
+  const [mode, setMode] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') return 'bilingual'
     const saved = localStorage.getItem('bookbridge-reader-mode')
     if (saved === 'bilingual' || saved === 'translation' || saved === 'source') {
-      setMode(saved)
+      return saved
     }
-  }, [])
+    return 'bilingual'
+  })
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
 
   function handleModeChange(newMode: ViewMode) {
     setMode(newMode)
