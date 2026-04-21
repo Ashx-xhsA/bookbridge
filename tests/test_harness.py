@@ -53,7 +53,7 @@ class TestGetTranslator:
 class TestMockTranslator:
     def test_returns_tagged_source(self) -> None:
         out = MockTranslator().translate("hello world", "en", "zh-Hans")
-        assert out == "[zh-Hans] hello world"
+        assert out.text == "[zh-Hans] hello world"
 
     def test_rejects_empty_text(self) -> None:
         with pytest.raises(ValueError, match="[Ee]mpty"):
@@ -98,7 +98,8 @@ class TestMyMemoryTranslator:
         ) as mock_open:
             result = MyMemoryTranslator().translate("hello", "en", "zh-Hans")
 
-        assert result == "你好"
+        assert result.text == "你好"
+        assert result.new_terms == []
         called_url = mock_open.call_args[0][0]
         assert called_url.startswith(MYMEMORY_URL + "?")
         assert "q=hello" in called_url
@@ -173,7 +174,8 @@ class TestOpenAICompatTranslator:
         ) as mock_open:
             result = OpenAICompatTranslator().translate("hello", "en", "zh-Hans")
 
-        assert result == "你好"
+        assert result.text == "你好"
+        assert result.new_terms == []
         assert mock_open.call_count == 1
 
         req = mock_open.call_args[0][0]

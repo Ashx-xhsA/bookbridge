@@ -9,14 +9,22 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
-from bookbridge.harness.translator import TranslatorError
+from bookbridge.harness.translator import (
+    ExtractedTerm,
+    GlossaryEntry,
+    TranslateResult,
+    TranslatorError,
+    render_glossary_prompt_section,
+)
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
-from bookbridge.worker_api.callback import post_worker_callback
+from bookbridge.worker_api.callback import (
+    post_glossary_callback,
+    post_worker_callback,
+)
 from bookbridge.worker_api.models import (
     ChunkData,
-    GlossaryExtractRequest,
-    GlossaryExtractResponse,
+    GlossaryTermInput,
     HealthResponse,
     JobStatusResponse,
     SummarizeRequest,
@@ -25,11 +33,25 @@ from bookbridge.worker_api.models import (
     TranslateChunkRequest,
     TranslateChunkResponse,
 )
-from bookbridge.worker_api.models import (
-    GlossaryTerm as GlossaryTermModel,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def _to_glossary_entries(
+    inputs: list[GlossaryTermInput] | None,
+) -> list[GlossaryEntry] | None:
+    if not inputs:
+        return None
+    return [
+        GlossaryEntry(
+            english=i.english,
+            translation=i.translation,
+            category=i.category,
+            approved=i.approved,
+        )
+        for i in inputs
+    ]
+
 
 router = APIRouter()
 
@@ -107,10 +129,11 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
         raise HTTPException(status_code=500, detail="Translation provider misconfigured") from exc
 
     try:
-        translation = translator.translate(
+        result = translator.translate(
             text=body.source_text,
             source_lang="en",
             target_lang=body.target_lang,
+            glossary=_to_glossary_entries(body.glossary),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -124,7 +147,148 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     return TranslateChunkResponse(
         job_id=str(uuid.uuid4()),
         status="completed",
-        translation=translation,
+        translation=result.text,
+    )
+
+
+def _translate_with_user_creds(
+    source_text: str,
+    target_lang: str,
+    glossary: list[GlossaryEntry] | None,
+    context: str | None,
+    llm_creds: dict,
+) -> TranslateResult:
+    """Translate using per-user credentials via chat_completion.
+
+    Asks for structured JSON output ({"text": ..., "new_terms": [...]})
+    so both translation AND term extraction happen in a single LLM call.
+    Falls back gracefully when a model ignores response_format and returns
+    plain text — in that case new_terms is empty and the raw content
+    becomes TranslateResult.text.
+    """
+    import json as _json
+
+    from bookbridge.worker_api.llm import chat_completion
+    from bookbridge.worker_api.models import LLMCredentials
+
+    creds = LLMCredentials(**llm_creds)
+
+    prompt_parts = [
+        f"Translate from en to {target_lang}.",
+        "Return a JSON object with two keys:",
+        '  - "text": the translated text as a plain string.',
+        '  - "new_terms": an array of {english, translation, category} '
+        "for any proper nouns or technical terms present in the source "
+        "that are NOT already listed in the glossary below. Each "
+        "category MUST be one of: person, place, organization, "
+        "technical, general.",
+        "If no such terms are present, return an empty array for new_terms.",
+        "Return ONLY the JSON object — no preamble, no fences.",
+    ]
+    glossary_section = render_glossary_prompt_section(glossary)
+    if glossary_section:
+        prompt_parts.append("")
+        prompt_parts.append(glossary_section)
+
+    text_to_translate = source_text
+    if context:
+        text_to_translate = (
+            "[Translation context — use for consistency, do not translate this section]\n"
+            f"{context}\n"
+            "[End of context — translate only the text below]\n\n"
+            f"{source_text}"
+        )
+
+    raw_content = chat_completion(
+        system_prompt="\n".join(prompt_parts),
+        user_content=text_to_translate,
+        llm=creds,
+        response_format={"type": "json_object"},
+    )
+
+    # Best-effort parse. A model that ignored response_format shouldn't crash
+    # the translation path — we fall back to raw text with no new_terms.
+    stripped = raw_content.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[len("json") :].lstrip()
+
+    try:
+        parsed = _json.loads(stripped)
+    except _json.JSONDecodeError:
+        logger.warning("user-creds path: LLM returned non-JSON, using raw text")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    if not isinstance(parsed, dict) or "text" not in parsed:
+        logger.warning("user-creds path: LLM JSON missing 'text' key")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    translated = parsed.get("text")
+    if not isinstance(translated, str) or not translated:
+        logger.warning("user-creds path: LLM 'text' field empty or non-string")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    existing_lower = {g.english.lower() for g in glossary or []}
+    new_terms: list[ExtractedTerm] = []
+    allowed_categories = {"person", "place", "organization", "technical", "general"}
+    for raw in parsed.get("new_terms") or []:
+        if not isinstance(raw, dict):
+            continue
+        eng = raw.get("english")
+        tran = raw.get("translation")
+        cat = raw.get("category", "general")
+        if not isinstance(eng, str) or not eng.strip():
+            continue
+        if not isinstance(tran, str) or not tran.strip():
+            continue
+        if eng.lower() in existing_lower:
+            continue
+        if cat not in allowed_categories:
+            cat = "general"
+        new_terms.append(
+            ExtractedTerm(
+                english=eng.strip(),
+                translation=tran.strip(),
+                category=cat,
+            )
+        )
+
+    logger.info(
+        "user-creds path: parsed LLM response — text=%d chars, new_terms=%d",
+        len(translated),
+        len(new_terms),
+    )
+    return TranslateResult(text=translated, new_terms=new_terms)
+
+
+def _translate_with_server_creds(
+    source_text: str,
+    target_lang: str,
+    glossary: list[GlossaryEntry] | None,
+    context: str | None,
+) -> TranslateResult:
+    """Translate using the server-wide Translator protocol.
+
+    Used when the caller has no per-user LLM credentials (server-env path).
+    The configured provider (mock / openai_compat / ...) returns a
+    TranslateResult with both text and new_terms — extraction happens as a
+    side-output of the translation call.
+    """
+    translator = get_translator()
+    text_to_translate = source_text
+    if context:
+        text_to_translate = (
+            "[Translation context — use for consistency, do not translate this section]\n"
+            f"{context}\n"
+            "[End of context — translate only the text below]\n\n"
+            f"{source_text}"
+        )
+    return translator.translate(
+        text=text_to_translate,
+        source_lang="en",
+        target_lang=target_lang,
+        glossary=glossary,
     )
 
 
@@ -132,72 +296,54 @@ def translate_and_callback(
     job_id: str,
     source_text: str,
     target_lang: str,
+    project_id: str | None = None,
+    glossary: list[GlossaryEntry] | None = None,
     context: str | None = None,
     llm_creds: dict | None = None,
 ) -> None:
-    """Background-task worker: translate and POST the result back to Next.js.
+    """Background-task worker: translate and POST results back to Next.js.
 
     Never raises — any exception is caught and reported via the callback as
-    FAILED with a generic error (no provider stack trace), so the BFF poller
-    can surface it cleanly to the user.
-    """
-    text_to_translate = source_text
-    if context:
-        text_to_translate = (
-            f"[Translation context — use for consistency, do not translate this section]\n"
-            f"{context}\n"
-            f"[End of context — translate only the text below]\n\n"
-            f"{source_text}"
-        )
+    FAILED with a generic error, so the BFF poller surfaces it cleanly.
 
-    if llm_creds and llm_creds.get("llm_api_key"):
-        from bookbridge.worker_api.llm import chat_completion
-        from bookbridge.worker_api.models import LLMCredentials
-        try:
-            creds = LLMCredentials(**llm_creds)
-            system_prompt = (
-                f"Translate from en to {target_lang}. "
-                "Return only the translated text, no preamble, no explanation."
+    If the translator produces new_terms (server-creds path only) AND the
+    caller supplied a project_id, those terms are POSTed to the glossary
+    callback for insertion under the merge rule (exists → skip).
+    """
+    try:
+        if llm_creds and llm_creds.get("llm_api_key"):
+            result = _translate_with_user_creds(
+                source_text, target_lang, glossary, context, llm_creds
             )
-            translation = chat_completion(
-                system_prompt=system_prompt,
-                user_content=text_to_translate,
-                llm=creds,
-            )
-        except Exception as exc:
-            logger.warning(
-                "background translation failed for job %s: %s",
-                job_id,
-                type(exc).__name__,
-            )
-            post_worker_callback(
-                {"job_id": job_id, "status": "FAILED", "error": "Translation failed"}
-            )
-            return
-    else:
-        try:
-            translator = get_translator()
-            translation = translator.translate(
-                text=text_to_translate,
-                source_lang="en",
-                target_lang=target_lang,
-            )
-        except Exception as exc:
-            logger.warning(
-                "background translation failed for job %s: %s",
-                job_id,
-                type(exc).__name__,
-            )
-            post_worker_callback(
-                {"job_id": job_id, "status": "FAILED", "error": "Translation failed"}
-            )
-            return
+        else:
+            result = _translate_with_server_creds(source_text, target_lang, glossary, context)
+    except Exception as exc:
+        logger.warning(
+            "background translation failed for job %s: %s",
+            job_id,
+            type(exc).__name__,
+        )
+        post_worker_callback({"job_id": job_id, "status": "FAILED", "error": "Translation failed"})
+        return
+
+    if project_id and result.new_terms:
+        post_glossary_callback(
+            project_id=project_id,
+            terms=[
+                {
+                    "english": t.english,
+                    "translation": t.translation,
+                    "category": t.category,
+                }
+                for t in result.new_terms
+            ],
+        )
 
     post_worker_callback(
         {
             "job_id": job_id,
             "status": "SUCCEEDED",
-            "translated_content": translation,
+            "translated_content": result.text,
         }
     )
 
@@ -210,8 +356,8 @@ def translate_chunk_async(
     """Accept translation job, return 202 immediately, run work in background.
 
     The background task POSTs the translation result back to Next.js via
-    post_worker_callback so the BFF can write to Postgres (the Worker has no
-    Postgres driver of its own).
+    post_worker_callback, and any extracted glossary terms via
+    post_glossary_callback (when project_id is provided).
     """
     if not JOB_ID_PATTERN.match(body.job_id):
         raise HTTPException(status_code=400, detail="Invalid job_id format")
@@ -221,6 +367,8 @@ def translate_chunk_async(
         body.job_id,
         body.source_text,
         body.target_lang,
+        body.project_id,
+        _to_glossary_entries(body.glossary),
         body.context,
         body.llm.model_dump() if body.llm else None,
     )
@@ -264,44 +412,3 @@ def summarize(body: SummarizeRequest) -> SummarizeResponse:
         raise HTTPException(status_code=502, detail="Summarization failed") from exc
 
     return SummarizeResponse(summary=content.strip())
-
-
-@router.post("/glossary/extract", response_model=GlossaryExtractResponse)
-def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
-    """Extract glossary terms (proper nouns, technical terms) from text using LLM."""
-    import json
-
-    from bookbridge.worker_api.llm import chat_completion
-
-    system_prompt = (
-        "Extract key terms from the text that should be translated consistently: "
-        "proper nouns (character names, place names), technical terms, and recurring "
-        "important phrases. For each term, provide a suggested translation to "
-        f"{body.target_lang} and a category (one of: character, place, technical, concept, other). "
-        'Return valid JSON: {"terms": [{"english": "...", '
-        '"translation": "...", "category": "..."}]}'
-    )
-    try:
-        content = chat_completion(
-            system_prompt=system_prompt,
-            user_content=body.text[:12000],
-            llm=body.llm,
-            timeout=60,
-        )
-        parsed = json.loads(content)
-        terms = [
-            GlossaryTermModel(
-                english=t.get("english", ""),
-                translation=t.get("translation"),
-                category=t.get("category", "other"),
-            )
-            for t in parsed.get("terms", [])
-            if t.get("english")
-        ]
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.warning("glossary extraction failed: %s", type(exc).__name__)
-        raise HTTPException(status_code=502, detail="Glossary extraction failed") from exc
-
-    return GlossaryExtractResponse(terms=terms)

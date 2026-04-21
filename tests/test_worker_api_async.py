@@ -88,8 +88,10 @@ def test_translate_chunk_async_background_posts_success_callback(
 
     monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
 
+    from bookbridge.harness.translator import TranslateResult
+
     fake_translator = MagicMock()
-    fake_translator.translate.return_value = "狗咬了那个男人。"
+    fake_translator.translate.return_value = TranslateResult(text="狗咬了那个男人。", new_terms=[])
 
     calls: list[dict] = []
 

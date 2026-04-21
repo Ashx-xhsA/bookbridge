@@ -33,13 +33,20 @@ def chat_completion(
     llm: LLMCredentials | None = None,
     temperature: float = 0,
     timeout: float = 60,
+    response_format: dict | None = None,
 ) -> str:
-    """Call an OpenAI-compatible chat/completions endpoint and return the content."""
+    """Call an OpenAI-compatible chat/completions endpoint and return the content.
+
+    When `response_format` is provided (e.g. {"type": "json_object"}), it is
+    passed through unchanged. Callers that want structured output are
+    responsible for parsing the returned string themselves — this helper
+    stays a thin passthrough.
+    """
     api_key, base_url, model = resolve_credentials(llm)
     if not api_key or not base_url or not model:
         raise ValueError("LLM provider not configured")
 
-    payload = {
+    payload: dict = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -47,6 +54,8 @@ def chat_completion(
         ],
         "temperature": temperature,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
 
     req = urllib.request.Request(
         url=f"{base_url}/chat/completions",

@@ -101,4 +101,5 @@ model GlossaryTerm {
   category    String  @default("general")
   notes       String?
   approved    Boolean @default(false)
+  userEdited  Boolean @default(false)
 }

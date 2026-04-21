@@ -72,10 +72,23 @@ export default async function ProjectPage({
         <div className="flex gap-2">
           <Link
             href={`/dashboard/projects/${id}/glossary`}
-            className="rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
+            className="relative rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
           >
             <BookOpen className="mr-1 inline h-4 w-4" />
             Glossary ({project.glossary.length})
+            {(() => {
+              const unreviewed = project.glossary.filter(
+                (t) => !t.approved && !t.userEdited
+              ).length
+              return unreviewed > 0 ? (
+                <span
+                  aria-label={`${unreviewed} unreviewed terms`}
+                  className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
+                >
+                  {unreviewed}
+                </span>
+              ) : null
+            })()}
           </Link>
           <DeleteProjectButton projectId={project.id} />
         </div>

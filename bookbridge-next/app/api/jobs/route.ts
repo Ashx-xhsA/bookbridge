@@ -101,8 +101,11 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Build context from adjacent chapter summaries + project glossary
-  const [adjacentChapters, glossaryTerms] = await Promise.all([
+  // Adjacent-chapter summaries + full project glossary run in parallel.
+  // Summaries go into the system prompt as free-form context; glossary is
+  // forwarded structured so the Worker can render it with approval priority
+  // and (on the server-creds path) dedupe new_terms against it.
+  const [adjacentChapters, glossaryRows] = await Promise.all([
     prisma.chapter.findMany({
       where: {
         projectId,
@@ -113,8 +116,12 @@ export async function POST(req: NextRequest) {
     }),
     prisma.glossaryTerm.findMany({
       where: { projectId },
-      select: { english: true, translation: true },
-      take: 50,
+      select: {
+        english: true,
+        translation: true,
+        category: true,
+        approved: true,
+      },
     }),
   ])
 
@@ -125,15 +132,17 @@ export async function POST(req: NextRequest) {
       contextParts.push(`${label} chapter "${adj.title}": ${adj.summary}`)
     }
   }
-  if (glossaryTerms.length > 0) {
-    const glossaryStr = glossaryTerms
-      .filter((g) => g.translation)
-      .map((g) => `${g.english} → ${g.translation}`)
-      .join('; ')
-    if (glossaryStr) contextParts.push(`Glossary: ${glossaryStr}`)
-  }
-
   const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
+
+  const glossary = glossaryRows
+    .filter((t): t is typeof t & { translation: string } => !!t.translation)
+    .map((t) => ({
+      english: t.english,
+      translation: t.translation,
+      category: t.category,
+      approved: t.approved,
+    }))
+
   const llmCreds = await getUserLLMCredentials(userId)
 
   const job = await prisma.translationJob.create({
@@ -148,6 +157,11 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // Dispatch via next/server `after()` so the Worker call + FAILED-marking
+  // Prisma write run inside the request's managed post-response lifecycle.
+  // A plain `void fetch(...).catch(...)` race-loses on Vercel, where the
+  // Lambda context is frozen the instant the response is sent — the `.catch`
+  // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
   after(async () => {
     try {
       await workerFetch('/translate/chunk/async', {
@@ -157,8 +171,10 @@ export async function POST(req: NextRequest) {
           job_id: job.id,
           source_text: chapter.sourceContent,
           target_lang: project.targetLang,
+          project_id: projectId,
           context,
           llm: llmCreds,
+          ...(glossary.length > 0 ? { glossary } : {}),
         }),
       })
     } catch (err) {
