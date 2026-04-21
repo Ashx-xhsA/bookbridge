@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -54,5 +53,9 @@ def post_worker_callback(payload: dict) -> None:
     try:
         with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
             resp.read()
-    except URLError as exc:
+    except Exception as exc:
+        # Broad catch is deliberate: urlopen can raise URLError, SSLError,
+        # OSError (connect refused), ValueError (bad URL scheme), or
+        # RemoteDisconnected. Any exception escaping this function crashes
+        # FastAPI's BackgroundTasks runner and leaves the job stuck in PENDING.
         logger.error("callback to %s failed: %s", url, type(exc).__name__)

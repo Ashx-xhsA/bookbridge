@@ -158,6 +158,28 @@ def test_translate_chunk_async_background_posts_failure_callback_on_exception(
 # ---------------------------------------------------------------------------
 
 
+def test_post_worker_callback_swallows_non_urlerror_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Addresses C.L.E.A.R. MUST FIX #4 — any exception raised by urlopen must
+    be caught so the FastAPI background task runner never crashes. urlopen can
+    raise ValueError (bad scheme), ssl.SSLError, OSError, etc., not just URLError.
+    """
+    from bookbridge.worker_api import callback
+
+    monkeypatch.setenv("CALLBACK_BASE_URL", "https://bookbridge.example.test")
+    monkeypatch.setenv("WORKER_CALLBACK_SECRET", "any-secret")
+
+    def raise_ssl_error(req, timeout):  # noqa: ANN001, ARG001
+        import ssl
+
+        raise ssl.SSLError("fake SSL handshake failure")
+
+    with patch.object(callback, "urlopen", raise_ssl_error):
+        # Must not raise — just logs.
+        callback.post_worker_callback({"job_id": "x" * 10, "status": "FAILED", "error": "test"})
+
+
 def test_post_worker_callback_sends_secret_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

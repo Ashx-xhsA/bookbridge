@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
@@ -9,6 +9,11 @@ const bodySchema = z.object({
   chapterId: z.string().cuid(),
 })
 
+// The check intentionally does not include SUCCEEDED — users may want to
+// re-translate a chapter after reviewing the first pass (e.g. after adding
+// glossary terms or fixing source text). Concurrent double-clicks from the
+// UI are prevented by the disabled state on the Translate button during
+// polling, so a fresh POST can only land once the previous job is terminal.
 const ACTIVE_JOB_STATUSES = ['PENDING', 'RUNNING'] as const
 
 export async function POST(req: NextRequest) {
@@ -73,27 +78,35 @@ export async function POST(req: NextRequest) {
     select: { id: true, status: true },
   })
 
-  // Fire-and-forget dispatch to Worker's async endpoint. We do NOT await the
-  // Worker response — the Worker returns 202 immediately and writes the
-  // translation back to Postgres in its own background task. Awaiting would
-  // re-introduce the Vercel 10 s timeout that issue #61 exists to fix.
-  void workerFetch('/translate/chunk/async', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      job_id: job.id,
-      source_text: chapter.sourceContent,
-      target_lang: project.targetLang,
-    }),
-  }).catch(async (err) => {
-    console.error('[api/jobs] worker dispatch failed', { jobId: job.id, err: String(err) })
+  // Dispatch via next/server `after()` so the Worker call + FAILED-marking
+  // Prisma write run inside the request's managed post-response lifecycle.
+  // A plain `void fetch(...).catch(...)` race-loses on Vercel, where the
+  // Lambda context is frozen the instant the response is sent — the `.catch`
+  // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
+  after(async () => {
     try {
-      await prisma.translationJob.update({
-        where: { id: job.id },
-        data: { status: 'FAILED', error: 'Worker unavailable' },
+      await workerFetch('/translate/chunk/async', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: job.id,
+          source_text: chapter.sourceContent,
+          target_lang: project.targetLang,
+        }),
       })
-    } catch {
-      // best-effort — surface via poller on next GET
+    } catch (err) {
+      console.error('[api/jobs] worker dispatch failed', {
+        jobId: job.id,
+        err: String(err),
+      })
+      try {
+        await prisma.translationJob.update({
+          where: { id: job.id },
+          data: { status: 'FAILED', error: 'Worker unavailable' },
+        })
+      } catch {
+        // best-effort — surface via poller on next GET
+      }
     }
   })
 

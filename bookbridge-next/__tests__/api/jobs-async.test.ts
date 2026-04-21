@@ -23,6 +23,24 @@ vi.mock('@clerk/nextjs/server', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Mock next/server `after()` to execute its callback synchronously.
+//
+// In production `after()` runs its task in the request's post-response
+// lifecycle (managed by Vercel's runtime). In Vitest we invoke the route
+// handler directly with no such context, so without this shim the Worker
+// dispatch callback would never run and the assertions below would fail.
+// ---------------------------------------------------------------------------
+vi.mock('next/server', async () => {
+  const actual = await vi.importActual<typeof import('next/server')>('next/server')
+  return {
+    ...actual,
+    after: (fn: () => void | Promise<void>) => {
+      void fn()
+    },
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Mock Prisma singleton
 // ---------------------------------------------------------------------------
 const mockJobCreate = vi.fn()

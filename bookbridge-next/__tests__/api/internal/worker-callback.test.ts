@@ -14,20 +14,31 @@ import { NextRequest } from 'next/server'
 
 // ---------------------------------------------------------------------------
 // Mock Prisma singleton
+//
+// The route uses prisma.$transaction(async tx => ...) for atomic dual writes
+// (job + chapter). Our mock routes tx.translationJob.update and
+// tx.chapter.update back to the same fn mocks so assertions still work.
 // ---------------------------------------------------------------------------
 const mockJobUpdate = vi.fn()
 const mockChapterUpdate = vi.fn()
 
-vi.mock('@/lib/prisma', () => ({
-  default: {
-    translationJob: {
-      update: (...args: unknown[]) => mockJobUpdate(...args),
-    },
-    chapter: {
-      update: (...args: unknown[]) => mockChapterUpdate(...args),
-    },
+type MockPrisma = {
+  translationJob: { update: (...args: unknown[]) => unknown }
+  chapter: { update: (...args: unknown[]) => unknown }
+  $transaction: (fn: (tx: MockPrisma) => Promise<unknown>) => Promise<unknown>
+}
+
+const mockPrisma: MockPrisma = {
+  translationJob: {
+    update: (...args: unknown[]) => mockJobUpdate(...args),
   },
-}))
+  chapter: {
+    update: (...args: unknown[]) => mockChapterUpdate(...args),
+  },
+  $transaction: async (fn) => fn(mockPrisma),
+}
+
+vi.mock('@/lib/prisma', () => ({ default: mockPrisma }))
 
 // ---------------------------------------------------------------------------
 // Fixtures
