@@ -32,14 +32,10 @@ class OpenAICompatTranslator(Translator):
         validate_input(text, source_lang, target_lang)
 
         api_key = os.environ.get("LLM_API_KEY", "")
-        if not api_key:
-            raise ValueError("LLM_API_KEY is not set")
         base_url = os.environ.get("LLM_BASE_URL", "").rstrip("/")
-        if not base_url:
-            raise ValueError("LLM_BASE_URL is not set")
         model = os.environ.get("LLM_MODEL", "")
-        if not model:
-            raise ValueError("LLM_MODEL is not set")
+        if not api_key or not base_url or not model:
+            raise ValueError("LLM provider not configured")
 
         system_prompt = (
             f"Translate from {source_lang} to {target_lang}. "
@@ -71,12 +67,14 @@ class OpenAICompatTranslator(Translator):
             raise TranslatorError("Translation provider failed") from exc
         except urllib.error.URLError as exc:
             raise TranslatorError("Translation provider failed") from exc
+        except json.JSONDecodeError as exc:
+            raise TranslatorError("Translation provider failed") from exc
 
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise TranslatorError("Translation provider failed") from exc
 
-        if not content:
+        if not isinstance(content, str) or not content:
             raise TranslatorError("Translation provider failed")
         return content

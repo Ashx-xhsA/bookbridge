@@ -249,3 +249,48 @@ class TestOpenAICompatTranslator:
             with pytest.raises(ValueError):
                 OpenAICompatTranslator().translate("hi", "en", "klingon")
             mock_open.assert_not_called()
+
+    # 6. Non-JSON response body → TranslatorError (code-review follow-up) ---------
+
+    def test_non_json_response_raises_translator_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        fake = _fake_response(b"<html>502 Bad Gateway</html>")
+
+        with patch(
+            "bookbridge.harness.providers.openai_compat.urllib.request.urlopen",
+            return_value=fake,
+        ):
+            with pytest.raises(TranslatorError):
+                OpenAICompatTranslator().translate("hello", "en", "zh-Hans")
+
+    # 7. Non-string content (e.g. null, integer) → TranslatorError ----------------
+
+    def test_non_string_content_raises_translator_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        null_body = json.dumps({"choices": [{"message": {"content": None}}]}).encode()
+        fake = _fake_response(null_body)
+
+        with patch(
+            "bookbridge.harness.providers.openai_compat.urllib.request.urlopen",
+            return_value=fake,
+        ):
+            with pytest.raises(TranslatorError):
+                OpenAICompatTranslator().translate("hello", "en", "zh-Hans")
+
+    # 8. Config-missing ValueError has a generic message (A09: no var names) ------
+
+    def test_missing_env_error_message_is_generic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("LLM_MODEL", "gpt-4o-mini")
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+        with pytest.raises(ValueError) as exc_info:
+            OpenAICompatTranslator().translate("hi", "en", "zh-Hans")
+        message = str(exc_info.value)
+        assert "LLM_API_KEY" not in message
+        assert "LLM_BASE_URL" not in message
+        assert "LLM_MODEL" not in message
