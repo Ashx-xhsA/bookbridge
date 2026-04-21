@@ -15,6 +15,9 @@ from bookbridge.ingestion.pdf_reader import extract_pages
 from bookbridge.worker_api.callback import post_worker_callback
 from bookbridge.worker_api.models import (
     ChunkData,
+    GlossaryExtractRequest,
+    GlossaryExtractResponse,
+    GlossaryTerm as GlossaryTermModel,
     HealthResponse,
     JobStatusResponse,
     SummarizeRequest,
@@ -242,3 +245,62 @@ def summarize(body: SummarizeRequest) -> SummarizeResponse:
         raise HTTPException(status_code=502, detail="Summarization failed") from exc
 
     return SummarizeResponse(summary=content.strip())
+
+
+@router.post("/glossary/extract", response_model=GlossaryExtractResponse)
+def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
+    """Extract glossary terms (proper nouns, technical terms) from text using LLM."""
+    import json
+    import os
+    import urllib.request
+
+    api_key = os.environ.get("LLM_API_KEY", "")
+    base_url = os.environ.get("LLM_BASE_URL", "").rstrip("/")
+    model = os.environ.get("LLM_MODEL", "")
+    if not api_key or not base_url or not model:
+        raise HTTPException(status_code=500, detail="LLM provider not configured")
+
+    system_prompt = (
+        "Extract key terms from the text that should be translated consistently: "
+        "proper nouns (character names, place names), technical terms, and recurring "
+        "important phrases. For each term, provide a suggested translation to "
+        f"{body.target_lang} and a category (one of: character, place, technical, concept, other). "
+        "Return valid JSON: {\"terms\": [{\"english\": \"...\", \"translation\": \"...\", \"category\": \"...\"}]}"
+    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": body.text[:12000]},
+        ],
+        "temperature": 0,
+    }
+
+    req = urllib.request.Request(
+        url=f"{base_url}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read())
+        content = result["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+        terms = [
+            GlossaryTermModel(
+                english=t.get("english", ""),
+                translation=t.get("translation"),
+                category=t.get("category", "other"),
+            )
+            for t in parsed.get("terms", [])
+            if t.get("english")
+        ]
+    except Exception as exc:
+        logger.warning("glossary extraction failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Glossary extraction failed") from exc
+
+    return GlossaryExtractResponse(terms=terms)
