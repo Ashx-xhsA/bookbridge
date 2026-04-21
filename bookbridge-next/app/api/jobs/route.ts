@@ -82,15 +82,23 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000
   const existingJob = await prisma.translationJob.findFirst({
     where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, createdAt: true },
   })
   if (existingJob) {
-    return NextResponse.json(
-      { id: existingJob.id, status: existingJob.status, error: 'Job already exists for this chapter' },
-      { status: 409 }
-    )
+    const age = Date.now() - new Date(existingJob.createdAt).getTime()
+    if (age < STALE_THRESHOLD_MS) {
+      return NextResponse.json(
+        { id: existingJob.id, status: existingJob.status, error: 'Translation is already in progress for this chapter' },
+        { status: 409 }
+      )
+    }
+    await prisma.translationJob.update({
+      where: { id: existingJob.id },
+      data: { status: 'FAILED', error: 'Timed out — retrying' },
+    })
   }
 
   // Build context from adjacent chapter summaries + project glossary

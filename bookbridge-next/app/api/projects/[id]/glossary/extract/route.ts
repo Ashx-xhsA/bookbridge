@@ -20,14 +20,10 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { clerkId: userId },
-    select: { apiKey: true },
-  })
-
-  if (!user?.apiKey) {
+  const llmCreds = await getUserLLMCredentials(userId)
+  if (!llmCreds) {
     return NextResponse.json(
-      { error: 'API key required. Please add your API key in Settings to use glossary extraction.' },
+      { error: 'No LLM API key available. Please add your API key in Settings to use glossary extraction.' },
       { status: 402 }
     )
   }
@@ -59,8 +55,6 @@ export async function POST(
   const existingTerms = new Set(
     project.glossary.map((g) => g.english.toLowerCase())
   )
-
-  const llmCreds = await getUserLLMCredentials(userId)
 
   try {
     const workerRes = await workerFetch('/glossary/extract', {
