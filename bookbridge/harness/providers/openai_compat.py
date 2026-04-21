@@ -8,6 +8,7 @@ from env at call time so the Worker can switch providers without a restart.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -22,7 +23,29 @@ from bookbridge.harness.translator import (
     validate_input,
 )
 
-REQUEST_TIMEOUT_SECONDS: float = 60.0
+logger = logging.getLogger(__name__)
+
+# Default 60 s — DeepSeek/Moonshot on long chunks can exceed this. Override
+# with LLM_TIMEOUT_SECONDS env var without touching code.
+DEFAULT_TIMEOUT_SECONDS: float = 60.0
+
+
+def _request_timeout() -> float:
+    raw = os.environ.get("LLM_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_TIMEOUT_SECONDS
+    try:
+        v = float(raw)
+        # Clamp to [5, 600] — prevents a typo like "5000" from hanging a worker
+        # for 83 minutes, and a typo like "0.1" from spamming timeouts.
+        return max(5.0, min(600.0, v))
+    except ValueError:
+        return DEFAULT_TIMEOUT_SECONDS
+
+
+# Kept as a module-level constant for backwards compat with existing tests
+# that patch it. Live code reads _request_timeout() so env overrides apply.
+REQUEST_TIMEOUT_SECONDS: float = DEFAULT_TIMEOUT_SECONDS
 
 _ALLOWED_CATEGORIES = frozenset({"person", "place", "organization", "technical", "general"})
 
@@ -80,7 +103,7 @@ class OpenAICompatTranslator(Translator):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+            with urllib.request.urlopen(req, timeout=_request_timeout()) as resp:
                 body = json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             raise TranslatorError("Translation provider failed") from exc
@@ -141,9 +164,21 @@ class OpenAICompatTranslator(Translator):
         try:
             parsed = json.loads(stripped)
         except json.JSONDecodeError:
+            logger.warning(
+                "openai_compat: LLM returned non-JSON content (%d chars); "
+                "falling back to plain-text translation with no new_terms. "
+                "Preview: %r",
+                len(content),
+                content[:120],
+            )
             return TranslateResult(text=content, new_terms=[])
 
         if not isinstance(parsed, dict) or "text" not in parsed:
+            logger.warning(
+                "openai_compat: LLM JSON missing 'text' key (keys: %s); "
+                "falling back to plain-text translation with no new_terms.",
+                sorted(parsed.keys()) if isinstance(parsed, dict) else "not a dict",
+            )
             return TranslateResult(text=content, new_terms=[])
 
         translated = parsed.get("text")
@@ -174,4 +209,9 @@ class OpenAICompatTranslator(Translator):
                 )
             )
 
+        logger.info(
+            "openai_compat: parsed LLM response — text=%d chars, new_terms=%d",
+            len(translated),
+            len(new_terms),
+        )
         return TranslateResult(text=translated, new_terms=new_terms)
