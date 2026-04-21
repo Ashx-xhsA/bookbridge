@@ -1,0 +1,52 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.1, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/mineral/Desktop/bookbridge
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.13.0
+collected 110 items
+
+tests/test_chunker.py ...............                                    [ 13%]
+tests/test_glossary.py ................                                  [ 28%]
+tests/test_harness.py ........................                           [ 50%]
+tests/test_html_parser.py ........                                       [ 57%]
+tests/test_pdf_reader.py ....................                            [ 75%]
+tests/test_quality.py ...............                                    [ 89%]
+tests/test_worker_api.py ............                                    [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.13.1-final-0 _______________
+
+Name                                            Stmts   Miss  Cover
+-------------------------------------------------------------------
+bookbridge/__init__.py                              0      0   100%
+bookbridge/cli.py                                  27     27     0%
+bookbridge/config.py                                8      8     0%
+bookbridge/glossary/__init__.py                     0      0   100%
+bookbridge/glossary/models.py                      18      2    89%
+bookbridge/glossary/store.py                       53      0   100%
+bookbridge/harness/__init__.py                     13      0   100%
+bookbridge/harness/providers/__init__.py            0      0   100%
+bookbridge/harness/providers/claude.py              4      0   100%
+bookbridge/harness/providers/mock.py                5      0   100%
+bookbridge/harness/providers/mymemory.py           17      0   100%
+bookbridge/harness/providers/openai_compat.py      33      3    91%
+bookbridge/harness/translator.py                   15      0   100%
+bookbridge/ingestion/__init__.py                    0      0   100%
+bookbridge/ingestion/chunker.py                    40      3    92%
+bookbridge/ingestion/models.py                     17      0   100%
+bookbridge/ingestion/pdf_reader.py                 42      8    81%
+bookbridge/mcp_servers/__init__.py                  0      0   100%
+bookbridge/mcp_servers/glossary_server.py          65     65     0%
+bookbridge/output/__init__.py                       0      0   100%
+bookbridge/output/html_parser.py                   11      0   100%
+bookbridge/quality/__init__.py                      0      0   100%
+bookbridge/quality/base.py                         26      1    96%
+bookbridge/quality/models.py                       19      1    95%
+bookbridge/quality/zh_hans.py                      24      0   100%
+bookbridge/worker_api/__init__.py                   0      0   100%
+bookbridge/worker_api/main.py                      16      1    94%
+bookbridge/worker_api/models.py                    25      0   100%
+bookbridge/worker_api/routes.py                    69      9    87%
+-------------------------------------------------------------------
+TOTAL                                             547    128    77%
+============================= 110 passed in 0.49s ==============================
