@@ -34,6 +34,17 @@ vi.mock('@/lib/prisma', () => ({
   default: { project: { findUnique: vi.fn() } },
 }))
 
+vi.mock('@/app/read/[id]/ReaderView', () => ({
+  default: ({ title, chapters }: { title: string; chapters: { number: number; title: string }[] }) => (
+    <div>
+      <h1>{title}</h1>
+      {chapters.map((ch) => (
+        <div key={ch.number}>Chapter {ch.number}: {ch.title}</div>
+      ))}
+    </div>
+  ),
+}))
+
 const mockGetPublished = vi.fn()
 // Use importOriginal so the real `tokenSchema` (z.string().uuid()) is
 // exposed — the page now dispatches on it, so stubbing it out would break

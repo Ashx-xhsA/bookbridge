@@ -131,6 +131,7 @@ def translate_and_callback(
     source_text: str,
     target_lang: str,
     context: str | None = None,
+    llm_creds: dict | None = None,
 ) -> None:
     """Background-task worker: translate and POST the result back to Next.js.
 
@@ -146,27 +147,49 @@ def translate_and_callback(
             f"[End of context — translate only the text below]\n\n"
             f"{source_text}"
         )
-    try:
-        translator = get_translator()
-        translation = translator.translate(
-            text=text_to_translate,
-            source_lang="en",
-            target_lang=target_lang,
-        )
-    except Exception as exc:
-        logger.warning(
-            "background translation failed for job %s: %s",
-            job_id,
-            type(exc).__name__,
-        )
-        post_worker_callback(
-            {
-                "job_id": job_id,
-                "status": "FAILED",
-                "error": "Translation failed",
-            }
-        )
-        return
+
+    if llm_creds and llm_creds.get("llm_api_key"):
+        from bookbridge.worker_api.llm import chat_completion
+        from bookbridge.worker_api.models import LLMCredentials
+        try:
+            creds = LLMCredentials(**llm_creds)
+            system_prompt = (
+                f"Translate from en to {target_lang}. "
+                "Return only the translated text, no preamble, no explanation."
+            )
+            translation = chat_completion(
+                system_prompt=system_prompt,
+                user_content=text_to_translate,
+                llm=creds,
+            )
+        except Exception as exc:
+            logger.warning(
+                "background translation failed for job %s: %s",
+                job_id,
+                type(exc).__name__,
+            )
+            post_worker_callback(
+                {"job_id": job_id, "status": "FAILED", "error": "Translation failed"}
+            )
+            return
+    else:
+        try:
+            translator = get_translator()
+            translation = translator.translate(
+                text=text_to_translate,
+                source_lang="en",
+                target_lang=target_lang,
+            )
+        except Exception as exc:
+            logger.warning(
+                "background translation failed for job %s: %s",
+                job_id,
+                type(exc).__name__,
+            )
+            post_worker_callback(
+                {"job_id": job_id, "status": "FAILED", "error": "Translation failed"}
+            )
+            return
 
     post_worker_callback(
         {
@@ -197,6 +220,7 @@ def translate_chunk_async(
         body.source_text,
         body.target_lang,
         body.context,
+        body.llm.model_dump() if body.llm else None,
     )
     return {"job_id": body.job_id, "status": "accepted"}
 
@@ -217,43 +241,22 @@ def get_job(job_id: str) -> JobStatusResponse:
 @router.post("/summarize", response_model=SummarizeResponse)
 def summarize(body: SummarizeRequest) -> SummarizeResponse:
     """Generate a short summary of the given text using the configured LLM."""
-    import json
-    import os
-    import urllib.request
-
-    api_key = os.environ.get("LLM_API_KEY", "")
-    base_url = os.environ.get("LLM_BASE_URL", "").rstrip("/")
-    model = os.environ.get("LLM_MODEL", "")
-    if not api_key or not base_url or not model:
-        raise HTTPException(status_code=500, detail="LLM provider not configured")
+    from bookbridge.worker_api.llm import chat_completion
 
     system_prompt = (
         f"Summarize the following text in {body.max_words} words or fewer. "
         "Write a concise, informative summary suitable as a chapter overview. "
         "Return only the summary text."
     )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": body.text[:8000]},
-        ],
-        "temperature": 0,
-    }
-
-    req = urllib.request.Request(
-        url=f"{base_url}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
-        content = result["choices"][0]["message"]["content"]
+        content = chat_completion(
+            system_prompt=system_prompt,
+            user_content=body.text[:8000],
+            llm=body.llm,
+            timeout=30,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning("summarize failed: %s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Summarization failed") from exc
@@ -265,14 +268,8 @@ def summarize(body: SummarizeRequest) -> SummarizeResponse:
 def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
     """Extract glossary terms (proper nouns, technical terms) from text using LLM."""
     import json
-    import os
-    import urllib.request
 
-    api_key = os.environ.get("LLM_API_KEY", "")
-    base_url = os.environ.get("LLM_BASE_URL", "").rstrip("/")
-    model = os.environ.get("LLM_MODEL", "")
-    if not api_key or not base_url or not model:
-        raise HTTPException(status_code=500, detail="LLM provider not configured")
+    from bookbridge.worker_api.llm import chat_completion
 
     system_prompt = (
         "Extract key terms from the text that should be translated consistently: "
@@ -281,28 +278,13 @@ def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
         f"{body.target_lang} and a category (one of: character, place, technical, concept, other). "
         "Return valid JSON: {\"terms\": [{\"english\": \"...\", \"translation\": \"...\", \"category\": \"...\"}]}"
     )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": body.text[:12000]},
-        ],
-        "temperature": 0,
-    }
-
-    req = urllib.request.Request(
-        url=f"{base_url}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            result = json.loads(resp.read())
-        content = result["choices"][0]["message"]["content"]
+        content = chat_completion(
+            system_prompt=system_prompt,
+            user_content=body.text[:12000],
+            llm=body.llm,
+            timeout=60,
+        )
         parsed = json.loads(content)
         terms = [
             GlossaryTermModel(
@@ -313,6 +295,8 @@ def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
             for t in parsed.get("terms", [])
             if t.get("english")
         ]
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning("glossary extraction failed: %s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Glossary extraction failed") from exc

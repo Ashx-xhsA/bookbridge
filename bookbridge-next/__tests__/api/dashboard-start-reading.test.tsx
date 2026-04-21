@@ -34,13 +34,16 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// Mock lucide-react icons used by the page
 vi.mock('lucide-react', () => ({
   FileText: () => <svg data-testid="icon-file-text" />,
   BookOpen: () => <svg data-testid="icon-book-open" />,
   ArrowLeft: () => <svg data-testid="icon-arrow-left" />,
   Play: () => <svg data-testid="icon-play" />,
   Loader2: () => <svg data-testid="icon-loader" />,
+  CheckCircle: () => <svg data-testid="icon-check-circle" />,
+  Clock: () => <svg data-testid="icon-clock" />,
+  Sparkles: () => <svg data-testid="icon-sparkles" />,
+  PlayCircle: () => <svg data-testid="icon-play-circle" />,
 }))
 
 // Mock TranslateButton (client component — cannot render in jsdom)
@@ -67,7 +70,6 @@ vi.mock(
   })
 )
 
-// Mock PublishToggle (client component — imports lucide icons not stubbed here)
 vi.mock(
   '@/app/dashboard/projects/[id]/PublishToggle',
   () => ({
@@ -75,6 +77,15 @@ vi.mock(
       <button data-testid="publish-toggle" data-project={projectId}>
         Publish
       </button>
+    ),
+  })
+)
+
+vi.mock(
+  '@/app/dashboard/projects/[id]/ChapterExplorer',
+  () => ({
+    default: ({ chapters }: { chapters: { id: string }[] }) => (
+      <div data-testid="chapter-explorer">{chapters.length} chapters loaded</div>
     ),
   })
 )
@@ -116,6 +127,7 @@ const projectWithChapters = {
       pageCount: 10,
       sourceContent: 'Some text.',
       translation: null,
+      summary: null,
     },
   ],
   jobs: [],

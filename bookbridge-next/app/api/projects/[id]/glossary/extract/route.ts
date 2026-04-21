@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
 interface ExtractedTerm {
   english: string
@@ -59,6 +60,8 @@ export async function POST(
     project.glossary.map((g) => g.english.toLowerCase())
   )
 
+  const llmCreds = await getUserLLMCredentials(userId)
+
   try {
     const workerRes = await workerFetch('/glossary/extract', {
       method: 'POST',
@@ -66,6 +69,7 @@ export async function POST(
       body: JSON.stringify({
         text: sourceText,
         target_lang: project.targetLang,
+        llm: llmCreds,
       }),
       timeoutMs: 60_000,
     })

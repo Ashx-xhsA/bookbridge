@@ -48,6 +48,7 @@ export default function SettingsPage() {
       if (apiKey) body.apiKey = apiKey
       if (provider === 'custom' && baseUrl) body.apiBaseUrl = baseUrl
       if (provider !== 'custom') body.apiBaseUrl = null
+      if (provider === 'deepseek') body.apiBaseUrl = null
 
       const res = await fetch('/api/settings', {
         method: 'PATCH',
@@ -156,6 +157,7 @@ export default function SettingsPage() {
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent dark:border-zinc-700 dark:bg-zinc-900"
             >
               <option value="openai">OpenAI (GPT-4o)</option>
+              <option value="deepseek">DeepSeek (deepseek-chat)</option>
               <option value="claude">Anthropic (Claude)</option>
               <option value="custom">Custom OpenAI-compatible</option>
             </select>
@@ -206,9 +208,11 @@ export default function SettingsPage() {
             <p className="mt-1 text-xs text-ink-muted">
               {provider === 'openai'
                 ? 'Get your key at platform.openai.com/api-keys'
-                : provider === 'claude'
-                  ? 'Get your key at console.anthropic.com/settings/keys'
-                  : 'Enter the API key for your custom provider'}
+                : provider === 'deepseek'
+                  ? 'Get your key at platform.deepseek.com/api_keys'
+                  : provider === 'claude'
+                    ? 'Get your key at console.anthropic.com/settings/keys'
+                    : 'Enter the API key for your custom provider'}
             </p>
           </div>
         </div>

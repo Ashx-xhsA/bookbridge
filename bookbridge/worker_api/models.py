@@ -8,11 +8,19 @@ class TranslateChunkRequest(BaseModel):
     target_lang: str = Field(..., min_length=2)
 
 
+class LLMCredentials(BaseModel):
+    """Optional per-request LLM credentials. Falls back to server env vars."""
+    llm_api_key: str | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+
+
 class TranslateChunkAsyncRequest(BaseModel):
     job_id: str = Field(..., min_length=1, max_length=128)
     source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
     context: str | None = None
+    llm: LLMCredentials | None = None
 
 
 class ChunkData(BaseModel):
@@ -49,6 +57,7 @@ class ErrorResponse(BaseModel):
 class SummarizeRequest(BaseModel):
     text: str = Field(..., min_length=1)
     max_words: int = Field(default=100, ge=20, le=300)
+    llm: LLMCredentials | None = None
 
 
 class SummarizeResponse(BaseModel):
@@ -58,6 +67,7 @@ class SummarizeResponse(BaseModel):
 class GlossaryExtractRequest(BaseModel):
     text: str = Field(..., min_length=1)
     target_lang: str = Field(default="zh-Hans")
+    llm: LLMCredentials | None = None
 
 
 class GlossaryTerm(BaseModel):
