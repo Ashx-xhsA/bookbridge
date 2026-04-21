@@ -43,3 +43,12 @@ class HealthResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class SummarizeRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    max_words: int = Field(default=100, ge=20, le=300)
+
+
+class SummarizeResponse(BaseModel):
+    summary: str
