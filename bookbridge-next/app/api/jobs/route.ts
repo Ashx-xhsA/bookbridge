@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
-    select: { id: true, sourceContent: true, projectId: true },
+    select: { id: true, sourceContent: true, projectId: true, number: true },
   })
   if (!chapter || chapter.projectId !== projectId) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
@@ -73,16 +73,45 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Build context from adjacent chapter summaries + project glossary
+  const [adjacentChapters, glossaryTerms] = await Promise.all([
+    prisma.chapter.findMany({
+      where: {
+        projectId,
+        number: { in: [chapter.number - 1, chapter.number + 1] },
+      },
+      select: { number: true, title: true, summary: true },
+      orderBy: { number: 'asc' },
+    }),
+    prisma.glossaryTerm.findMany({
+      where: { projectId },
+      select: { english: true, translation: true },
+      take: 50,
+    }),
+  ])
+
+  const contextParts: string[] = []
+  for (const adj of adjacentChapters) {
+    if (adj.summary) {
+      const label = adj.number < chapter.number ? 'Previous' : 'Next'
+      contextParts.push(`${label} chapter "${adj.title}": ${adj.summary}`)
+    }
+  }
+  if (glossaryTerms.length > 0) {
+    const glossaryStr = glossaryTerms
+      .filter((g) => g.translation)
+      .map((g) => `${g.english} → ${g.translation}`)
+      .join('; ')
+    if (glossaryStr) contextParts.push(`Glossary: ${glossaryStr}`)
+  }
+
+  const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
+
   const job = await prisma.translationJob.create({
     data: { projectId, chapterId, status: 'PENDING' },
     select: { id: true, status: true },
   })
 
-  // Dispatch via next/server `after()` so the Worker call + FAILED-marking
-  // Prisma write run inside the request's managed post-response lifecycle.
-  // A plain `void fetch(...).catch(...)` race-loses on Vercel, where the
-  // Lambda context is frozen the instant the response is sent — the `.catch`
-  // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
   after(async () => {
     try {
       await workerFetch('/translate/chunk/async', {
@@ -92,6 +121,7 @@ export async function POST(req: NextRequest) {
           job_id: job.id,
           source_text: chapter.sourceContent,
           target_lang: project.targetLang,
+          context,
         }),
       })
     } catch (err) {

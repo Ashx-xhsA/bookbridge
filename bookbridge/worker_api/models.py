@@ -12,6 +12,7 @@ class TranslateChunkAsyncRequest(BaseModel):
     job_id: str = Field(..., min_length=1, max_length=128)
     source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
+    context: str | None = None
 
 
 class ChunkData(BaseModel):
