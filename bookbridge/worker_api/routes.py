@@ -10,8 +10,11 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
 from bookbridge.harness.translator import (
+    ExtractedTerm,
     GlossaryEntry,
+    TranslateResult,
     TranslatorError,
+    render_glossary_prompt_section,
 )
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
@@ -24,10 +27,14 @@ from bookbridge.worker_api.models import (
     GlossaryTermInput,
     HealthResponse,
     JobStatusResponse,
+    SummarizeRequest,
+    SummarizeResponse,
     TranslateChunkAsyncRequest,
     TranslateChunkRequest,
     TranslateChunkResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _to_glossary_entries(
@@ -45,8 +52,6 @@ def _to_glossary_entries(
         for i in inputs
     ]
 
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -146,43 +151,113 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     )
 
 
+def _translate_with_user_creds(
+    source_text: str,
+    target_lang: str,
+    glossary: list[GlossaryEntry] | None,
+    context: str | None,
+    llm_creds: dict,
+) -> TranslateResult:
+    """Translate using per-user credentials via chat_completion.
+
+    Used for the free-tier / BYO-key path. Glossary is rendered into the
+    system prompt, but new_terms extraction is NOT performed in this branch
+    (chat_completion returns plain text, not structured output). Users on
+    this path can still manually add terms in the glossary UI.
+    """
+    from bookbridge.worker_api.llm import chat_completion
+    from bookbridge.worker_api.models import LLMCredentials
+
+    creds = LLMCredentials(**llm_creds)
+
+    prompt_parts = [
+        f"Translate from en to {target_lang}.",
+        "Return only the translated text, no preamble, no explanation.",
+    ]
+    glossary_section = render_glossary_prompt_section(glossary)
+    if glossary_section:
+        prompt_parts.append("")
+        prompt_parts.append(glossary_section)
+
+    text_to_translate = source_text
+    if context:
+        text_to_translate = (
+            "[Translation context — use for consistency, do not translate this section]\n"
+            f"{context}\n"
+            "[End of context — translate only the text below]\n\n"
+            f"{source_text}"
+        )
+
+    translation = chat_completion(
+        system_prompt="\n".join(prompt_parts),
+        user_content=text_to_translate,
+        llm=creds,
+    )
+    return TranslateResult(text=translation, new_terms=[])
+
+
+def _translate_with_server_creds(
+    source_text: str,
+    target_lang: str,
+    glossary: list[GlossaryEntry] | None,
+    context: str | None,
+) -> TranslateResult:
+    """Translate using the server-wide Translator protocol.
+
+    Used when the caller has no per-user LLM credentials (server-env path).
+    The configured provider (mock / openai_compat / ...) returns a
+    TranslateResult with both text and new_terms — extraction happens as a
+    side-output of the translation call.
+    """
+    translator = get_translator()
+    text_to_translate = source_text
+    if context:
+        text_to_translate = (
+            "[Translation context — use for consistency, do not translate this section]\n"
+            f"{context}\n"
+            "[End of context — translate only the text below]\n\n"
+            f"{source_text}"
+        )
+    return translator.translate(
+        text=text_to_translate,
+        source_lang="en",
+        target_lang=target_lang,
+        glossary=glossary,
+    )
+
+
 def translate_and_callback(
     job_id: str,
     source_text: str,
     target_lang: str,
     project_id: str | None = None,
     glossary: list[GlossaryEntry] | None = None,
+    context: str | None = None,
+    llm_creds: dict | None = None,
 ) -> None:
-    """Background-task worker: translate and POST the result back to Next.js.
+    """Background-task worker: translate and POST results back to Next.js.
 
     Never raises — any exception is caught and reported via the callback as
-    FAILED with a generic error (no provider stack trace), so the BFF poller
-    can surface it cleanly to the user. If the translation produces any
-    new_terms AND the caller supplied a project_id, those terms are also
-    POSTed to the glossary callback so the BFF can insert them with the
-    merge rule (exists → skip, new → insert as unapproved).
+    FAILED with a generic error, so the BFF poller surfaces it cleanly.
+
+    If the translator produces new_terms (server-creds path only) AND the
+    caller supplied a project_id, those terms are POSTed to the glossary
+    callback for insertion under the merge rule (exists → skip).
     """
     try:
-        translator = get_translator()
-        result = translator.translate(
-            text=source_text,
-            source_lang="en",
-            target_lang=target_lang,
-            glossary=glossary,
-        )
+        if llm_creds and llm_creds.get("llm_api_key"):
+            result = _translate_with_user_creds(
+                source_text, target_lang, glossary, context, llm_creds
+            )
+        else:
+            result = _translate_with_server_creds(source_text, target_lang, glossary, context)
     except Exception as exc:
         logger.warning(
             "background translation failed for job %s: %s",
             job_id,
             type(exc).__name__,
         )
-        post_worker_callback(
-            {
-                "job_id": job_id,
-                "status": "FAILED",
-                "error": "Translation failed",
-            }
-        )
+        post_worker_callback({"job_id": job_id, "status": "FAILED", "error": "Translation failed"})
         return
 
     if project_id and result.new_terms:
@@ -215,9 +290,8 @@ def translate_chunk_async(
     """Accept translation job, return 202 immediately, run work in background.
 
     The background task POSTs the translation result back to Next.js via
-    post_worker_callback so the BFF can write to Postgres (the Worker has no
-    Postgres driver of its own). When project_id is provided, newly extracted
-    glossary terms are also POSTed via post_glossary_callback.
+    post_worker_callback, and any extracted glossary terms via
+    post_glossary_callback (when project_id is provided).
     """
     if not JOB_ID_PATTERN.match(body.job_id):
         raise HTTPException(status_code=400, detail="Invalid job_id format")
@@ -229,6 +303,8 @@ def translate_chunk_async(
         body.target_lang,
         body.project_id,
         _to_glossary_entries(body.glossary),
+        body.context,
+        body.llm.model_dump() if body.llm else None,
     )
     return {"job_id": body.job_id, "status": "accepted"}
 
@@ -244,3 +320,34 @@ def get_job(job_id: str) -> JobStatusResponse:
         error=job.get("error"),
         chunks=job.get("chunks"),
     )
+
+
+@router.post("/summarize", response_model=SummarizeResponse)
+def summarize(body: SummarizeRequest) -> SummarizeResponse:
+    """Generate a short summary of the given text using the configured LLM."""
+    from bookbridge.worker_api.llm import chat_completion
+
+    system_prompt = (
+        f"Summarize the following text in {body.max_words} words or fewer. "
+        "Write a concise, informative summary suitable as a chapter overview. "
+        "Return only the summary text."
+    )
+    try:
+        content = chat_completion(
+            system_prompt=system_prompt,
+            user_content=body.text[:8000],
+            llm=body.llm,
+            timeout=30,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("summarize failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Summarization failed") from exc
+
+    return SummarizeResponse(summary=content.strip())
+
+
+# Silence the "ExtractedTerm imported but unused" lint — it's part of the public
+# surface the translator protocol returns and is referenced indirectly.
+_ = ExtractedTerm

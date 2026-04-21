@@ -30,15 +30,15 @@ export default async function GlossaryPage({
     <div>
       <Link
         href={`/dashboard/projects/${id}`}
-        className="flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
+        className="flex items-center gap-1 text-sm text-ink-muted hover:text-ink"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Project
       </Link>
 
       <div className="mt-4">
-        <h1 className="text-2xl font-bold">Glossary</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="font-serif text-2xl font-bold text-ink">Glossary</h1>
+        <p className="mt-1 text-sm text-ink-muted">
           {project.title} &mdash; {project.glossary.length} terms
           {unreviewedCount > 0 && (
             <>

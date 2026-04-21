@@ -8,14 +8,18 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  clerkId   String    @unique
-  email     String    @unique
-  name      String?
-  role      Role      @default(TRANSLATOR)
-  projects  Project[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  clerkId       String    @unique
+  email         String    @unique
+  name          String?
+  role          Role      @default(TRANSLATOR)
+  apiKey        String?
+  apiProvider   String?   @default("openai")
+  apiBaseUrl    String?
+  freeCharsUsed Int       @default(0)
+  projects      Project[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 enum Role {
@@ -61,6 +65,7 @@ model Chapter {
   pageCount     Int
   sourceContent String? @db.Text
   translation   String? @db.Text
+  summary       String? @db.Text
 }
 
 model TranslationJob {

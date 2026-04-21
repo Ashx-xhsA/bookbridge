@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Loader2, Play } from 'lucide-react'
 import { pollJob } from '@/lib/jobPoll'
 
@@ -20,6 +21,7 @@ export default function TranslateButton({
 }) {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [showSettingsLink, setShowSettingsLink] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -37,6 +39,7 @@ export default function TranslateButton({
   async function handleTranslate() {
     setLoading(true)
     setErrorMsg(null)
+    setShowSettingsLink(false)
     setElapsedMs(0)
 
     try {
@@ -46,7 +49,13 @@ export default function TranslateButton({
         body: JSON.stringify({ projectId, chapterId }),
       })
       if (!res.ok) {
-        setErrorMsg('Translation failed. Please try again.')
+        const errBody = await res.json().catch(() => ({}))
+        if (res.status === 402) {
+          setErrorMsg(errBody.error || 'Free tier limit reached.')
+          setShowSettingsLink(true)
+        } else {
+          setErrorMsg(errBody.error || 'Translation failed. Please try again.')
+        }
         setLoading(false)
         return
       }
@@ -80,7 +89,7 @@ export default function TranslateButton({
       <button
         onClick={handleTranslate}
         disabled={loading}
-        className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -90,9 +99,17 @@ export default function TranslateButton({
         {label}
       </button>
       {errorMsg && (
-        <p role="alert" className="text-xs text-red-600">
-          {errorMsg}
-        </p>
+        <div role="alert" className="text-xs text-red-600">
+          <p>{errorMsg}</p>
+          {showSettingsLink && (
+            <Link
+              href="/dashboard/settings"
+              className="mt-1 inline-block font-medium text-accent hover:underline"
+            >
+              Go to Settings to add your API key &rarr;
+            </Link>
+          )}
+        </div>
       )}
     </div>
   )

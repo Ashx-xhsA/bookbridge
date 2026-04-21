@@ -48,7 +48,10 @@ const mockJobUpdate = vi.fn()
 const mockJobFindFirst = vi.fn()
 const mockProjectFindUnique = vi.fn()
 const mockChapterFindUnique = vi.fn()
+const mockChapterFindMany = vi.fn()
 const mockChapterUpdate = vi.fn()
+const mockUserFindUnique = vi.fn()
+const mockUserUpdate = vi.fn()
 const mockGlossaryTermFindMany = vi.fn()
 const mockTransaction = vi.fn()
 
@@ -64,7 +67,12 @@ vi.mock('@/lib/prisma', () => ({
     },
     chapter: {
       findUnique: (...args: unknown[]) => mockChapterFindUnique(...args),
+      findMany: (...args: unknown[]) => mockChapterFindMany(...args),
       update: (...args: unknown[]) => mockChapterUpdate(...args),
+    },
+    user: {
+      findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
+      update: (...args: unknown[]) => mockUserUpdate(...args),
     },
     glossaryTerm: {
       findMany: (...args: unknown[]) => mockGlossaryTermFindMany(...args),
@@ -106,9 +114,13 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockJobFindFirst.mockReset()
-    // Default: no existing active job (idempotency check passes through)
     mockJobFindFirst.mockResolvedValue(null)
-    // Default: empty glossary so existing tests don't need to mock it
+    // Defaults so existing tests don't need to re-mock every time:
+    // - User has API key (skips free-tier gate)
+    // - No adjacent chapters with summaries (no context injection)
+    // - Empty glossary (omits glossary from worker body)
+    mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', freeCharsUsed: 0 })
+    mockChapterFindMany.mockResolvedValue([])
     mockGlossaryTermFindMany.mockResolvedValue([])
   })
 
@@ -158,12 +170,10 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       id: CHAPTER_ID,
       sourceContent: SOURCE_TEXT,
       projectId: PROJECT_ID,
+      number: 1,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
 
-    // Worker fetch hangs for 30 000 ms — if the route awaits it the test
-    // will time out (Vitest default: 5 000 ms). The only way to return fast
-    // is to NOT await the Worker call.
     mockGlobalFetch.mockImplementation(
       () => new Promise((resolve) => setTimeout(resolve, 30_000))
     )
@@ -203,10 +213,10 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       id: CHAPTER_ID,
       sourceContent: SOURCE_TEXT,
       projectId: PROJECT_ID,
+      number: 1,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
 
-    // Worker returns 202 immediately (async endpoint)
     mockGlobalFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ job_id: 'worker-uuid-123' }), {
         status: 202,
@@ -347,6 +357,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       id: CHAPTER_ID,
       sourceContent: SOURCE_TEXT,
       projectId: PROJECT_ID,
+      number: 1,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
     mockGlobalFetch.mockResolvedValueOnce(

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
 const bodySchema = z.object({
   projectId: z.string().cuid(),
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
-    select: { id: true, sourceContent: true, projectId: true },
+    select: { id: true, sourceContent: true, projectId: true, number: true },
   })
   if (!chapter || chapter.projectId !== projectId) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
@@ -62,36 +63,77 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const existingJob = await prisma.translationJob.findFirst({
-    where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
-    select: { id: true, status: true },
+  const FREE_TIER_LIMIT = 2000
+  const user = await prisma.user.findUnique({
+    where: { clerkId: userId },
+    select: { apiKey: true, freeCharsUsed: true },
   })
-  if (existingJob) {
+
+  const charCount = chapter.sourceContent.length
+  const usingFreeTier = !user?.apiKey
+  if (usingFreeTier && (user?.freeCharsUsed ?? 0) + charCount > FREE_TIER_LIMIT) {
     return NextResponse.json(
-      { id: existingJob.id, status: existingJob.status, error: 'Job already exists for this chapter' },
-      { status: 409 }
+      {
+        error: `Free tier limit reached (${FREE_TIER_LIMIT.toLocaleString()} chars). Add your API key in Settings for unlimited translation.`,
+        freeCharsUsed: user?.freeCharsUsed ?? 0,
+        charCount,
+      },
+      { status: 402 }
     )
   }
 
-  const job = await prisma.translationJob.create({
-    data: { projectId, chapterId, status: 'PENDING' },
-    select: { id: true, status: true },
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000
+  const existingJob = await prisma.translationJob.findFirst({
+    where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
+    select: { id: true, status: true, createdAt: true },
   })
+  if (existingJob) {
+    const age = Date.now() - new Date(existingJob.createdAt).getTime()
+    if (age < STALE_THRESHOLD_MS) {
+      return NextResponse.json(
+        { id: existingJob.id, status: existingJob.status, error: 'Translation is already in progress for this chapter' },
+        { status: 409 }
+      )
+    }
+    await prisma.translationJob.update({
+      where: { id: existingJob.id },
+      data: { status: 'FAILED', error: 'Timed out — retrying' },
+    })
+  }
 
-  // Fetch the project glossary so the Worker can inject it into the prompt
-  // and the LLM keeps proper-noun translations consistent across chapters.
-  // Empty result → omit the field entirely rather than sending an empty
-  // array (keeps the Worker payload lean and the Worker treats
-  // null/undefined as "no injection").
-  const glossaryRows = await prisma.glossaryTerm.findMany({
-    where: { projectId },
-    select: {
-      english: true,
-      translation: true,
-      category: true,
-      approved: true,
-    },
-  })
+  // Adjacent-chapter summaries + full project glossary run in parallel.
+  // Summaries go into the system prompt as free-form context; glossary is
+  // forwarded structured so the Worker can render it with approval priority
+  // and (on the server-creds path) dedupe new_terms against it.
+  const [adjacentChapters, glossaryRows] = await Promise.all([
+    prisma.chapter.findMany({
+      where: {
+        projectId,
+        number: { in: [chapter.number - 1, chapter.number + 1] },
+      },
+      select: { number: true, title: true, summary: true },
+      orderBy: { number: 'asc' },
+    }),
+    prisma.glossaryTerm.findMany({
+      where: { projectId },
+      select: {
+        english: true,
+        translation: true,
+        category: true,
+        approved: true,
+      },
+    }),
+  ])
+
+  const contextParts: string[] = []
+  for (const adj of adjacentChapters) {
+    if (adj.summary) {
+      const label = adj.number < chapter.number ? 'Previous' : 'Next'
+      contextParts.push(`${label} chapter "${adj.title}": ${adj.summary}`)
+    }
+  }
+  const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
+
   const glossary = glossaryRows
     .filter((t): t is typeof t & { translation: string } => !!t.translation)
     .map((t) => ({
@@ -100,6 +142,20 @@ export async function POST(req: NextRequest) {
       category: t.category,
       approved: t.approved,
     }))
+
+  const llmCreds = await getUserLLMCredentials(userId)
+
+  const job = await prisma.translationJob.create({
+    data: { projectId, chapterId, status: 'PENDING' },
+    select: { id: true, status: true },
+  })
+
+  if (usingFreeTier) {
+    await prisma.user.update({
+      where: { clerkId: userId },
+      data: { freeCharsUsed: { increment: charCount } },
+    })
+  }
 
   // Dispatch via next/server `after()` so the Worker call + FAILED-marking
   // Prisma write run inside the request's managed post-response lifecycle.
@@ -116,6 +172,8 @@ export async function POST(req: NextRequest) {
           source_text: chapter.sourceContent,
           target_lang: project.targetLang,
           project_id: projectId,
+          context,
+          llm: llmCreds,
           ...(glossary.length > 0 ? { glossary } : {}),
         }),
       })

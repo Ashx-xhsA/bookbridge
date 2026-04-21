@@ -12,6 +12,14 @@ class GlossaryTermInput(BaseModel):
     approved: bool = False
 
 
+class LLMCredentials(BaseModel):
+    """Optional per-request LLM credentials. Falls back to server env vars."""
+
+    llm_api_key: str | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+
+
 class TranslateChunkRequest(BaseModel):
     source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
@@ -23,10 +31,15 @@ class TranslateChunkAsyncRequest(BaseModel):
     source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
     # When set, new_terms extracted during translation are POSTed back to
-    # /api/internal/worker-callback/glossary for this project_id. Omit for
-    # anonymous/test calls that don't want glossary growth.
+    # /api/internal/worker-callback/glossary for this project_id.
     project_id: str | None = Field(None, min_length=1, max_length=128)
     glossary: list[GlossaryTermInput] | None = None
+    # Adjacent-chapter summaries etc. that improve consistency. Rendered
+    # into the system prompt alongside the glossary section.
+    context: str | None = None
+    # Per-user LLM credentials. When provided the Worker uses these in place
+    # of the server-wide env vars — required for the free-tier / BYO-key flow.
+    llm: LLMCredentials | None = None
 
 
 class ChunkData(BaseModel):
@@ -58,3 +71,13 @@ class HealthResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class SummarizeRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    max_words: int = Field(default=100, ge=20, le=300)
+    llm: LLMCredentials | None = None
+
+
+class SummarizeResponse(BaseModel):
+    summary: str

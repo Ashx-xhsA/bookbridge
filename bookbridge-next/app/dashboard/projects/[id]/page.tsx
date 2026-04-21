@@ -2,10 +2,10 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
-import { FileText, BookOpen, ArrowLeft } from 'lucide-react'
-import TranslateButton from './TranslateButton'
+import { BookOpen, ArrowLeft } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
+import ChapterExplorer from './ChapterExplorer'
 
 export default async function ProjectPage({
   params,
@@ -28,11 +28,15 @@ export default async function ProjectPage({
   if (!project) notFound()
   if (project.ownerId !== userId) notFound()
 
+  const translatedCount = project.chapters.filter((c) => c.translation).length
+  const totalChapters = project.chapters.length
+  const progress = totalChapters > 0 ? Math.round((translatedCount / totalChapters) * 100) : 0
+
   return (
     <div>
       <Link
         href="/dashboard"
-        className="flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
+        className="flex items-center gap-1 text-sm text-ink-muted hover:text-ink"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Dashboard
@@ -40,24 +44,35 @@ export default async function ProjectPage({
 
       <div className="mt-4 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{project.title}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <h1 className="font-serif text-2xl font-bold text-ink">{project.title}</h1>
+          <p className="mt-1 text-sm text-ink-muted">
             {project.sourceLang} &rarr; {project.targetLang} &middot;{' '}
-            {project.chapters.length} chapters
+            {totalChapters} chapters
           </p>
-          {project.chapters.length > 0 && (
-            <Link
-              href={`/read/${id}`}
-              className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-            >
-              Start Reading
-            </Link>
+          {totalChapters > 0 && (
+            <div className="mt-3 flex items-center gap-3">
+              <Link
+                href={`/read/${id}`}
+                className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+              >
+                Start Reading
+              </Link>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-24 overflow-hidden rounded-full bg-parchment">
+                  <div
+                    className="h-full rounded-full bg-accent transition-all"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <span className="text-xs text-ink-muted">{progress}%</span>
+              </div>
+            </div>
           )}
         </div>
         <div className="flex gap-2">
           <Link
             href={`/dashboard/projects/${id}/glossary`}
-            className="relative rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="relative rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
           >
             <BookOpen className="mr-1 inline h-4 w-4" />
             Glossary ({project.glossary.length})
@@ -79,12 +94,12 @@ export default async function ProjectPage({
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="mt-6 rounded-xl border border-parchment bg-white p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold">Public link</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Publish this book to share a read-only link with anyone — no sign-in required.
+            <h2 className="text-sm font-semibold text-ink">Public link</h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              Publish this book to share a read-only link with anyone.
             </p>
           </div>
           <PublishToggle
@@ -96,60 +111,24 @@ export default async function ProjectPage({
       </div>
 
       <div className="mt-8">
-        <h2 className="text-lg font-semibold">Chapters</h2>
-        {project.chapters.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500">
-            No chapters parsed yet. The PDF is being processed.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-2">
-            {project.chapters.map((chapter) => {
-              const job = project.jobs.find(
-                (j) => j.chapterId === chapter.id
-              )
-              const hasTranslation = !!chapter.translation
-
-              return (
-                <div
-                  key={chapter.id}
-                  className="flex items-center justify-between rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-zinc-400" />
-                    <div>
-                      <p className="font-medium">
-                        Ch. {chapter.number}: {chapter.title}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        Pages {chapter.startPage}–{chapter.endPage}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {hasTranslation ? (
-                      <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                        Translated
-                      </span>
-                    ) : job?.status === 'PROCESSING' ? (
-                      <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-                        Translating...
-                      </span>
-                    ) : job?.status === 'QUEUED' ? (
-                      <span className="rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
-                        Queued
-                      </span>
-                    ) : (
-                      <TranslateButton
-                        projectId={project.id}
-                        chapterId={chapter.id}
-                      />
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <ChapterExplorer
+          chapters={project.chapters.map((c) => ({
+            id: c.id,
+            number: c.number,
+            title: c.title,
+            startPage: c.startPage,
+            endPage: c.endPage,
+            sourceContent: c.sourceContent,
+            translation: c.translation,
+            summary: c.summary,
+          }))}
+          jobs={project.jobs.map((j) => ({
+            id: j.id,
+            chapterId: j.chapterId,
+            status: j.status,
+          }))}
+          projectId={project.id}
+        />
       </div>
     </div>
   )
