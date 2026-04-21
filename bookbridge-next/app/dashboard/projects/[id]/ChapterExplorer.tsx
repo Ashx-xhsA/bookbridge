@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, CheckCircle, Clock, Loader2 } from 'lucide-react'
+import { FileText, CheckCircle, Clock, Loader2, Sparkles } from 'lucide-react'
 import TranslateButton from './TranslateButton'
 
 interface ChapterData {
@@ -33,8 +33,40 @@ export default function ChapterExplorer({
   const [selectedId, setSelectedId] = useState<string | null>(
     chapters[0]?.id ?? null
   )
+  const [summarizing, setSummarizing] = useState(false)
+  const [summaries, setSummaries] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    for (const c of chapters) {
+      if (c.summary) map[c.id] = c.summary
+    }
+    return map
+  })
 
   const selected = chapters.find((c) => c.id === selectedId)
+  const hasMissingSummaries = chapters.some(
+    (c) => c.sourceContent && !summaries[c.id]
+  )
+
+  async function handleGenerateSummaries() {
+    setSummarizing(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/summarize`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const newSummaries = { ...summaries }
+        for (const r of data.results ?? []) {
+          newSummaries[r.chapterId] = r.summary
+        }
+        setSummaries(newSummaries)
+      }
+    } catch {
+      // Best effort
+    } finally {
+      setSummarizing(false)
+    }
+  }
 
   function getChapterStatus(chapter: ChapterData) {
     if (chapter.translation) return 'translated'
@@ -73,6 +105,20 @@ export default function ChapterExplorer({
             {translatedCount}/{chapters.length} translated
           </span>
         </div>
+        {hasMissingSummaries && (
+          <button
+            onClick={handleGenerateSummaries}
+            disabled={summarizing}
+            className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/5 disabled:opacity-50"
+          >
+            {summarizing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {summarizing ? 'Generating...' : 'Generate Summaries'}
+          </button>
+        )}
         <div className="space-y-1">
           {chapters.map((chapter) => {
             const status = getChapterStatus(chapter)
@@ -140,13 +186,13 @@ export default function ChapterExplorer({
               </div>
             </div>
 
-            {selected.summary && (
+            {(summaries[selected.id] || selected.summary) && (
               <div className="mt-4 rounded-lg bg-highlight/30 p-3">
                 <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted">
                   Summary
                 </p>
                 <p className="mt-1 text-sm leading-relaxed text-ink-light">
-                  {selected.summary}
+                  {summaries[selected.id] || selected.summary}
                 </p>
               </div>
             )}
