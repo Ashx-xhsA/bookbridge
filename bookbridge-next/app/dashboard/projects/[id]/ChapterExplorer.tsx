@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, CheckCircle, Clock, Loader2, Sparkles } from 'lucide-react'
+import { FileText, CheckCircle, Clock, Loader2, Sparkles, PlayCircle } from 'lucide-react'
 import TranslateButton from './TranslateButton'
+import { pollJob } from '@/lib/jobPoll'
 
 interface ChapterData {
   id: string
@@ -42,10 +43,45 @@ export default function ChapterExplorer({
     return map
   })
 
+  const [batchTranslating, setBatchTranslating] = useState(false)
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
+
   const selected = chapters.find((c) => c.id === selectedId)
   const hasMissingSummaries = chapters.some(
     (c) => c.sourceContent && !summaries[c.id]
   )
+  const untranslatedChapters = chapters.filter(
+    (c) => !c.translation && c.sourceContent
+  )
+
+  async function handleBatchTranslate() {
+    if (untranslatedChapters.length === 0) return
+    setBatchTranslating(true)
+    setBatchProgress({ done: 0, total: untranslatedChapters.length })
+
+    for (let i = 0; i < untranslatedChapters.length; i++) {
+      const ch = untranslatedChapters[i]
+      try {
+        const res = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId, chapterId: ch.id }),
+        })
+        if (res.ok) {
+          const body = await res.json()
+          if (body.id) {
+            await pollJob(body.id)
+          }
+        }
+      } catch {
+        // Continue with next chapter
+      }
+      setBatchProgress({ done: i + 1, total: untranslatedChapters.length })
+    }
+
+    setBatchTranslating(false)
+    window.location.reload()
+  }
 
   async function handleGenerateSummaries() {
     setSummarizing(true)
@@ -105,20 +141,41 @@ export default function ChapterExplorer({
             {translatedCount}/{chapters.length} translated
           </span>
         </div>
-        {hasMissingSummaries && (
-          <button
-            onClick={handleGenerateSummaries}
-            disabled={summarizing}
-            className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/5 disabled:opacity-50"
-          >
-            {summarizing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            {summarizing ? 'Generating...' : 'Generate Summaries'}
-          </button>
-        )}
+        <div className="mb-3 space-y-2">
+          {untranslatedChapters.length > 0 && (
+            <button
+              onClick={handleBatchTranslate}
+              disabled={batchTranslating}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {batchTranslating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {batchProgress.done}/{batchProgress.total} done
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-3.5 w-3.5" />
+                  Translate All ({untranslatedChapters.length})
+                </>
+              )}
+            </button>
+          )}
+          {hasMissingSummaries && (
+            <button
+              onClick={handleGenerateSummaries}
+              disabled={summarizing}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/5 disabled:opacity-50"
+            >
+              {summarizing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {summarizing ? 'Generating...' : 'Generate Summaries'}
+            </button>
+          )}
+        </div>
         <div className="space-y-1">
           {chapters.map((chapter) => {
             const status = getChapterStatus(chapter)
