@@ -39,29 +39,29 @@ export default function NewProjectPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="text-2xl font-bold">New Translation Project</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <h1 className="font-serif text-2xl font-bold text-ink">New Translation Project</h1>
+      <p className="mt-1 text-sm text-ink-muted">
         Upload a PDF to start translating.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
-          <label className="block text-sm font-medium">Project Title</label>
+          <label className="block text-sm font-medium text-ink">Project Title</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="My Book"
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+            className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Target Language</label>
+          <label className="block text-sm font-medium text-ink">Target Language</label>
           <select
             value={targetLang}
             onChange={(e) => setTargetLang(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+            className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <option value="zh-Hans">Chinese (Simplified)</option>
             <option value="es">Spanish</option>
@@ -73,15 +73,15 @@ export default function NewProjectPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium">PDF File</label>
+          <label className="block text-sm font-medium text-ink">PDF File</label>
           <div
             data-testid="dropzone"
-            className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 px-6 py-10 dark:border-zinc-700"
+            className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-parchment px-6 py-10 hover:border-accent/40"
             onClick={(e) => { if (e.target !== fileInputRef.current) fileInputRef.current?.click() }}
           >
             <div className="text-center">
-              <Upload className="mx-auto h-8 w-8 text-zinc-400" />
-              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <Upload className="mx-auto h-8 w-8 text-ink-muted" />
+              <p className="mt-2 text-sm text-ink-light">
                 {file ? file.name : 'Click to upload a PDF'}
               </p>
               <input
@@ -114,14 +114,14 @@ export default function NewProjectPage() {
           <button
             type="button"
             onClick={() => router.push('/dashboard')}
-            className="flex w-full items-center justify-center rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="flex w-full items-center justify-center rounded-lg border border-parchment px-4 py-2.5 text-sm font-medium text-ink-light hover:bg-parchment/30"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={uploading}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {uploading ? (
               <>

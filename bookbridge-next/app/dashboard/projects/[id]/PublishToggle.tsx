@@ -80,7 +80,7 @@ export default function PublishToggle({
           type="button"
           onClick={() => void patchPublish(true)}
           disabled={pending}
-          className="flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
           {pending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -103,14 +103,14 @@ export default function PublishToggle({
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex items-center gap-2">
-        <code className="rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+        <code className="rounded-md border border-parchment bg-paper px-2 py-1 text-xs">
           {publicUrl}
         </code>
         <button
           type="button"
           onClick={handleCopy}
           disabled={pending}
-          className="flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          className="flex items-center gap-1 rounded-lg border border-parchment px-3 py-2 text-sm font-medium text-ink-light hover:bg-parchment/30 disabled:opacity-50"
         >
           <Copy className="h-4 w-4" />
           Copy
@@ -121,7 +121,7 @@ export default function PublishToggle({
           type="button"
           onClick={handleRepublish}
           disabled={pending}
-          className="flex items-center gap-1 rounded-lg border border-amber-400 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
+          className="flex items-center gap-1 rounded-lg border border-highlight px-3 py-2 text-sm font-medium text-spine hover:bg-highlight/30 disabled:opacity-50"
         >
           <RotateCw className="h-4 w-4" />
           Republish
@@ -130,7 +130,7 @@ export default function PublishToggle({
           type="button"
           onClick={() => void patchPublish(false)}
           disabled={pending}
-          className="flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          className="flex items-center gap-1 rounded-lg border border-parchment px-3 py-2 text-sm font-medium text-ink-light hover:bg-parchment/30 disabled:opacity-50"
         >
           <EyeOff className="h-4 w-4" />
           Unpublish
