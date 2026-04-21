@@ -9,12 +9,14 @@ import os
 from bookbridge.harness.providers.claude import ClaudeTranslator
 from bookbridge.harness.providers.mock import MockTranslator
 from bookbridge.harness.providers.mymemory import MyMemoryTranslator
+from bookbridge.harness.providers.openai_compat import OpenAICompatTranslator
 from bookbridge.harness.translator import Translator
 
 _PROVIDERS: dict[str, type[Translator]] = {
     "mock": MockTranslator,
     "mymemory": MyMemoryTranslator,
     "claude": ClaudeTranslator,
+    "openai_compat": OpenAICompatTranslator,
 }
 
 

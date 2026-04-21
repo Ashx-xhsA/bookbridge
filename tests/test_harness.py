@@ -5,12 +5,12 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
-from bookbridge.harness.providers.openai_compat import OpenAICompatTranslator
 
 from bookbridge.harness import get_translator
 from bookbridge.harness.providers.claude import ClaudeTranslator
 from bookbridge.harness.providers.mock import MockTranslator
 from bookbridge.harness.providers.mymemory import MYMEMORY_URL, MyMemoryTranslator
+from bookbridge.harness.providers.openai_compat import OpenAICompatTranslator
 from bookbridge.harness.translator import TranslatorError
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ _EMPTY_CONTENT_BODY = json.dumps({"choices": [{"message": {"content": ""}}]}).en
 
 
 class TestOpenAICompatTranslator:
-    """Red-phase tests for OpenAICompatTranslator (bookbridge/harness/providers/openai_compat.py)."""
+    """Tests for OpenAICompatTranslator in bookbridge/harness/providers/openai_compat.py."""
 
     def _set_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
