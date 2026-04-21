@@ -22,6 +22,12 @@ export default function Navbar() {
           >
             My Library
           </Link>
+          <Link
+            href="/dashboard/settings"
+            className="text-sm font-medium text-ink-light hover:text-ink"
+          >
+            Settings
+          </Link>
           <UserButton />
         </div>
       </div>
