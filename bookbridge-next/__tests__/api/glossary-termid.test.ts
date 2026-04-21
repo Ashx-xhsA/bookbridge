@@ -110,6 +110,24 @@ describe('PATCH /api/projects/[id]/glossary/[termId]', () => {
     expect(res.status).toBe(403)
   })
 
+  it('returns 400 when translation is an empty string', async () => {
+    vi.mocked(auth).mockResolvedValueOnce(
+      { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never
+    )
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: OWNER_ID,
+    })
+    const { PATCH } = await import(
+      '@/app/api/projects/[id]/glossary/[termId]/route'
+    )
+    const res = await PATCH(makeRequest('PATCH', { translation: '' }), {
+      params: makeParams(),
+    })
+    expect(res.status).toBe(400)
+    expect(mockTermUpdate).not.toHaveBeenCalled()
+  })
+
   it('returns 400 when body fails Zod validation (approved is not a boolean)', async () => {
     vi.mocked(auth).mockResolvedValueOnce(
       { userId: OWNER_ID } as ReturnType<typeof auth> extends Promise<infer T> ? T : never

@@ -5,9 +5,9 @@ import prisma from '@/lib/prisma'
 
 // Server-to-server endpoint. After each chunk translation, the Python Worker
 // POSTs newly-extracted terms here (authenticated via WORKER_CALLBACK_SECRET).
-// Merge rule: if a term with the same (projectId, lower(english)) already
-// exists in the DB, skip it — extraction must never overwrite user-curated
-// or previously-extracted rows.
+// Merge rule: if a term with the same (projectId, case-insensitive english)
+// already exists in the DB, skip it — extraction must never overwrite
+// user-curated or previously-extracted rows.
 
 const termSchema = z.object({
   english: z.string().min(1).max(200),
@@ -56,10 +56,27 @@ export async function POST(req: NextRequest) {
 
   const { projectId, terms } = parsed.data
 
-  const incomingEnglish = terms.map((t) => t.english)
+  // Guard: avoid fk-violation 500s when the Worker references a stale or
+  // unknown project id.
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true },
+  })
+  if (!project) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
 
+  // Case-insensitive dedup: a term stored as "Hermione" must match an
+  // incoming "hermione". Prisma's `in:` filter is case-sensitive on
+  // Postgres text columns, so we build an OR of `equals + mode:insensitive`.
+  const incomingEnglish = terms.map((t) => t.english)
   const existing = await prisma.glossaryTerm.findMany({
-    where: { projectId, english: { in: incomingEnglish } },
+    where: {
+      projectId,
+      OR: incomingEnglish.map((e) => ({
+        english: { equals: e, mode: 'insensitive' as const },
+      })),
+    },
     select: { english: true },
   })
 
@@ -87,6 +104,16 @@ export async function POST(req: NextRequest) {
       })),
       skipDuplicates: true,
     })
+
+    // If skipDuplicates silently dropped rows (race between concurrent
+    // callbacks) surface it in logs so the divergence is at least observable.
+    if (result.count !== toInsert.length) {
+      console.warn('[glossary-callback] createMany dropped rows as duplicates', {
+        projectId,
+        requested: toInsert.length,
+        inserted: result.count,
+      })
+    }
 
     console.log('[glossary-callback] inserted terms', {
       projectId,

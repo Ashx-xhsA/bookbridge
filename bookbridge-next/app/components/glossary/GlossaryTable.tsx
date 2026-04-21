@@ -32,6 +32,7 @@ export default function GlossaryTable({ projectId, initialTerms }: Props) {
   const [newEnglish, setNewEnglish] = useState('')
   const [newTranslation, setNewTranslation] = useState('')
   const [newCategory, setNewCategory] = useState('general')
+  const [isAdding, setIsAdding] = useState(false)
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -40,7 +41,8 @@ export default function GlossaryTable({ projectId, initialTerms }: Props) {
   }, [terms, search])
 
   async function addTerm() {
-    if (!newEnglish.trim()) return
+    if (!newEnglish.trim() || isAdding) return
+    setIsAdding(true)
     try {
       const res = await fetch(`/api/projects/${projectId}/glossary`, {
         method: 'POST',
@@ -59,10 +61,17 @@ export default function GlossaryTable({ projectId, initialTerms }: Props) {
       setError(null)
     } catch {
       setError('Failed to add term. Please try again.')
+    } finally {
+      setIsAdding(false)
     }
   }
 
-  async function patchTerm(id: string, patch: Partial<GlossaryTerm>) {
+  // patch is intentionally narrow: only fields the PATCH route's Zod schema
+  // accepts. Passing server-ignored keys here would let the optimistic UI
+  // diverge from the eventual server response.
+  type TermPatch = Partial<Pick<GlossaryTerm, 'translation' | 'approved' | 'category'>>
+
+  async function patchTerm(id: string, patch: TermPatch) {
     const snapshot = terms
     setTerms((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
@@ -169,7 +178,8 @@ export default function GlossaryTable({ projectId, initialTerms }: Props) {
         <button
           type="button"
           onClick={addTerm}
-          className="inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900"
+          disabled={isAdding || !newEnglish.trim()}
+          className="inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
         >
           <Plus className="h-4 w-4" />
           Add term

@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 
+// translation must be at least 1 char — an empty string almost always
+// reflects a client mistake, and writing "" would silently flip userEdited
+// to true, polluting the "unreviewed" signal the UI relies on.
 const patchBodySchema = z.object({
-  translation: z.string().optional(),
+  translation: z.string().min(1).max(500).optional(),
   approved: z.boolean().optional(),
-  category: z.string().optional(),
+  category: z.string().min(1).max(50).optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string; termId: string }> }

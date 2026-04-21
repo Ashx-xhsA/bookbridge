@@ -18,12 +18,16 @@ import { NextRequest } from 'next/server'
 // operations most likely used — upsertMany or a loop of upsert calls — with
 // a catch-all via findMany + createMany pattern since Prisma lacks upsertMany.
 // ---------------------------------------------------------------------------
+const mockProjectFindUnique = vi.fn()
 const mockTermFindMany = vi.fn()
 const mockTermCreateMany = vi.fn()
 const mockTermUpsert = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
+    project: {
+      findUnique: (...args: unknown[]) => mockProjectFindUnique(...args),
+    },
     glossaryTerm: {
       findMany: (...args: unknown[]) => mockTermFindMany(...args),
       createMany: (...args: unknown[]) => mockTermCreateMany(...args),
@@ -69,6 +73,9 @@ describe('POST /api/internal/worker-callback/glossary', () => {
     vi.clearAllMocks()
     vi.resetModules()
     process.env.WORKER_CALLBACK_SECRET = SECRET
+    // Default: project exists. Individual tests override with
+    // mockResolvedValueOnce when asserting the 404-not-found branch.
+    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID })
   })
 
   // -------------------------------------------------------------------------
@@ -137,6 +144,24 @@ describe('POST /api/internal/worker-callback/glossary', () => {
       makeRequest({ projectId: PROJECT_ID, terms: badTerms }, withSecret())
     )
     expect(res.status).toBe(400)
+  })
+
+  // -------------------------------------------------------------------------
+  // Project existence guard (prevents fk-violation 500s)
+  // -------------------------------------------------------------------------
+  it('returns 404 when projectId does not match any existing project', async () => {
+    mockProjectFindUnique.mockReset()
+    mockProjectFindUnique.mockResolvedValueOnce(null)
+
+    const { POST } = await import(
+      '@/app/api/internal/worker-callback/glossary/route'
+    )
+    const res = await POST(
+      makeRequest({ projectId: PROJECT_ID, terms: VALID_TERMS }, withSecret())
+    )
+    expect(res.status).toBe(404)
+    expect(mockTermFindMany).not.toHaveBeenCalled()
+    expect(mockTermCreateMany).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------
