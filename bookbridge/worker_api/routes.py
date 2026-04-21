@@ -17,7 +17,6 @@ from bookbridge.worker_api.models import (
     ChunkData,
     GlossaryExtractRequest,
     GlossaryExtractResponse,
-    GlossaryTerm as GlossaryTermModel,
     HealthResponse,
     JobStatusResponse,
     SummarizeRequest,
@@ -25,6 +24,9 @@ from bookbridge.worker_api.models import (
     TranslateChunkAsyncRequest,
     TranslateChunkRequest,
     TranslateChunkResponse,
+)
+from bookbridge.worker_api.models import (
+    GlossaryTerm as GlossaryTermModel,
 )
 
 logger = logging.getLogger(__name__)
@@ -276,7 +278,8 @@ def extract_glossary(body: GlossaryExtractRequest) -> GlossaryExtractResponse:
         "proper nouns (character names, place names), technical terms, and recurring "
         "important phrases. For each term, provide a suggested translation to "
         f"{body.target_lang} and a category (one of: character, place, technical, concept, other). "
-        "Return valid JSON: {\"terms\": [{\"english\": \"...\", \"translation\": \"...\", \"category\": \"...\"}]}"
+        'Return valid JSON: {"terms": [{"english": "...", '
+        '"translation": "...", "category": "..."}]}'
     )
     try:
         content = chat_completion(
