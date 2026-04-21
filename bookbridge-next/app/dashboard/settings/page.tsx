@@ -154,7 +154,7 @@ export default function SettingsPage() {
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent dark:border-zinc-700 dark:bg-zinc-900"
+              className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             >
               <option value="openai">OpenAI (GPT-4o)</option>
               <option value="deepseek">DeepSeek (deepseek-chat)</option>
@@ -173,7 +173,7 @@ export default function SettingsPage() {
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="https://api.example.com/v1"
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent dark:border-zinc-700 dark:bg-zinc-900"
+                className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           )}
@@ -203,7 +203,7 @@ export default function SettingsPage() {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={hasExistingKey ? 'Enter new key to replace' : 'sk-...'}
-              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent dark:border-zinc-700 dark:bg-zinc-900"
+              className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <p className="mt-1 text-xs text-ink-muted">
               {provider === 'openai'
