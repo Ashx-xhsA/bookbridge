@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { CheckCircle, FileText } from 'lucide-react'
+import { CheckCircle, FileText, Search, Download, X } from 'lucide-react'
 
 type ViewMode = 'bilingual' | 'translation' | 'source'
 
@@ -35,6 +35,8 @@ export default function ReaderView({
   isDemo?: boolean
 }) {
   const [mode, setMode] = useState<ViewMode>('bilingual')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('bookbridge-reader-mode')
@@ -46,6 +48,43 @@ export default function ReaderView({
   function handleModeChange(newMode: ViewMode) {
     setMode(newMode)
     localStorage.setItem('bookbridge-reader-mode', newMode)
+  }
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null
+    const q = searchQuery.toLowerCase()
+    return chapters
+      .filter(
+        (ch) =>
+          ch.source.toLowerCase().includes(q) ||
+          ch.translation.toLowerCase().includes(q) ||
+          ch.title.toLowerCase().includes(q)
+      )
+      .map((ch) => ch.number)
+  }, [searchQuery, chapters])
+
+  function handleExport() {
+    const lines: string[] = [`# ${title}\n`]
+    if (subtitle) lines.push(`*${subtitle}*\n`)
+    lines.push(`${sourceLang} → ${targetLang}\n\n---\n`)
+
+    for (const ch of chapters) {
+      lines.push(`## Chapter ${ch.number}: ${ch.title}\n`)
+      if (ch.translation) {
+        lines.push(ch.translation)
+      } else {
+        lines.push('*Not yet translated*')
+      }
+      lines.push('\n\n---\n')
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_translation.md`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -66,8 +105,39 @@ export default function ReaderView({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex rounded-lg border border-parchment bg-white p-0.5">
+          <div className="flex items-center gap-2">
+            {searchOpen ? (
+              <div className="flex items-center gap-1 rounded-lg border border-parchment bg-white px-2">
+                <Search className="h-3.5 w-3.5 text-ink-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search..."
+                  autoFocus
+                  className="w-36 border-none bg-transparent py-1.5 text-xs outline-none placeholder:text-ink-muted"
+                />
+                <button onClick={() => { setSearchOpen(false); setSearchQuery('') }}>
+                  <X className="h-3.5 w-3.5 text-ink-muted hover:text-ink" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="rounded-lg border border-parchment p-2 text-ink-muted hover:text-ink"
+                title="Search"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={handleExport}
+              className="rounded-lg border border-parchment p-2 text-ink-muted hover:text-ink"
+              title="Export as Markdown"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            <div className="hidden sm:flex rounded-lg border border-parchment bg-white p-0.5">
               {(Object.keys(MODE_LABELS) as ViewMode[]).map((m) => (
                 <button
                   key={m}
@@ -99,23 +169,35 @@ export default function ReaderView({
           <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
             Contents
           </p>
+          {searchResults && (
+            <p className="mt-1 text-[10px] text-accent">
+              {searchResults.length} chapter{searchResults.length !== 1 ? 's' : ''} match
+            </p>
+          )}
           <nav className="mt-4 space-y-1">
-            {chapters.map((ch) => (
-              <a
-                key={ch.number}
-                href={`#ch-${ch.number}`}
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-ink-light hover:bg-parchment/50 hover:text-ink transition-colors"
-              >
-                {ch.translation ? (
-                  <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-ink-muted/40" />
-                )}
-                <span className="truncate">
-                  <span className="text-ink-muted">{ch.number}.</span> {ch.title}
-                </span>
-              </a>
-            ))}
+            {chapters.map((ch) => {
+              const isMatch = searchResults?.includes(ch.number)
+              return (
+                <a
+                  key={ch.number}
+                  href={`#ch-${ch.number}`}
+                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                    isMatch
+                      ? 'bg-highlight text-ink font-medium'
+                      : 'text-ink-light hover:bg-parchment/50 hover:text-ink'
+                  }`}
+                >
+                  {ch.translation ? (
+                    <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-ink-muted/40" />
+                  )}
+                  <span className="truncate">
+                    <span className="text-ink-muted">{ch.number}.</span> {ch.title}
+                  </span>
+                </a>
+              )
+            })}
           </nav>
         </aside>
 
