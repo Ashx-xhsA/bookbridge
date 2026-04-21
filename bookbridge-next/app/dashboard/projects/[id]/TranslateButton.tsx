@@ -46,7 +46,12 @@ export default function TranslateButton({
         body: JSON.stringify({ projectId, chapterId }),
       })
       if (!res.ok) {
-        setErrorMsg('Translation failed. Please try again.')
+        const errBody = await res.json().catch(() => ({}))
+        if (res.status === 402) {
+          setErrorMsg(errBody.error || 'Free tier limit reached. Add your API key in Settings.')
+        } else {
+          setErrorMsg(errBody.error || 'Translation failed. Please try again.')
+        }
         setLoading(false)
         return
       }
