@@ -9,18 +9,42 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
-from bookbridge.harness.translator import TranslatorError
+from bookbridge.harness.translator import (
+    GlossaryEntry,
+    TranslatorError,
+)
 from bookbridge.ingestion.chunker import build_chunk_manifest
 from bookbridge.ingestion.pdf_reader import extract_pages
-from bookbridge.worker_api.callback import post_worker_callback
+from bookbridge.worker_api.callback import (
+    post_glossary_callback,
+    post_worker_callback,
+)
 from bookbridge.worker_api.models import (
     ChunkData,
+    GlossaryTermInput,
     HealthResponse,
     JobStatusResponse,
     TranslateChunkAsyncRequest,
     TranslateChunkRequest,
     TranslateChunkResponse,
 )
+
+
+def _to_glossary_entries(
+    inputs: list[GlossaryTermInput] | None,
+) -> list[GlossaryEntry] | None:
+    if not inputs:
+        return None
+    return [
+        GlossaryEntry(
+            english=i.english,
+            translation=i.translation,
+            category=i.category,
+            approved=i.approved,
+        )
+        for i in inputs
+    ]
+
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +124,11 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
         raise HTTPException(status_code=500, detail="Translation provider misconfigured") from exc
 
     try:
-        translation = translator.translate(
+        result = translator.translate(
             text=body.source_text,
             source_lang="en",
             target_lang=body.target_lang,
+            glossary=_to_glossary_entries(body.glossary),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -117,23 +142,33 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     return TranslateChunkResponse(
         job_id=str(uuid.uuid4()),
         status="completed",
-        translation=translation,
+        translation=result.text,
     )
 
 
-def translate_and_callback(job_id: str, source_text: str, target_lang: str) -> None:
+def translate_and_callback(
+    job_id: str,
+    source_text: str,
+    target_lang: str,
+    project_id: str | None = None,
+    glossary: list[GlossaryEntry] | None = None,
+) -> None:
     """Background-task worker: translate and POST the result back to Next.js.
 
     Never raises — any exception is caught and reported via the callback as
     FAILED with a generic error (no provider stack trace), so the BFF poller
-    can surface it cleanly to the user.
+    can surface it cleanly to the user. If the translation produces any
+    new_terms AND the caller supplied a project_id, those terms are also
+    POSTed to the glossary callback so the BFF can insert them with the
+    merge rule (exists → skip, new → insert as unapproved).
     """
     try:
         translator = get_translator()
-        translation = translator.translate(
+        result = translator.translate(
             text=source_text,
             source_lang="en",
             target_lang=target_lang,
+            glossary=glossary,
         )
     except Exception as exc:
         logger.warning(
@@ -150,11 +185,24 @@ def translate_and_callback(job_id: str, source_text: str, target_lang: str) -> N
         )
         return
 
+    if project_id and result.new_terms:
+        post_glossary_callback(
+            project_id=project_id,
+            terms=[
+                {
+                    "english": t.english,
+                    "translation": t.translation,
+                    "category": t.category,
+                }
+                for t in result.new_terms
+            ],
+        )
+
     post_worker_callback(
         {
             "job_id": job_id,
             "status": "SUCCEEDED",
-            "translated_content": translation,
+            "translated_content": result.text,
         }
     )
 
@@ -168,7 +216,8 @@ def translate_chunk_async(
 
     The background task POSTs the translation result back to Next.js via
     post_worker_callback so the BFF can write to Postgres (the Worker has no
-    Postgres driver of its own).
+    Postgres driver of its own). When project_id is provided, newly extracted
+    glossary terms are also POSTed via post_glossary_callback.
     """
     if not JOB_ID_PATTERN.match(body.job_id):
         raise HTTPException(status_code=400, detail="Invalid job_id format")
@@ -178,6 +227,8 @@ def translate_chunk_async(
         body.job_id,
         body.source_text,
         body.target_lang,
+        body.project_id,
+        _to_glossary_entries(body.glossary),
     )
     return {"job_id": body.job_id, "status": "accepted"}
 

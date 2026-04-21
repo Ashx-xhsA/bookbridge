@@ -20,7 +20,47 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 CALLBACK_PATH = "/api/internal/worker-callback"
+GLOSSARY_CALLBACK_PATH = "/api/internal/worker-callback/glossary"
 REQUEST_TIMEOUT_SECONDS: float = 10.0
+
+
+def post_glossary_callback(project_id: str, terms: list[dict]) -> None:
+    """POST newly-extracted glossary terms to the Next.js glossary callback.
+
+    No-op if env vars are missing (dev) or terms list is empty. Same
+    non-raising contract as `post_worker_callback` — a failed glossary
+    callback must not crash the background translation flow.
+    """
+    if not terms:
+        return
+
+    base = os.environ.get("CALLBACK_BASE_URL", "").rstrip("/")
+    secret = os.environ.get("WORKER_CALLBACK_SECRET", "")
+    if not base or not secret:
+        logger.error(
+            "glossary callback not configured (CALLBACK_BASE_URL / "
+            "WORKER_CALLBACK_SECRET missing); %d term(s) for project %s will be lost",
+            len(terms),
+            project_id,
+        )
+        return
+
+    url = f"{base}{GLOSSARY_CALLBACK_PATH}"
+    body = json.dumps({"projectId": project_id, "terms": terms}).encode("utf-8")
+    req = Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Worker-Secret": secret,
+        },
+    )
+    try:
+        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+            resp.read()
+    except Exception as exc:
+        logger.error("glossary callback to %s failed: %s", url, type(exc).__name__)
 
 
 def post_worker_callback(payload: dict) -> None:

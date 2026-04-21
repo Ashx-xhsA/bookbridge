@@ -5,18 +5,26 @@ Moonshot/Kimi, Zhipu GLM, Qwen, Groq, local Ollama, ...). Config is read
 from env at call time so the Worker can switch providers without a restart.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import urllib.error
 import urllib.request
 
 from bookbridge.harness.translator import (
+    ExtractedTerm,
+    GlossaryEntry,
+    TranslateResult,
     Translator,
     TranslatorError,
+    render_glossary_prompt_section,
     validate_input,
 )
 
 REQUEST_TIMEOUT_SECONDS: float = 60.0
+
+_ALLOWED_CATEGORIES = frozenset({"person", "place", "organization", "technical", "general"})
 
 
 class OpenAICompatTranslator(Translator):
@@ -26,9 +34,21 @@ class OpenAICompatTranslator(Translator):
       - LLM_BASE_URL — base URL including `/v1` (never taken from user input: A10/SSRF)
       - LLM_API_KEY  — bearer token (never logged)
       - LLM_MODEL    — opaque model id, echoed only in the JSON body
+
+    Requests structured JSON output (`{"text": ..., "new_terms": [...]}`)
+    so translation and term extraction happen in a single LLM call. Falls
+    back gracefully when the model returns plain text (e.g. older models
+    that ignore `response_format`): wraps the raw content as `.text` with
+    an empty `new_terms`.
     """
 
-    def translate(self, text: str, source_lang: str, target_lang: str) -> str:
+    def translate(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        glossary: list[GlossaryEntry] | None = None,
+    ) -> TranslateResult:
         validate_input(text, source_lang, target_lang)
 
         api_key = os.environ.get("LLM_API_KEY", "")
@@ -37,10 +57,8 @@ class OpenAICompatTranslator(Translator):
         if not api_key or not base_url or not model:
             raise ValueError("LLM provider not configured")
 
-        system_prompt = (
-            f"Translate from {source_lang} to {target_lang}. "
-            "Return only the translated text, no preamble, no explanation."
-        )
+        system_prompt = self._build_system_prompt(source_lang, target_lang, glossary)
+
         payload = {
             "model": model,
             "messages": [
@@ -48,6 +66,7 @@ class OpenAICompatTranslator(Translator):
                 {"role": "user", "content": text},
             ],
             "temperature": 0,
+            "response_format": {"type": "json_object"},
         }
 
         req = urllib.request.Request(
@@ -77,4 +96,82 @@ class OpenAICompatTranslator(Translator):
 
         if not isinstance(content, str) or not content:
             raise TranslatorError("Translation provider failed")
-        return content
+
+        return self._parse_structured_content(content, glossary)
+
+    @staticmethod
+    def _build_system_prompt(
+        source_lang: str,
+        target_lang: str,
+        glossary: list[GlossaryEntry] | None,
+    ) -> str:
+        parts = [
+            f"Translate from {source_lang} to {target_lang}.",
+            "Return a JSON object with two keys:",
+            '  - "text": the translated text as a plain string.',
+            '  - "new_terms": an array of {english, translation, category} '
+            "for any proper nouns or technical terms present in the source "
+            "that are NOT already listed in the glossary below. Each "
+            "category MUST be one of: person, place, organization, "
+            "technical, general.",
+            "If no such terms are present, return an empty array for new_terms.",
+            "Return ONLY the JSON object — no preamble, no fences.",
+        ]
+        glossary_section = render_glossary_prompt_section(glossary)
+        if glossary_section:
+            parts.append("")
+            parts.append(glossary_section)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _parse_structured_content(
+        content: str,
+        glossary: list[GlossaryEntry] | None,
+    ) -> TranslateResult:
+        # Best-effort parse. A model that ignored `response_format` or emitted
+        # a code fence around the JSON shouldn't crash the translation path —
+        # we fall back to using the raw content as `.text` with no new_terms.
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            # Strip markdown fence like ```json ... ``` → inner payload
+            stripped = stripped.strip("`")
+            if stripped.startswith("json"):
+                stripped = stripped[len("json") :].lstrip()
+
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            return TranslateResult(text=content, new_terms=[])
+
+        if not isinstance(parsed, dict) or "text" not in parsed:
+            return TranslateResult(text=content, new_terms=[])
+
+        translated = parsed.get("text")
+        if not isinstance(translated, str) or not translated:
+            raise TranslatorError("Translation provider failed")
+
+        existing_lower = {g.english.lower() for g in glossary or []}
+        new_terms: list[ExtractedTerm] = []
+        for raw in parsed.get("new_terms") or []:
+            if not isinstance(raw, dict):
+                continue
+            eng = raw.get("english")
+            tran = raw.get("translation")
+            cat = raw.get("category", "general")
+            if not isinstance(eng, str) or not eng.strip():
+                continue
+            if not isinstance(tran, str) or not tran.strip():
+                continue
+            if eng.lower() in existing_lower:
+                continue
+            if cat not in _ALLOWED_CATEGORIES:
+                cat = "general"
+            new_terms.append(
+                ExtractedTerm(
+                    english=eng.strip(),
+                    translation=tran.strip(),
+                    category=cat,
+                )
+            )
+
+        return TranslateResult(text=translated, new_terms=new_terms)
