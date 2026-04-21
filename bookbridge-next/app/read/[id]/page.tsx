@@ -1,11 +1,11 @@
 import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
 import {
   getPublishedProjectForReader,
   tokenSchema,
 } from '@/lib/public-project'
+import ReaderView from './ReaderView'
 
 const demoChapters = [
   {
@@ -226,127 +226,5 @@ export default async function ReaderPage({
       targetLang={project.targetLang}
       chapters={chapters}
     />
-  )
-}
-
-function ReaderView({
-  title,
-  subtitle,
-  sourceLang = 'English',
-  targetLang = 'Translation',
-  chapters,
-  isDemo,
-}: {
-  title: string
-  subtitle?: string
-  sourceLang?: string
-  targetLang?: string
-  chapters: { number: number; title: string; source: string; translation: string }[]
-  isDemo?: boolean
-}) {
-  return (
-    <div className="min-h-screen bg-cream">
-      <header className="sticky top-0 z-10 border-b border-parchment bg-cream/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-white font-serif text-sm font-bold"
-            >
-              B
-            </Link>
-            <div className="hidden sm:block">
-              <span className="font-serif font-semibold text-ink">{title}</span>
-              {subtitle && (
-                <span className="ml-2 text-sm text-ink-muted">{subtitle}</span>
-              )}
-            </div>
-          </div>
-          {isDemo && (
-            <Link
-              href="/sign-up"
-              className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent-hover"
-            >
-              Sign Up to Translate Your Book
-            </Link>
-          )}
-        </div>
-      </header>
-
-      <div className="flex">
-        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-60 shrink-0 overflow-y-auto border-r border-parchment bg-paper/50 p-5 lg:block">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
-            Contents
-          </p>
-          <nav className="mt-4 space-y-1">
-            {chapters.map((ch) => (
-              <a
-                key={ch.number}
-                href={`#ch-${ch.number}`}
-                className="block rounded-md px-3 py-2 text-sm text-ink-light hover:bg-parchment/50 hover:text-ink transition-colors"
-              >
-                <span className="text-ink-muted">{ch.number}.</span> {ch.title}
-              </a>
-            ))}
-          </nav>
-        </aside>
-
-        <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-5xl px-6 py-10">
-            <div className="mb-12 text-center">
-              <h1 className="font-serif text-4xl font-bold text-ink">{title}</h1>
-              {subtitle && (
-                <p className="mt-2 font-serif text-2xl text-ink-muted">{subtitle}</p>
-              )}
-              <p className="mt-4 text-sm text-ink-muted">
-                {sourceLang} → {targetLang} &middot; {chapters.length} chapters
-              </p>
-            </div>
-
-            <div className="space-y-16">
-              {chapters.map((ch) => (
-                <section key={ch.number} id={`ch-${ch.number}`}>
-                  <div className="mb-6 border-b border-parchment pb-4">
-                    <p className="text-xs font-medium uppercase tracking-widest text-accent">
-                      Chapter {ch.number}
-                    </p>
-                    <h2 className="mt-1 font-serif text-2xl font-bold text-ink">
-                      {ch.title}
-                    </h2>
-                  </div>
-
-                  <div className="grid gap-8 md:grid-cols-2">
-                    <div>
-                      <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
-                        {sourceLang}
-                      </p>
-                      <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
-                        {ch.source || (
-                          <span className="italic text-ink-muted">
-                            Content not available
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="rounded-xl bg-accent-light/30 p-6">
-                      <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-accent">
-                        {targetLang}
-                      </p>
-                      <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
-                        {ch.translation || (
-                          <span className="italic text-ink-muted">
-                            Not yet translated
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              ))}
-            </div>
-          </div>
-        </main>
-      </div>
-    </div>
   )
 }
