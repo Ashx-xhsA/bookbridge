@@ -126,17 +126,30 @@ def translate_chunk(body: TranslateChunkRequest) -> TranslateChunkResponse:
     )
 
 
-def translate_and_callback(job_id: str, source_text: str, target_lang: str) -> None:
+def translate_and_callback(
+    job_id: str,
+    source_text: str,
+    target_lang: str,
+    context: str | None = None,
+) -> None:
     """Background-task worker: translate and POST the result back to Next.js.
 
     Never raises — any exception is caught and reported via the callback as
     FAILED with a generic error (no provider stack trace), so the BFF poller
     can surface it cleanly to the user.
     """
+    text_to_translate = source_text
+    if context:
+        text_to_translate = (
+            f"[Translation context — use for consistency, do not translate this section]\n"
+            f"{context}\n"
+            f"[End of context — translate only the text below]\n\n"
+            f"{source_text}"
+        )
     try:
         translator = get_translator()
         translation = translator.translate(
-            text=source_text,
+            text=text_to_translate,
             source_lang="en",
             target_lang=target_lang,
         )
@@ -183,6 +196,7 @@ def translate_chunk_async(
         body.job_id,
         body.source_text,
         body.target_lang,
+        body.context,
     )
     return {"job_id": body.job_id, "status": "accepted"}
 
