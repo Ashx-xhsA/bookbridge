@@ -52,3 +52,18 @@ class SummarizeRequest(BaseModel):
 
 class SummarizeResponse(BaseModel):
     summary: str
+
+
+class GlossaryExtractRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    target_lang: str = Field(default="zh-Hans")
+
+
+class GlossaryTerm(BaseModel):
+    english: str
+    translation: str | None = None
+    category: str = "general"
+
+
+class GlossaryExtractResponse(BaseModel):
+    terms: list[GlossaryTerm]
