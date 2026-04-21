@@ -1,0 +1,32 @@
+[     923ms] [ERROR]  Note that 'script-src' was not explicitly set, so 'default-src' is used as a fallback. @ https://concise-cow-35.accounts.dev/_next/static/chunks/pages/_app-2fc9629367be2ce2.js:18
+[    1042ms] [WARNING] Clerk: Clerk has been loaded with development keys. Development instances have strict usage limits and should not be used when deploying your application to production. Learn more: https://clerk.com/docs/deployments/overview @ https://concise-cow-35.accounts.dev/_next/static/chunks/pages/_app-2fc9629367be2ce2.js:14
+[    1226ms] [WARNING] Clerk: Structural CSS detected that may break on updates.
+
+Found:
+  - CSS "body.cl-component"
+  - CSS ".cl-component .button:focus-visible"
+
+These selectors depend on the internal DOM structure of Clerk's components, which may change when Clerk deploys component updates.
+To prevent breaking changes, install @clerk/ui and pass it to ClerkProvider:
+
+  import { ui } from '@clerk/ui'
+  <ClerkProvider ui={ui}>
+
+Learn more: https://clerk.com/docs/reference/components/versioning
+(code=structural_css_pin_clerk_ui) @ https://concise-cow-35.accounts.dev/_next/static/chunks/pages/_app-2fc9629367be2ce2.js:14
+[    1235ms] [ERROR] Access to fetch at 'https://clerk-telemetry.com/v1/event' from origin 'https://concise-cow-35.accounts.dev' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://concise-cow-35.accounts.dev/sign-in?redirect_url=http%3A%2F%2Flocalhost%3A3000%2Fdashboard:0
+[    1235ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://clerk-telemetry.com/v1/event:0
+[    1258ms] [ERROR] Access to fetch at 'https://clerk-telemetry.com/v1/event' from origin 'https://concise-cow-35.accounts.dev' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://concise-cow-35.accounts.dev/sign-in?redirect_url=http%3A%2F%2Flocalhost%3A3000%2Fdashboard:0
+[    1258ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://clerk-telemetry.com/v1/event:0
+[    1391ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://concise-cow-35.accounts.dev/sign-in?redirect_url=http%3A%2F%2Flocalhost%3A3000%2Fdashboard:0
+[  145942ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://accounts.google.com/v3/signin/identifier?opparams=%253F&dsh=S338986354%3A1776739395508176&access_type=offline&client_id=787459168867-0v2orf3qo56uocsi84iroseoahhuovdm.apps.googleusercontent.com&o2v=1&prompt=consent&redirect_uri=https%3A%2F%2Fclerk.shared.lcl.dev%2Fv1%2Foauth_callback&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+openid&service=lso&state=wkww2n56gi17jyq25d6nu609u3wpjkm5raexfv9j&flowName=GeneralOAuthFlow&continue=https%3A%2F%2Faccounts.google.com%2Fsignin%2Foauth%2Fconsent%3Fauthuser%3Dunknown%26part%3DAJi8hAPrrSi962isFkWZsLz3k-V9Rn5_weKEps9byTil07v2szrRE90jxZhsQLa1GWulCNN-dBzqxMqPQOo-3rDUvsLRfOf1Akop1u9y1umqveeuowFT5Q58_riFKXyaLdCe_PsAIKjOWfuEKN2J9VgmH1yGLV-3lM7ZNkkhL5T2nSIm_9zJA_hk0da6A4LI8nOBk_gQpSByRuXNd0qKKFr3V78JQEuJVdIZZhzajQWcrOTVBj89a8VBF76N1WZo7SG6TvXJLNeTgMO5GYM7Ig8x3Lr27HKuNHiFk7cGeJMehAGJpZQCeDCKookP-RVCj97wGt-tvOFEai3LqWvfA8gS0jdAhvRmsnkJdYegHKbKgdPTlzSwa5Tqh30z7VAEKCxZ_6ysj5raaZT0WgsrNntiDkxKyaQGVIsrPa4EwLWqF_PdtMAt_z7rxhLZTwUbCTqDY_eXYxaUSMiTRz_ujO2IIamRKFmLTw%26flowName%3DGeneralOAuthFlow%26as%3DS338986354%253A1776739395508176%26client_id%3D787459168867-0v2orf3qo56uocsi84iroseoahhuovdm.apps.googleusercontent.com%26requestPath%3D%252Fsignin%252Foauth%252Fconsent%23&app_domain=https%3A%2F%2Fclerk.shared.lcl.dev&rart=ANgoxceMGakS6QMVA8Rxdox9ucfAXaYomyeSG30UKysRzlays2wQjbmLrsB0rOWuB_wDUN57NJaRBkZhrXsAoqqfr7naIOS3yTGj7TiGaOhsUZfYaFoYCEg:0
+[  145947ms] [LOG] %c%s color: red; background: yellow; font-size: 24px; WARNING! @ https://www.gstatic.com/_/mss/boq-identity/_/js/k=boq-identity.AccountsSignInUi.en_US.8tJAv8mZf9w.es5.O/am=Kf8GAABCEUgGwP___zcAIACCaOB6FoAmEBkAAAAAAAAAALBAAAAaAQ/d=1/excm=_b,_tp,identifierview/ed=1/dg=0/wt=2/ujg=1/rs=AOaEmlHY3YrFkmwUqXLobOFJ2A2NzhLFZw/dti=1/m=_b,_tp:468
+[  145947ms] [LOG] %c%s font-size: 18px; Using this console may allow attackers to impersonate you and steal your information using an attack called Self-XSS.
+Do not enter or paste code that you do not understand. @ https://www.gstatic.com/_/mss/boq-identity/_/js/k=boq-identity.AccountsSignInUi.en_US.8tJAv8mZf9w.es5.O/am=Kf8GAABCEUgGwP___zcAIACCaOB6FoAmEBkAAAAAAAAAALBAAAAaAQ/d=1/excm=_b,_tp,identifierview/ed=1/dg=0/wt=2/ujg=1/rs=AOaEmlHY3YrFkmwUqXLobOFJ2A2NzhLFZw/dti=1/m=_b,_tp:468
+[  167512ms] [LOG] %c%s color: red; background: yellow; font-size: 24px; WARNING! @ https://www.gstatic.com/_/mss/boq-identity/_/js/k=boq-identity.OAuthUi.en.83OpWH2L-Hk.es5.O/am=nv8AAAAgAAPg____DQiiwXoGoEAAAAAAAAAAABgCAEQ/d=1/excm=_b,_tp,attributesview/ed=1/dg=0/wt=2/ujg=1/rs=AOaEmlEvZF2GDlOImRJp2WlWhTLf3wLbzA/dti=1/m=_b,_tp:426
+[  167512ms] [LOG] %c%s font-size: 18px; Using this console may allow attackers to impersonate you and steal your information using an attack called Self-XSS.
+Do not enter or paste code that you do not understand. @ https://www.gstatic.com/_/mss/boq-identity/_/js/k=boq-identity.OAuthUi.en.83OpWH2L-Hk.es5.O/am=nv8AAAAgAAPg____DQiiwXoGoEAAAAAAAAAAABgCAEQ/d=1/excm=_b,_tp,attributesview/ed=1/dg=0/wt=2/ujg=1/rs=AOaEmlEvZF2GDlOImRJp2WlWhTLf3wLbzA/dti=1/m=_b,_tp:426
+[  170422ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://concise-cow-35.clerk.accounts.dev/favicon.ico:0
+[  171364ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2431
+[  171428ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2431
+[  171753ms] [WARNING] Clerk: Clerk has been loaded with development keys. Development instances have strict usage limits and should not be used when deploying your application to production. Learn more: https://clerk.com/docs/deployments/overview @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2431
