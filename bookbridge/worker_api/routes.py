@@ -160,11 +160,14 @@ def _translate_with_user_creds(
 ) -> TranslateResult:
     """Translate using per-user credentials via chat_completion.
 
-    Used for the free-tier / BYO-key path. Glossary is rendered into the
-    system prompt, but new_terms extraction is NOT performed in this branch
-    (chat_completion returns plain text, not structured output). Users on
-    this path can still manually add terms in the glossary UI.
+    Asks for structured JSON output ({"text": ..., "new_terms": [...]})
+    so both translation AND term extraction happen in a single LLM call.
+    Falls back gracefully when a model ignores response_format and returns
+    plain text — in that case new_terms is empty and the raw content
+    becomes TranslateResult.text.
     """
+    import json as _json
+
     from bookbridge.worker_api.llm import chat_completion
     from bookbridge.worker_api.models import LLMCredentials
 
@@ -172,7 +175,15 @@ def _translate_with_user_creds(
 
     prompt_parts = [
         f"Translate from en to {target_lang}.",
-        "Return only the translated text, no preamble, no explanation.",
+        "Return a JSON object with two keys:",
+        '  - "text": the translated text as a plain string.',
+        '  - "new_terms": an array of {english, translation, category} '
+        "for any proper nouns or technical terms present in the source "
+        "that are NOT already listed in the glossary below. Each "
+        "category MUST be one of: person, place, organization, "
+        "technical, general.",
+        "If no such terms are present, return an empty array for new_terms.",
+        "Return ONLY the JSON object — no preamble, no fences.",
     ]
     glossary_section = render_glossary_prompt_section(glossary)
     if glossary_section:
@@ -188,12 +199,67 @@ def _translate_with_user_creds(
             f"{source_text}"
         )
 
-    translation = chat_completion(
+    raw_content = chat_completion(
         system_prompt="\n".join(prompt_parts),
         user_content=text_to_translate,
         llm=creds,
+        response_format={"type": "json_object"},
     )
-    return TranslateResult(text=translation, new_terms=[])
+
+    # Best-effort parse. A model that ignored response_format shouldn't crash
+    # the translation path — we fall back to raw text with no new_terms.
+    stripped = raw_content.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[len("json") :].lstrip()
+
+    try:
+        parsed = _json.loads(stripped)
+    except _json.JSONDecodeError:
+        logger.warning("user-creds path: LLM returned non-JSON, using raw text")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    if not isinstance(parsed, dict) or "text" not in parsed:
+        logger.warning("user-creds path: LLM JSON missing 'text' key")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    translated = parsed.get("text")
+    if not isinstance(translated, str) or not translated:
+        logger.warning("user-creds path: LLM 'text' field empty or non-string")
+        return TranslateResult(text=raw_content, new_terms=[])
+
+    existing_lower = {g.english.lower() for g in glossary or []}
+    new_terms: list[ExtractedTerm] = []
+    allowed_categories = {"person", "place", "organization", "technical", "general"}
+    for raw in parsed.get("new_terms") or []:
+        if not isinstance(raw, dict):
+            continue
+        eng = raw.get("english")
+        tran = raw.get("translation")
+        cat = raw.get("category", "general")
+        if not isinstance(eng, str) or not eng.strip():
+            continue
+        if not isinstance(tran, str) or not tran.strip():
+            continue
+        if eng.lower() in existing_lower:
+            continue
+        if cat not in allowed_categories:
+            cat = "general"
+        new_terms.append(
+            ExtractedTerm(
+                english=eng.strip(),
+                translation=tran.strip(),
+                category=cat,
+            )
+        )
+
+    logger.info(
+        "user-creds path: parsed LLM response — text=%d chars, new_terms=%d",
+        len(translated),
+        len(new_terms),
+    )
+    return TranslateResult(text=translated, new_terms=new_terms)
 
 
 def _translate_with_server_creds(
@@ -346,8 +412,3 @@ def summarize(body: SummarizeRequest) -> SummarizeResponse:
         raise HTTPException(status_code=502, detail="Summarization failed") from exc
 
     return SummarizeResponse(summary=content.strip())
-
-
-# Silence the "ExtractedTerm imported but unused" lint — it's part of the public
-# surface the translator protocol returns and is referenced indirectly.
-_ = ExtractedTerm
