@@ -64,16 +64,17 @@ model Chapter {
 }
 
 model TranslationJob {
-  id        String    @id @default(cuid())
-  projectId String
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  chapterId String?
-  status    JobStatus @default(QUEUED)
-  workerId  String?
-  result    String?   @db.Text
-  error     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId         String?
+  status            JobStatus @default(QUEUED)
+  workerId          String?
+  result            String?   @db.Text
+  translatedContent String?   @db.Text
+  error             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 enum JobStatus {
@@ -81,6 +82,9 @@ enum JobStatus {
   PROCESSING
   COMPLETED
   FAILED
+  PENDING
+  RUNNING
+  SUCCEEDED
 }
 
 model GlossaryTerm {
