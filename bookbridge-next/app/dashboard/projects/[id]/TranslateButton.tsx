@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Loader2, Play } from 'lucide-react'
 import { pollJob } from '@/lib/jobPoll'
 
@@ -20,6 +21,7 @@ export default function TranslateButton({
 }) {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [showSettingsLink, setShowSettingsLink] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -37,6 +39,7 @@ export default function TranslateButton({
   async function handleTranslate() {
     setLoading(true)
     setErrorMsg(null)
+    setShowSettingsLink(false)
     setElapsedMs(0)
 
     try {
@@ -48,7 +51,8 @@ export default function TranslateButton({
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}))
         if (res.status === 402) {
-          setErrorMsg(errBody.error || 'Free tier limit reached. Add your API key in Settings.')
+          setErrorMsg(errBody.error || 'Free tier limit reached.')
+          setShowSettingsLink(true)
         } else {
           setErrorMsg(errBody.error || 'Translation failed. Please try again.')
         }
@@ -95,9 +99,17 @@ export default function TranslateButton({
         {label}
       </button>
       {errorMsg && (
-        <p role="alert" className="text-xs text-red-600">
-          {errorMsg}
-        </p>
+        <div role="alert" className="text-xs text-red-600">
+          <p>{errorMsg}</p>
+          {showSettingsLink && (
+            <Link
+              href="/dashboard/settings"
+              className="mt-1 inline-block font-medium text-accent hover:underline"
+            >
+              Go to Settings to add your API key &rarr;
+            </Link>
+          )}
+        </div>
       )}
     </div>
   )

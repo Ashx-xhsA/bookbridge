@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { FileText, CheckCircle, Clock, Loader2, Sparkles, PlayCircle } from 'lucide-react'
 import TranslateButton from './TranslateButton'
 import { pollJob } from '@/lib/jobPoll'
@@ -45,6 +46,7 @@ export default function ChapterExplorer({
 
   const [batchTranslating, setBatchTranslating] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
+  const [batchError, setBatchError] = useState<string | null>(null)
 
   const selected = chapters.find((c) => c.id === selectedId)
   const hasMissingSummaries = chapters.some(
@@ -57,6 +59,7 @@ export default function ChapterExplorer({
   async function handleBatchTranslate() {
     if (untranslatedChapters.length === 0) return
     setBatchTranslating(true)
+    setBatchError(null)
     setBatchProgress({ done: 0, total: untranslatedChapters.length })
 
     for (let i = 0; i < untranslatedChapters.length; i++) {
@@ -67,6 +70,11 @@ export default function ChapterExplorer({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId, chapterId: ch.id }),
         })
+        if (res.status === 402) {
+          const errBody = await res.json().catch(() => ({}))
+          setBatchError(errBody.error || 'Free tier limit reached.')
+          break
+        }
         if (res.ok) {
           const body = await res.json()
           if (body.id) {
@@ -80,7 +88,7 @@ export default function ChapterExplorer({
     }
 
     setBatchTranslating(false)
-    window.location.reload()
+    if (!batchError) window.location.reload()
   }
 
   async function handleGenerateSummaries() {
@@ -160,6 +168,17 @@ export default function ChapterExplorer({
                 </>
               )}
             </button>
+          )}
+          {batchError && (
+            <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-600">
+              <p>{batchError}</p>
+              <Link
+                href="/dashboard/settings"
+                className="mt-1 inline-block font-medium text-accent hover:underline"
+              >
+                Go to Settings to add your API key &rarr;
+              </Link>
+            </div>
           )}
           {hasMissingSummaries && (
             <button

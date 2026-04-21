@@ -30,6 +30,8 @@ export default async function GlossaryPage({
     select: { apiKey: true },
   })
 
+  const hasLLMAccess = !!user?.apiKey || !!process.env.BUILTIN_LLM_API_KEY
+
   const totalChars = project.chapters.reduce(
     (sum, c) => sum + (c.sourceContent?.length || 0),
     0
@@ -55,7 +57,7 @@ export default async function GlossaryPage({
         </div>
         <GlossaryActions
           projectId={id}
-          hasApiKey={!!user?.apiKey}
+          hasApiKey={hasLLMAccess}
           estimatedTokens={estimatedTokens}
         />
       </div>
@@ -66,7 +68,7 @@ export default async function GlossaryPage({
             No glossary terms yet.
           </p>
           <p className="mt-1 text-xs text-ink-muted">
-            {user?.apiKey
+            {hasLLMAccess
               ? 'Click "Auto-extract" to identify key terms from your book.'
               : 'Add your API key in Settings to enable automatic glossary extraction.'}
           </p>
