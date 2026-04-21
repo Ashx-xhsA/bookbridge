@@ -78,6 +78,29 @@ export async function POST(req: NextRequest) {
     select: { id: true, status: true },
   })
 
+  // Fetch the project glossary so the Worker can inject it into the prompt
+  // and the LLM keeps proper-noun translations consistent across chapters.
+  // Empty result → omit the field entirely rather than sending an empty
+  // array (keeps the Worker payload lean and the Worker treats
+  // null/undefined as "no injection").
+  const glossaryRows = await prisma.glossaryTerm.findMany({
+    where: { projectId },
+    select: {
+      english: true,
+      translation: true,
+      category: true,
+      approved: true,
+    },
+  })
+  const glossary = glossaryRows
+    .filter((t): t is typeof t & { translation: string } => !!t.translation)
+    .map((t) => ({
+      english: t.english,
+      translation: t.translation,
+      category: t.category,
+      approved: t.approved,
+    }))
+
   // Dispatch via next/server `after()` so the Worker call + FAILED-marking
   // Prisma write run inside the request's managed post-response lifecycle.
   // A plain `void fetch(...).catch(...)` race-loses on Vercel, where the
@@ -92,6 +115,8 @@ export async function POST(req: NextRequest) {
           job_id: job.id,
           source_text: chapter.sourceContent,
           target_lang: project.targetLang,
+          project_id: projectId,
+          ...(glossary.length > 0 ? { glossary } : {}),
         }),
       })
     } catch (err) {

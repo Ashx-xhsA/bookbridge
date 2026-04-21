@@ -49,6 +49,7 @@ const mockJobFindFirst = vi.fn()
 const mockProjectFindUnique = vi.fn()
 const mockChapterFindUnique = vi.fn()
 const mockChapterUpdate = vi.fn()
+const mockGlossaryTermFindMany = vi.fn()
 const mockTransaction = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
@@ -64,6 +65,9 @@ vi.mock('@/lib/prisma', () => ({
     chapter: {
       findUnique: (...args: unknown[]) => mockChapterFindUnique(...args),
       update: (...args: unknown[]) => mockChapterUpdate(...args),
+    },
+    glossaryTerm: {
+      findMany: (...args: unknown[]) => mockGlossaryTermFindMany(...args),
     },
     $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
@@ -104,6 +108,8 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     mockJobFindFirst.mockReset()
     // Default: no existing active job (idempotency check passes through)
     mockJobFindFirst.mockResolvedValue(null)
+    // Default: empty glossary so existing tests don't need to mock it
+    mockGlossaryTermFindMany.mockResolvedValue([])
   })
 
   // -------------------------------------------------------------------------
@@ -218,6 +224,110 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     const fetchedUrl = mockGlobalFetch.mock.calls[0]?.[0] as string | undefined
     expect(fetchedUrl).toBeDefined()
     expect(fetchedUrl).toContain('/translate/chunk/async')
+  })
+
+  // -------------------------------------------------------------------------
+  // Glossary forwarding (issue #30)
+  //
+  // Before calling the Worker, the BFF must fetch the project's glossary and
+  // forward it in the request body so the translator can inject it into the
+  // prompt. project_id must also be forwarded so the Worker can post extracted
+  // new_terms back to /api/internal/worker-callback/glossary.
+  // -------------------------------------------------------------------------
+  it('fetches the project glossary and forwards it plus project_id to the Worker', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      sourceContent: SOURCE_TEXT,
+      projectId: PROJECT_ID,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlossaryTermFindMany.mockResolvedValueOnce([
+      {
+        english: 'Hermione',
+        translation: '赫敏',
+        category: 'person',
+        approved: true,
+      },
+      {
+        english: 'wand',
+        translation: '魔杖',
+        category: 'technical',
+        approved: false,
+      },
+    ])
+
+    mockGlobalFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: JOB_ID }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(
+      makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID })
+    )
+    expect(res.status).toBe(202)
+
+    // Glossary findMany must have been called for this project
+    expect(mockGlossaryTermFindMany).toHaveBeenCalled()
+
+    // Worker body must include project_id and the forwarded glossary
+    const workerInit = mockGlobalFetch.mock.calls[0]?.[1] as
+      | { body?: string }
+      | undefined
+    expect(workerInit?.body).toBeDefined()
+    const parsed = JSON.parse(workerInit!.body!)
+    expect(parsed.project_id).toBe(PROJECT_ID)
+    expect(Array.isArray(parsed.glossary)).toBe(true)
+    expect(parsed.glossary).toHaveLength(2)
+    expect(parsed.glossary[0]).toMatchObject({
+      english: 'Hermione',
+      translation: '赫敏',
+      category: 'person',
+      approved: true,
+    })
+  })
+
+  it('omits glossary field when the project has no terms (not an empty array)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      sourceContent: SOURCE_TEXT,
+      projectId: PROJECT_ID,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlossaryTermFindMany.mockResolvedValueOnce([])
+
+    mockGlobalFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: JOB_ID }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+    const workerInit = mockGlobalFetch.mock.calls[0]?.[1] as
+      | { body?: string }
+      | undefined
+    const parsed = JSON.parse(workerInit!.body!)
+    expect(parsed.project_id).toBe(PROJECT_ID)
+    // Keep the payload lean — the Worker treats null/undefined glossary as
+    // "no injection" so there's no reason to send an empty array.
+    expect(parsed.glossary).toBeUndefined()
   })
 
   // -------------------------------------------------------------------------
