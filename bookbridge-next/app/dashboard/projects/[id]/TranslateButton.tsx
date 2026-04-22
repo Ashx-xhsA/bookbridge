@@ -36,6 +36,15 @@ export default function TranslateButton({
     return () => abortRef.current?.abort()
   }, [])
 
+  useEffect(() => {
+    if (!loading) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [loading])
+
   async function handleTranslate() {
     setLoading(true)
     setErrorMsg(null)
@@ -98,6 +107,11 @@ export default function TranslateButton({
         )}
         {label}
       </button>
+      {loading && (
+        <p className="max-w-[160px] text-center text-[10px] leading-snug text-amber-600">
+          Do not leave this page while translating.
+        </p>
+      )}
       {errorMsg && (
         <div role="alert" className="text-xs text-red-600">
           <p>{errorMsg}</p>
