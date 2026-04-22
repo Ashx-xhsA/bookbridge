@@ -99,3 +99,16 @@ class TestBuildChunkManifest:
         assert "total_pages" in d
         assert "chunks" in d
         assert isinstance(d["chunks"], list)
+
+    def test_front_matter_chunk_created_when_pre_chapter_pages_exist(self):
+        pages = {1: "Copyright 2024", 2: "Dedication page", 3: "Chapter 1\nContent begins"}
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=20)
+        assert manifest.chunks[0].title == "Front Matter"
+        assert manifest.chunks[0].end_page == 2
+        assert manifest.chunks[1].start_page == 3
+
+    def test_no_front_matter_when_book_starts_on_chapter_marker(self):
+        pages = {1: "Chapter 1\nContent begins", 2: "More content"}
+        manifest = build_chunk_manifest(pages, max_pages_per_chunk=20)
+        assert manifest.chunks[0].title != "Front Matter"
+        assert len(manifest.chunks) == 1

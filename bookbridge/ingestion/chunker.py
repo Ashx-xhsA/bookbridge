@@ -47,12 +47,14 @@ def build_chunk_manifest(
 
     Prefers splitting at detected chapter boundaries. Falls back to
     splitting at max_pages_per_chunk when no boundary is nearby.
+    Pages before the first chapter marker are grouped as "Front Matter".
     """
     if not pages:
         return ChunkManifest(source_file=source_file, total_pages=0, chunks=[])
 
     sorted_pages = sorted(pages.keys())
     breaks = detect_chapter_breaks(pages)
+    first_break = min(breaks) if breaks else None
 
     chunks: list[ChunkInfo] = []
     chunk_id = 1
@@ -65,7 +67,12 @@ def build_chunk_manifest(
         at_size_limit = pages_in_chunk >= max_pages_per_chunk
 
         if is_last or next_is_break or at_size_limit:
-            title = _extract_title(pages, chunk_start)
+            is_front_matter = (
+                first_break is not None
+                and chunk_start == sorted_pages[0]
+                and chunk_start < first_break
+            )
+            title = "Front Matter" if is_front_matter else _extract_title(pages, chunk_start)
             chunks.append(
                 ChunkInfo(
                     chunk_id=chunk_id,
