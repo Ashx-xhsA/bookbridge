@@ -24,6 +24,7 @@ export default function TranslateButton({
   const [showSettingsLink, setShowSettingsLink] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+  const jobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!loading) return
@@ -33,8 +34,23 @@ export default function TranslateButton({
   }, [loading])
 
   useEffect(() => {
-    return () => abortRef.current?.abort()
+    return () => {
+      abortRef.current?.abort()
+      if (jobIdRef.current) {
+        void fetch(`/api/jobs/${jobIdRef.current}`, { method: 'DELETE' })
+        jobIdRef.current = null
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    if (!loading) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [loading])
 
   async function handleTranslate() {
     setLoading(true)
@@ -68,8 +84,10 @@ export default function TranslateButton({
 
       const controller = new AbortController()
       abortRef.current = controller
+      jobIdRef.current = body.id
 
       const final = await pollJob(body.id, { signal: controller.signal })
+      jobIdRef.current = null
       if (final.status === 'SUCCEEDED') {
         window.location.reload()
         return
@@ -77,6 +95,7 @@ export default function TranslateButton({
       setErrorMsg('Translation failed. Please try again.')
       setLoading(false)
     } catch {
+      jobIdRef.current = null
       setErrorMsg('Translation failed. Please try again.')
       setLoading(false)
     }
@@ -98,6 +117,11 @@ export default function TranslateButton({
         )}
         {label}
       </button>
+      {loading && (
+        <p className="max-w-[160px] text-center text-[10px] leading-snug text-amber-600">
+          Do not leave this page while translating.
+        </p>
+      )}
       {errorMsg && (
         <div role="alert" className="text-xs text-red-600">
           <p>{errorMsg}</p>

@@ -217,6 +217,25 @@ def _translate_with_user_creds(
     try:
         parsed = _json.loads(stripped)
     except _json.JSONDecodeError:
+        import re as _re
+
+        lenient = _re.search(
+            r'"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"new_terms"|"\s*\})',
+            stripped,
+        )
+        if lenient:
+            extracted = (
+                lenient.group(1)
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace('\\"', '"')
+                .replace("\\\\", "\\")
+            )
+            logger.warning(
+                "user-creds path: invalid JSON — lenient extraction recovered %d chars",
+                len(extracted),
+            )
+            return TranslateResult(text=extracted, new_terms=[])
         logger.warning("user-creds path: LLM returned non-JSON, using raw text")
         return TranslateResult(text=raw_content, new_terms=[])
 
@@ -339,13 +358,45 @@ def translate_and_callback(
             ],
         )
 
-    post_worker_callback(
-        {
-            "job_id": job_id,
-            "status": "SUCCEEDED",
-            "translated_content": result.text,
-        }
-    )
+    summary_text = None
+    try:
+        from bookbridge.worker_api.llm import chat_completion
+        from bookbridge.worker_api.models import LLMCredentials
+
+        system_prompt = (
+            "Summarize the following text in 100 words or fewer. "
+            "Write a concise, informative summary suitable as a chapter overview. "
+            "Return only the summary text in English."
+        )
+
+        creds = None
+        if llm_creds and llm_creds.get("llm_api_key"):
+            creds = LLMCredentials(**llm_creds)
+
+        content = chat_completion(
+            system_prompt=system_prompt,
+            user_content=source_text[:8000],
+            llm=creds,
+            timeout=60,
+        )
+        summary_text = content.strip()
+    except Exception as exc:
+        logger.warning(
+            "summarize during translation failed for job %s: %s: %s",
+            job_id,
+            type(exc).__name__,
+            exc,
+        )
+
+    payload = {
+        "job_id": job_id,
+        "status": "SUCCEEDED",
+        "translated_content": result.text,
+    }
+    if summary_text:
+        payload["summary"] = summary_text
+
+    post_worker_callback(payload)
 
 
 @router.post("/translate/chunk/async", status_code=202)

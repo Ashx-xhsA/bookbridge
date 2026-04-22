@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { FileText, CheckCircle, Clock, Loader2, Sparkles, PlayCircle } from 'lucide-react'
+import { FileText, CheckCircle, Clock, Loader2, PlayCircle, StopCircle } from 'lucide-react'
 import TranslateButton from './TranslateButton'
+import SummaryButton from './SummaryButton'
 import { pollJob } from '@/lib/jobPoll'
 
 interface ChapterData {
@@ -23,6 +24,24 @@ interface JobData {
   status: string
 }
 
+function extractTranslation(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('{')) return raw
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed?.text === 'string') return parsed.text
+  } catch {}
+  const m = trimmed.match(/"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"new_terms"|"\s*\})/)
+  if (m) {
+    return m[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
+  return raw
+}
+
 export default function ChapterExplorer({
   chapters,
   jobs,
@@ -35,7 +54,6 @@ export default function ChapterExplorer({
   const [selectedId, setSelectedId] = useState<string | null>(
     chapters[0]?.id ?? null
   )
-  const [summarizing, setSummarizing] = useState(false)
   const [summaries, setSummaries] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {}
     for (const c of chapters) {
@@ -47,11 +65,19 @@ export default function ChapterExplorer({
   const [batchTranslating, setBatchTranslating] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
   const [batchError, setBatchError] = useState<string | null>(null)
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
+
+  async function handleCancelJob(jobId: string) {
+    setCancellingJobId(jobId)
+    try {
+      await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' })
+    } finally {
+      setCancellingJobId(null)
+      window.location.reload()
+    }
+  }
 
   const selected = chapters.find((c) => c.id === selectedId)
-  const hasMissingSummaries = chapters.some(
-    (c) => c.sourceContent && !summaries[c.id]
-  )
   const untranslatedChapters = chapters.filter(
     (c) => !c.translation && c.sourceContent
   )
@@ -91,26 +117,7 @@ export default function ChapterExplorer({
     if (!batchError) window.location.reload()
   }
 
-  async function handleGenerateSummaries() {
-    setSummarizing(true)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/summarize`, {
-        method: 'POST',
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const newSummaries = { ...summaries }
-        for (const r of data.results ?? []) {
-          newSummaries[r.chapterId] = r.summary
-        }
-        setSummaries(newSummaries)
-      }
-    } catch {
-      // Best effort
-    } finally {
-      setSummarizing(false)
-    }
-  }
+
 
   function getChapterStatus(chapter: ChapterData) {
     if (chapter.translation) return 'translated'
@@ -180,20 +187,7 @@ export default function ChapterExplorer({
               </Link>
             </div>
           )}
-          {hasMissingSummaries && (
-            <button
-              onClick={handleGenerateSummaries}
-              disabled={summarizing}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/5 disabled:opacity-50"
-            >
-              {summarizing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {summarizing ? 'Generating...' : 'Generate Summaries'}
-            </button>
-          )}
+
         </div>
         <div className="space-y-1">
           {chapters.map((chapter) => {
@@ -249,21 +243,52 @@ export default function ChapterExplorer({
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                <SummaryButton
+                  projectId={projectId}
+                  chapterId={selected.id}
+                  hasSummary={!!(summaries[selected.id] || selected.summary)}
+                  onSummaryGenerated={(summary) => {
+                    setSummaries((prev) => ({ ...prev, [selected.id]: summary }))
+                  }}
+                />
                 {selected.translation ? (
                   <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
                     Translated
                   </span>
-                ) : (
-                  <TranslateButton
-                    projectId={projectId}
-                    chapterId={selected.id}
-                  />
-                )}
+                ) : (() => {
+                  const activeJob = jobs.find(
+                    (j) => j.chapterId === selected.id &&
+                      (j.status === 'QUEUED' || j.status === 'PENDING' || j.status === 'PROCESSING' || j.status === 'RUNNING')
+                  )
+                  if (activeJob) {
+                    return (
+                      <button
+                        onClick={() => handleCancelJob(activeJob.id)}
+                        disabled={cancellingJobId === activeJob.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {cancellingJobId === activeJob.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <StopCircle className="h-3.5 w-3.5" />
+                        )}
+                        Stop Translate
+                      </button>
+                    )
+                  }
+                  return (
+                    <TranslateButton
+                      key={selected.id}
+                      projectId={projectId}
+                      chapterId={selected.id}
+                    />
+                  )
+                })()}
               </div>
             </div>
 
             {(summaries[selected.id] || selected.summary) && (
-              <div className="mt-4 rounded-lg bg-highlight/30 p-3">
+              <div id="chapter-summary-section" className="mt-4 rounded-lg bg-highlight/30 p-3">
                 <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted">
                   Summary
                 </p>
@@ -291,7 +316,7 @@ export default function ChapterExplorer({
                       Translation
                     </p>
                     <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                      {selected.translation}
+                      {extractTranslation(selected.translation)}
                     </div>
                   </div>
                 </div>
