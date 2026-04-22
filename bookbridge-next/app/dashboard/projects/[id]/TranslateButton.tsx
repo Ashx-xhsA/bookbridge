@@ -24,6 +24,7 @@ export default function TranslateButton({
   const [showSettingsLink, setShowSettingsLink] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+  const jobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!loading) return
@@ -33,7 +34,13 @@ export default function TranslateButton({
   }, [loading])
 
   useEffect(() => {
-    return () => abortRef.current?.abort()
+    return () => {
+      abortRef.current?.abort()
+      if (jobIdRef.current) {
+        void fetch(`/api/jobs/${jobIdRef.current}`, { method: 'DELETE' })
+        jobIdRef.current = null
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -77,8 +84,10 @@ export default function TranslateButton({
 
       const controller = new AbortController()
       abortRef.current = controller
+      jobIdRef.current = body.id
 
       const final = await pollJob(body.id, { signal: controller.signal })
+      jobIdRef.current = null
       if (final.status === 'SUCCEEDED') {
         window.location.reload()
         return
@@ -86,6 +95,7 @@ export default function TranslateButton({
       setErrorMsg('Translation failed. Please try again.')
       setLoading(false)
     } catch {
+      jobIdRef.current = null
       setErrorMsg('Translation failed. Please try again.')
       setLoading(false)
     }
