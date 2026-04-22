@@ -24,6 +24,24 @@ interface JobData {
   status: string
 }
 
+function extractTranslation(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('{')) return raw
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed?.text === 'string') return parsed.text
+  } catch {}
+  const m = trimmed.match(/"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"new_terms"|"\s*\})/)
+  if (m) {
+    return m[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
+  return raw
+}
+
 export default function ChapterExplorer({
   chapters,
   jobs,
@@ -298,7 +316,7 @@ export default function ChapterExplorer({
                       Translation
                     </p>
                     <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                      {selected.translation}
+                      {extractTranslation(selected.translation)}
                     </div>
                   </div>
                 </div>

@@ -217,6 +217,25 @@ def _translate_with_user_creds(
     try:
         parsed = _json.loads(stripped)
     except _json.JSONDecodeError:
+        import re as _re
+
+        lenient = _re.search(
+            r'"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"new_terms"|"\s*\})',
+            stripped,
+        )
+        if lenient:
+            extracted = (
+                lenient.group(1)
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace('\\"', '"')
+                .replace("\\\\", "\\")
+            )
+            logger.warning(
+                "user-creds path: invalid JSON — lenient extraction recovered %d chars",
+                len(extracted),
+            )
+            return TranslateResult(text=extracted, new_terms=[])
         logger.warning("user-creds path: LLM returned non-JSON, using raw text")
         return TranslateResult(text=raw_content, new_terms=[])
 
