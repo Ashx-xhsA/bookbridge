@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { FileText, CheckCircle, Clock, Loader2, PlayCircle } from 'lucide-react'
+import { FileText, CheckCircle, Clock, Loader2, PlayCircle, StopCircle } from 'lucide-react'
 import TranslateButton from './TranslateButton'
 import SummaryButton from './SummaryButton'
 import { pollJob } from '@/lib/jobPoll'
@@ -47,6 +47,17 @@ export default function ChapterExplorer({
   const [batchTranslating, setBatchTranslating] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
   const [batchError, setBatchError] = useState<string | null>(null)
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
+
+  async function handleCancelJob(jobId: string) {
+    setCancellingJobId(jobId)
+    try {
+      await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' })
+    } finally {
+      setCancellingJobId(null)
+      window.location.reload()
+    }
+  }
 
   const selected = chapters.find((c) => c.id === selectedId)
   const untranslatedChapters = chapters.filter(
@@ -226,12 +237,34 @@ export default function ChapterExplorer({
                   <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
                     Translated
                   </span>
-                ) : (
-                  <TranslateButton
-                    projectId={projectId}
-                    chapterId={selected.id}
-                  />
-                )}
+                ) : (() => {
+                  const activeJob = jobs.find(
+                    (j) => j.chapterId === selected.id &&
+                      (j.status === 'QUEUED' || j.status === 'PENDING' || j.status === 'PROCESSING' || j.status === 'RUNNING')
+                  )
+                  if (activeJob) {
+                    return (
+                      <button
+                        onClick={() => handleCancelJob(activeJob.id)}
+                        disabled={cancellingJobId === activeJob.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {cancellingJobId === activeJob.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <StopCircle className="h-3.5 w-3.5" />
+                        )}
+                        Stop Translate
+                      </button>
+                    )
+                  }
+                  return (
+                    <TranslateButton
+                      projectId={projectId}
+                      chapterId={selected.id}
+                    />
+                  )
+                })()}
               </div>
             </div>
 
