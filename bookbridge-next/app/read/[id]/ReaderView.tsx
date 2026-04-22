@@ -249,20 +249,20 @@ export default function ReaderView({
                   </div>
 
                   {mode === 'bilingual' && (
-                    <div className="grid gap-8 md:grid-cols-2">
-                      <div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex flex-col">
                         <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
                           {sourceLang}
                         </p>
-                        <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
+                        <div className="h-[480px] overflow-y-auto pr-2 font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
                           {ch.source || <span className="italic text-ink-muted">Content not available</span>}
                         </div>
                       </div>
-                      <div className="rounded-xl bg-accent-light/30 p-6">
+                      <div className="flex flex-col rounded-xl bg-accent-light/30 p-6">
                         <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-accent">
                           {targetLang}
                         </p>
-                        <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
+                        <div className="h-[480px] overflow-y-auto pr-2 font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
                           {ch.translation || (
                             <span className="flex items-center gap-2">
                               <span className="italic text-ink-muted">Not yet translated</span>
