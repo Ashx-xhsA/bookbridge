@@ -27,12 +27,12 @@ export default function SummaryButton({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chapterId }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        setErrorMsg('Failed to generate summary.')
+        setErrorMsg(data?.error ?? 'Failed to generate summary.')
         setLoading(false)
         return
       }
-      const data = await res.json()
       if (data.results && data.results.length > 0) {
         onSummaryGenerated(data.results[0].summary)
       } else {

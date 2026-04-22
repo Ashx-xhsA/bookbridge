@@ -53,8 +53,15 @@ export async function POST(
   }
 
   const llmCreds = await getUserLLMCredentials(userId)
+  if (!llmCreds) {
+    return NextResponse.json(
+      { error: 'No LLM API key configured. Add one in Settings.' },
+      { status: 402 }
+    )
+  }
 
   const results: { chapterId: string; summary: string }[] = []
+  let workerError: string | null = null
 
   for (const chapter of chaptersToSummarize) {
     try {
@@ -76,10 +83,17 @@ export async function POST(
           data: { summary: data.summary },
         })
         results.push({ chapterId: chapter.id, summary: data.summary })
+      } else {
+        const errBody = await workerRes.json().catch(() => ({})) as { detail?: string }
+        workerError = errBody.detail ?? `Worker returned ${workerRes.status}`
       }
-    } catch {
-      // Skip chapters that fail — best effort
+    } catch (err) {
+      workerError = err instanceof Error ? err.message : 'Worker unavailable'
     }
+  }
+
+  if (results.length === 0 && workerError) {
+    return NextResponse.json({ error: workerError }, { status: 502 })
   }
 
   return NextResponse.json({
