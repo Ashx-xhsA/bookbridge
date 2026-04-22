@@ -14,6 +14,12 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let chapterId: string | undefined
+  try {
+    const raw = await req.json()
+    chapterId = raw.chapterId
+  } catch {}
+
   const project = await prisma.project.findUnique({
     where: { id },
     include: { chapters: { orderBy: { number: 'asc' } } },
@@ -26,9 +32,21 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const chaptersToSummarize = project.chapters.filter(
-    (c) => c.sourceContent && !c.summary
-  )
+  let chaptersToSummarize = []
+  if (chapterId) {
+    const specificChapter = project.chapters.find((c) => c.id === chapterId)
+    if (!specificChapter) {
+      return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
+    }
+    if (!specificChapter.sourceContent) {
+      return NextResponse.json({ error: 'No source content' }, { status: 400 })
+    }
+    chaptersToSummarize = [specificChapter]
+  } else {
+    chaptersToSummarize = project.chapters.filter(
+      (c) => c.sourceContent && !c.summary
+    )
+  }
 
   if (chaptersToSummarize.length === 0) {
     return NextResponse.json({ message: 'All chapters already have summaries', count: 0 })

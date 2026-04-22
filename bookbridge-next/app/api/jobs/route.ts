@@ -105,14 +105,16 @@ export async function POST(req: NextRequest) {
   // Summaries go into the system prompt as free-form context; glossary is
   // forwarded structured so the Worker can render it with approval priority
   // and (on the server-creds path) dedupe new_terms against it.
-  const [adjacentChapters, glossaryRows] = await Promise.all([
+  const [precedingChapters, glossaryRows] = await Promise.all([
     prisma.chapter.findMany({
       where: {
         projectId,
-        number: { in: [chapter.number - 1, chapter.number + 1] },
+        number: { lt: chapter.number },
+        summary: { not: null },
       },
       select: { number: true, title: true, summary: true },
-      orderBy: { number: 'asc' },
+      orderBy: { number: 'desc' },
+      take: 2,
     }),
     prisma.glossaryTerm.findMany({
       where: { projectId },
@@ -126,11 +128,8 @@ export async function POST(req: NextRequest) {
   ])
 
   const contextParts: string[] = []
-  for (const adj of adjacentChapters) {
-    if (adj.summary) {
-      const label = adj.number < chapter.number ? 'Previous' : 'Next'
-      contextParts.push(`${label} chapter "${adj.title}": ${adj.summary}`)
-    }
+  for (const prev of precedingChapters.reverse()) {
+    contextParts.push(`Previous chapter "${prev.title}": ${prev.summary}`)
   }
   const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
 

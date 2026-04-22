@@ -339,13 +339,44 @@ def translate_and_callback(
             ],
         )
 
-    post_worker_callback(
-        {
-            "job_id": job_id,
-            "status": "SUCCEEDED",
-            "translated_content": result.text,
-        }
-    )
+    summary_text = None
+    try:
+        from bookbridge.worker_api.llm import chat_completion
+        from bookbridge.worker_api.models import LLMCredentials
+
+        system_prompt = (
+            "Summarize the following text in 100 words or fewer. "
+            "Write a concise, informative summary suitable as a chapter overview. "
+            "Return only the summary text in English."
+        )
+
+        creds = None
+        if llm_creds and llm_creds.get("llm_api_key"):
+            creds = LLMCredentials(**llm_creds)
+
+        content = chat_completion(
+            system_prompt=system_prompt,
+            user_content=source_text[:8000],
+            llm=creds,
+            timeout=30,
+        )
+        summary_text = content.strip()
+    except Exception as exc:
+        logger.warning(
+            "summarize during translation failed for job %s: %s",
+            job_id,
+            type(exc).__name__,
+        )
+
+    payload = {
+        "job_id": job_id,
+        "status": "SUCCEEDED",
+        "translated_content": result.text,
+    }
+    if summary_text:
+        payload["summary"] = summary_text
+
+    post_worker_callback(payload)
 
 
 @router.post("/translate/chunk/async", status_code=202)
