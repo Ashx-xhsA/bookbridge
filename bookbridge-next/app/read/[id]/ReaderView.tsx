@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
+import { pollJob } from '@/lib/jobPoll'
 import Link from 'next/link'
 import { CheckCircle, FileText, Search, Download, X, Loader2 } from 'lucide-react'
 
@@ -48,6 +49,7 @@ export default function ReaderView({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set())
+  const doneRef = useRef(false)
 
   async function handleTranslate(chapterId: string) {
     if (!projectId || translatingIds.has(chapterId)) return
@@ -58,7 +60,14 @@ export default function ReaderView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, chapterId }),
       })
-      if (res.ok) window.location.reload()
+      if (!res.ok) return
+      const body = await res.json() as { id?: string }
+      if (!body.id) return
+      const final = await pollJob(body.id)
+      if (final.status === 'SUCCEEDED') {
+        doneRef.current = true
+        window.location.reload()
+      }
     } finally {
       setTranslatingIds((prev) => {
         const next = new Set(prev)
