@@ -358,14 +358,15 @@ def translate_and_callback(
             system_prompt=system_prompt,
             user_content=source_text[:8000],
             llm=creds,
-            timeout=30,
+            timeout=60,
         )
         summary_text = content.strip()
     except Exception as exc:
         logger.warning(
-            "summarize during translation failed for job %s: %s",
+            "summarize during translation failed for job %s: %s: %s",
             job_id,
             type(exc).__name__,
+            exc,
         )
 
     payload = {
