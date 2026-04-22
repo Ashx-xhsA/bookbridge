@@ -260,6 +260,7 @@ export default function ChapterExplorer({
                   }
                   return (
                     <TranslateButton
+                      key={selected.id}
                       projectId={projectId}
                       chapterId={selected.id}
                     />
