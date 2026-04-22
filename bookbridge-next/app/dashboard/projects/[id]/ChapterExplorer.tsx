@@ -192,9 +192,9 @@ export default function ChapterExplorer({
   const translatedCount = chapters.filter((c) => c.translation).length
 
   return (
-    <div className="flex gap-6">
+    <div className="flex h-[700px] gap-6">
       {/* Sidebar: chapter list */}
-      <div className="w-72 shrink-0">
+      <div className="flex w-72 shrink-0 flex-col overflow-hidden">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted">
             Chapters
@@ -262,7 +262,7 @@ export default function ChapterExplorer({
             </button>
           </div>
         )}
-        <div className="space-y-1">
+        <div className="min-h-0 flex-1 overflow-y-auto space-y-1">
           {chapters.map((chapter) => {
             const status = getChapterStatus(chapter)
             const isSelected = chapter.id === selectedId
@@ -311,7 +311,7 @@ export default function ChapterExplorer({
       </div>
 
       {/* Content preview panel */}
-      <div className="min-w-0 flex-1 rounded-xl border border-parchment bg-white p-6">
+      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-parchment bg-white p-6">
         {selected ? (
           <>
             <div className="flex items-start justify-between">
@@ -389,7 +389,7 @@ export default function ChapterExplorer({
                     <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
                       Original
                     </p>
-                    <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                       {selected.sourceContent || (
                         <span className="italic text-ink-muted">No content</span>
                       )}
@@ -399,7 +399,7 @@ export default function ChapterExplorer({
                     <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">
                       Translation
                     </p>
-                    <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                       {extractTranslation(selected.translation)}
                     </div>
                   </div>
@@ -409,7 +409,7 @@ export default function ChapterExplorer({
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
                     Source text
                   </p>
-                  <div className="max-h-[500px] overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                  <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                     {selected.sourceContent || (
                       <span className="italic text-ink-muted">
                         No content available for this chapter.
