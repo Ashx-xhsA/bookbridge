@@ -66,6 +66,7 @@ export default function ChapterExplorer({
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
   const [batchError, setBatchError] = useState<string | null>(null)
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
+  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set())
 
   async function handleCancelJob(jobId: string) {
     setCancellingJobId(jobId)
@@ -81,6 +82,52 @@ export default function ChapterExplorer({
   const untranslatedChapters = chapters.filter(
     (c) => !c.translation && c.sourceContent
   )
+
+  function toggleChapter(id: string) {
+    setSelectedChapterIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleSelectedTranslate() {
+    const toTranslate = chapters.filter(
+      (c) => selectedChapterIds.has(c.id) && !c.translation && c.sourceContent
+    )
+    if (toTranslate.length === 0) return
+    setBatchTranslating(true)
+    setBatchError(null)
+    setBatchProgress({ done: 0, total: toTranslate.length })
+    let hadError = false
+
+    for (let i = 0; i < toTranslate.length; i++) {
+      const ch = toTranslate[i]
+      try {
+        const res = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId, chapterId: ch.id }),
+        })
+        if (res.status === 402) {
+          const errBody = await res.json().catch(() => ({}))
+          setBatchError(errBody.error || 'Free tier limit reached.')
+          hadError = true
+          break
+        }
+        if (res.ok) {
+          const body = await res.json()
+          if (body.id) await pollJob(body.id)
+        }
+      } catch {}
+      setBatchProgress({ done: i + 1, total: toTranslate.length })
+    }
+
+    setBatchTranslating(false)
+    setSelectedChapterIds(new Set())
+    if (!hadError) window.location.reload()
+  }
 
   async function handleBatchTranslate() {
     if (untranslatedChapters.length === 0) return
@@ -145,9 +192,9 @@ export default function ChapterExplorer({
   const translatedCount = chapters.filter((c) => c.translation).length
 
   return (
-    <div className="flex gap-6">
+    <div className="flex h-[700px] gap-6">
       {/* Sidebar: chapter list */}
-      <div className="w-72 shrink-0">
+      <div className="flex w-72 shrink-0 flex-col overflow-hidden">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted">
             Chapters
@@ -189,45 +236,82 @@ export default function ChapterExplorer({
           )}
 
         </div>
-        <div className="space-y-1">
+        {selectedChapterIds.size > 0 && (
+          <div className="mb-2 space-y-1.5">
+            {selectedChapterIds.size > 5 && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+                Selecting many chapters may take a while. Consider translating in smaller batches.
+              </p>
+            )}
+            <button
+              onClick={handleSelectedTranslate}
+              disabled={batchTranslating}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {batchTranslating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {batchProgress.done}/{batchProgress.total} done
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-3.5 w-3.5" />
+                  Translate Selected ({selectedChapterIds.size})
+                </>
+              )}
+            </button>
+          </div>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto space-y-1">
           {chapters.map((chapter) => {
             const status = getChapterStatus(chapter)
             const isSelected = chapter.id === selectedId
+            const isChecked = selectedChapterIds.has(chapter.id)
             return (
-              <button
-                key={chapter.id}
-                onClick={() => setSelectedId(chapter.id)}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
-                  isSelected
-                    ? 'bg-accent/10 text-accent'
-                    : 'text-ink-light hover:bg-parchment/50 hover:text-ink'
-                }`}
-              >
-                {status === 'translated' ? (
-                  <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
-                ) : status === 'translating' ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-purple-500" />
-                ) : status === 'queued' ? (
-                  <Clock className="h-4 w-4 shrink-0 text-yellow-500" />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-ink-muted" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className={`truncate font-medium ${isSelected ? 'text-accent' : ''}`}>
-                    {chapter.number}. {chapter.title}
-                  </p>
-                  <p className="text-xs text-ink-muted">
-                    pp. {chapter.startPage}–{chapter.endPage}
-                  </p>
-                </div>
-              </button>
+              <div key={chapter.id} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleChapter(chapter.id)}
+                  disabled={batchTranslating}
+                  aria-label={`Select chapter ${chapter.number}`}
+                  className="h-3.5 w-3.5 shrink-0 accent-accent"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                  onClick={() => setSelectedId(chapter.id)}
+                  className={`flex flex-1 items-center gap-2.5 rounded-lg px-2 py-2.5 text-left text-sm transition-colors ${
+                    isSelected
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-ink-light hover:bg-parchment/50 hover:text-ink'
+                  }`}
+                >
+                  {status === 'translated' ? (
+                    <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
+                  ) : status === 'translating' ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-purple-500" />
+                  ) : status === 'queued' ? (
+                    <Clock className="h-4 w-4 shrink-0 text-yellow-500" />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-ink-muted" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className={`truncate font-medium ${isSelected ? 'text-accent' : ''}`}>
+                      {chapter.number}. {chapter.title}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      pp. {chapter.startPage}–{chapter.endPage}
+                    </p>
+                  </div>
+                </button>
+              </div>
             )
           })}
         </div>
       </div>
 
       {/* Content preview panel */}
-      <div className="min-w-0 flex-1 rounded-xl border border-parchment bg-white p-6">
+      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-parchment bg-white p-6">
         {selected ? (
           <>
             <div className="flex items-start justify-between">
@@ -305,7 +389,7 @@ export default function ChapterExplorer({
                     <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
                       Original
                     </p>
-                    <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                       {selected.sourceContent || (
                         <span className="italic text-ink-muted">No content</span>
                       )}
@@ -315,7 +399,7 @@ export default function ChapterExplorer({
                     <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">
                       Translation
                     </p>
-                    <div className="max-h-96 overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                       {extractTranslation(selected.translation)}
                     </div>
                   </div>
@@ -325,7 +409,7 @@ export default function ChapterExplorer({
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
                     Source text
                   </p>
-                  <div className="max-h-[500px] overflow-y-auto whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
+                  <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
                     {selected.sourceContent || (
                       <span className="italic text-ink-muted">
                         No content available for this chapter.

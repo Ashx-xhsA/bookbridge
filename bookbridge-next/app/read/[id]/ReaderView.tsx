@@ -2,11 +2,12 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { CheckCircle, FileText, Search, Download, X } from 'lucide-react'
+import { CheckCircle, FileText, Search, Download, X, Loader2 } from 'lucide-react'
 
 type ViewMode = 'bilingual' | 'translation' | 'source'
 
 interface ChapterData {
+  id?: string
   number: number
   title: string
   source: string
@@ -26,6 +27,7 @@ export default function ReaderView({
   targetLang = 'Translation',
   chapters,
   isDemo,
+  projectId,
 }: {
   title: string
   subtitle?: string
@@ -33,6 +35,7 @@ export default function ReaderView({
   targetLang?: string
   chapters: ChapterData[]
   isDemo?: boolean
+  projectId?: string
 }) {
   const [mode, setMode] = useState<ViewMode>(() => {
     if (typeof window === 'undefined') return 'bilingual'
@@ -44,6 +47,26 @@ export default function ReaderView({
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set())
+
+  async function handleTranslate(chapterId: string) {
+    if (!projectId || translatingIds.has(chapterId)) return
+    setTranslatingIds((prev) => new Set(prev).add(chapterId))
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, chapterId }),
+      })
+      if (res.ok) window.location.reload()
+    } finally {
+      setTranslatingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(chapterId)
+        return next
+      })
+    }
+  }
 
   function handleModeChange(newMode: ViewMode) {
     setMode(newMode)
@@ -240,7 +263,22 @@ export default function ReaderView({
                           {targetLang}
                         </p>
                         <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
-                          {ch.translation || <span className="italic text-ink-muted">Not yet translated</span>}
+                          {ch.translation || (
+                            <span className="flex items-center gap-2">
+                              <span className="italic text-ink-muted">Not yet translated</span>
+                              {projectId && ch.id && (
+                                <button
+                                  onClick={() => handleTranslate(ch.id!)}
+                                  disabled={translatingIds.has(ch.id)}
+                                  className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                                >
+                                  {translatingIds.has(ch.id) ? (
+                                    <><Loader2 className="h-3 w-3 animate-spin" /> Translating…</>
+                                  ) : 'Translate'}
+                                </button>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -252,7 +290,22 @@ export default function ReaderView({
                         {targetLang}
                       </p>
                       <div className="font-serif text-[15px] leading-[1.9] text-ink whitespace-pre-wrap">
-                        {ch.translation || <span className="italic text-ink-muted">Not yet translated</span>}
+                        {ch.translation || (
+                          <span className="flex items-center gap-2">
+                            <span className="italic text-ink-muted">Not yet translated</span>
+                            {projectId && ch.id && (
+                              <button
+                                onClick={() => handleTranslate(ch.id!)}
+                                disabled={translatingIds.has(ch.id)}
+                                className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                              >
+                                {translatingIds.has(ch.id) ? (
+                                  <><Loader2 className="h-3 w-3 animate-spin" /> Translating…</>
+                                ) : 'Translate'}
+                              </button>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}

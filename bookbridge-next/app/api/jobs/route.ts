@@ -63,25 +63,6 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const FREE_TIER_LIMIT = 2000
-  const user = await prisma.user.findUnique({
-    where: { clerkId: userId },
-    select: { apiKey: true, freeCharsUsed: true },
-  })
-
-  const charCount = chapter.sourceContent.length
-  const usingFreeTier = !user?.apiKey
-  if (usingFreeTier && (user?.freeCharsUsed ?? 0) + charCount > FREE_TIER_LIMIT) {
-    return NextResponse.json(
-      {
-        error: `Free tier limit reached (${FREE_TIER_LIMIT.toLocaleString()} chars). Add your API key in Settings for unlimited translation.`,
-        freeCharsUsed: user?.freeCharsUsed ?? 0,
-        charCount,
-      },
-      { status: 402 }
-    )
-  }
-
   const STALE_THRESHOLD_MS = 5 * 60 * 1000
   const existingJob = await prisma.translationJob.findFirst({
     where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
@@ -143,18 +124,17 @@ export async function POST(req: NextRequest) {
     }))
 
   const llmCreds = await getUserLLMCredentials(userId)
+  if (!llmCreds) {
+    return NextResponse.json(
+      { error: 'An API key is required to translate. Add yours in Settings.' },
+      { status: 402 }
+    )
+  }
 
   const job = await prisma.translationJob.create({
     data: { projectId, chapterId, status: 'PENDING' },
     select: { id: true, status: true },
   })
-
-  if (usingFreeTier) {
-    await prisma.user.update({
-      where: { clerkId: userId },
-      data: { freeCharsUsed: { increment: charCount } },
-    })
-  }
 
   // Dispatch via next/server `after()` so the Worker call + FAILED-marking
   // Prisma write run inside the request's managed post-response lifecycle.

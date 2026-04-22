@@ -20,11 +20,13 @@ export default function TranslateButton({
   chapterId: string
 }) {
   const [loading, setLoading] = useState(false)
+  const [succeeded, setSucceeded] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [showSettingsLink, setShowSettingsLink] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const jobIdRef = useRef<string | null>(null)
+  const doneRef = useRef(false)
 
   useEffect(() => {
     if (!loading) return
@@ -46,6 +48,7 @@ export default function TranslateButton({
   useEffect(() => {
     if (!loading) return
     const handler = (e: BeforeUnloadEvent) => {
+      if (doneRef.current) return
       e.preventDefault()
     }
     window.addEventListener('beforeunload', handler)
@@ -89,7 +92,9 @@ export default function TranslateButton({
       const final = await pollJob(body.id, { signal: controller.signal })
       jobIdRef.current = null
       if (final.status === 'SUCCEEDED') {
-        window.location.reload()
+        doneRef.current = true
+        setSucceeded(true)
+        setTimeout(() => window.location.reload(), 1200)
         return
       }
       setErrorMsg('Translation failed. Please try again.')
@@ -102,6 +107,15 @@ export default function TranslateButton({
   }
 
   const label = loading ? `Translating… ${formatElapsed(elapsedMs)}` : 'Translate'
+
+  if (succeeded) {
+    return (
+      <div className="flex items-center gap-1.5 rounded-lg bg-green-100 px-3 py-1.5 text-xs font-medium text-green-700">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Done! Reloading…
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col items-end gap-1">

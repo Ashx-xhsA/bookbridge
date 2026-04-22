@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Sparkles, Eye } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 
 export default function SummaryButton({
   projectId,
@@ -45,25 +45,8 @@ export default function SummaryButton({
     }
   }
 
-  function handleView() {
-    // Scroll to summary section or just a no-op since it's already rendered below
-    const el = document.getElementById('chapter-summary-section')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' })
-    }
-  }
-
   if (hasSummary) {
-    return (
-      <button
-        onClick={handleView}
-        className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10"
-        title="View Summary"
-      >
-        <Eye className="h-3.5 w-3.5" />
-        View Summary
-      </button>
-    )
+    return null
   }
 
   return (
