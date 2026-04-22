@@ -26,9 +26,17 @@ export default function NewProjectPage() {
       formData.append('targetLang', targetLang)
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      const data = await res.json()
 
-      if (!res.ok) throw new Error(data.error || 'Upload failed')
+      let data: Record<string, unknown> = {}
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(
+          'Processing timed out — the PDF may be too large. Try a file under 200 pages, or split the PDF first.'
+        )
+      }
+
+      if (!res.ok) throw new Error((data.error as string) || 'Upload failed')
       router.push(`/dashboard/projects/${data.projectId}`)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
