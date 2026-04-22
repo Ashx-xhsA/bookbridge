@@ -6,7 +6,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
 from bookbridge.harness.translator import (
@@ -72,7 +72,10 @@ def health() -> HealthResponse:
 
 
 @router.post("/parse", response_model=TranslateChunkResponse)
-def parse(file: UploadFile) -> TranslateChunkResponse:
+def parse(
+    file: UploadFile,
+    chapter_count: int | None = Form(default=None),
+) -> TranslateChunkResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
     if file.content_type not in ("application/pdf", "application/octet-stream"):
@@ -82,13 +85,25 @@ def parse(file: UploadFile) -> TranslateChunkResponse:
     if len(data) > MAX_PDF_BYTES:
         raise HTTPException(status_code=413, detail="PDF exceeds maximum allowed size (50 MB).")
 
+    if chapter_count is not None and chapter_count <= 0:
+        raise HTTPException(status_code=422, detail="chapter_count must be a positive integer.")
+
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(data)
             tmp_path = Path(tmp.name)
         pages = extract_pages(tmp_path)
-        manifest = build_chunk_manifest(pages, source_file=file.filename)
+
+        if chapter_count is not None and chapter_count > len(pages):
+            raise HTTPException(
+                status_code=422,
+                detail=f"chapter_count ({chapter_count}) exceeds total pages ({len(pages)}).",
+            )
+
+        manifest = build_chunk_manifest(
+            pages, source_file=file.filename, chapter_count=chapter_count
+        )
     except HTTPException:
         raise
     except Exception:
