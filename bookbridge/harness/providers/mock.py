@@ -31,6 +31,8 @@ class MockLLMClient:
         if json_mode:
             return self._extract(user, lang)
         block = user.split(SEGMENTS_HEADING, 1)[-1]
+        if not count_markers(block):  # free-form call, e.g. a chapter summary
+            return f"[{lang}] {user[:200]}"
         segments = parse_segments(block, expected=count_markers(block))
         return format_segments([f"[{lang}] {s}" for s in segments])
 

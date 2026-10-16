@@ -1,6 +1,18 @@
 """Pydantic request/response models for worker API endpoints."""
 
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from bookbridge.harness.config import MAX_CONTEXT_WINDOW
+from bookbridge.harness.models import ALLOWED_TARGET_LANGS
+
+MAX_SEGMENT_CHARS = 100_000
+MAX_SEGMENTS = 5_000
+MAX_TOTAL_SOURCE_CHARS = 1_000_000
+MAX_GLOSSARY = 5_000
 
 
 class GlossaryTermInput(BaseModel):
@@ -10,6 +22,9 @@ class GlossaryTermInput(BaseModel):
     translation: str = Field(..., min_length=1, max_length=500)
     category: str = Field("general", min_length=1, max_length=50)
     approved: bool = False
+    aliases: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class LLMCredentials(BaseModel):
@@ -20,26 +35,53 @@ class LLMCredentials(BaseModel):
     llm_model: str | None = None
 
 
-class TranslateChunkRequest(BaseModel):
-    source_text: str = Field(..., min_length=1)
-    target_lang: str = Field(..., min_length=2)
-    glossary: list[GlossaryTermInput] | None = None
+class SegmentInput(BaseModel):
+    index: int = Field(..., ge=0)
+    source: str = Field(..., min_length=1, max_length=MAX_SEGMENT_CHARS)
 
 
-class TranslateChunkAsyncRequest(BaseModel):
+class ContextSegmentInput(BaseModel):
+    source: str = Field(..., min_length=1, max_length=MAX_SEGMENT_CHARS)
+    translation: str | None = Field(None, max_length=MAX_SEGMENT_CHARS * 4)
+
+
+class TranslationConfigInput(BaseModel):
+    """Ablation switches (see harness.config.TranslationConfig); defaults = all on."""
+
+    glossary_mode: Literal["full", "matched"] = "matched"
+    context_window: int = Field(3, ge=0, le=MAX_CONTEXT_WINDOW)
+
+
+class TranslateSegmentsAsyncRequest(BaseModel):
     job_id: str = Field(..., min_length=1, max_length=128)
-    source_text: str = Field(..., min_length=1)
     target_lang: str = Field(..., min_length=2)
-    # When set, new_terms extracted during translation are POSTed back to
-    # /api/internal/worker-callback/glossary for this project_id.
+    segments: list[SegmentInput] = Field(..., min_length=1, max_length=MAX_SEGMENTS)
+    # Segments just before the first one (e.g. the end of the previous
+    # chapter) — seeds the rolling context window.
+    preceding: list[ContextSegmentInput] = Field(
+        default_factory=list, max_length=MAX_CONTEXT_WINDOW
+    )
+    # When set, terms from the extraction pass are POSTed to the glossary callback.
     project_id: str | None = Field(None, min_length=1, max_length=128)
-    glossary: list[GlossaryTermInput] | None = None
-    # Adjacent-chapter summaries etc. that improve consistency. Rendered
-    # into the system prompt alongside the glossary section.
-    context: str | None = None
-    # Per-user LLM credentials. When provided the Worker uses these in place
-    # of the server-wide env vars — required for the free-tier / BYO-key flow.
+    glossary: list[GlossaryTermInput] = Field(default_factory=list, max_length=MAX_GLOSSARY)
+    config: TranslationConfigInput = Field(default_factory=TranslationConfigInput)
+    # Per-user LLM credentials; when absent the Worker's env provider is used.
     llm: LLMCredentials | None = None
+
+    @field_validator("target_lang")
+    @classmethod
+    def _known_target(cls, v: str) -> str:
+        if v not in ALLOWED_TARGET_LANGS:
+            raise ValueError("unsupported target_lang")
+        return v
+
+    @model_validator(mode="after")
+    def _bounded_and_unique(self) -> TranslateSegmentsAsyncRequest:
+        if sum(len(s.source) for s in self.segments) > MAX_TOTAL_SOURCE_CHARS:
+            raise ValueError("total source text too large")
+        if len({s.index for s in self.segments}) != len(self.segments):
+            raise ValueError("duplicate segment index")
+        return self
 
 
 class ChapterData(BaseModel):
@@ -52,12 +94,6 @@ class ParseResponse(BaseModel):
     job_id: str
     status: str = "completed"
     chapters: list[ChapterData]
-
-
-class TranslateChunkResponse(BaseModel):
-    job_id: str
-    status: str = "queued"
-    translation: str | None = None
 
 
 class HealthResponse(BaseModel):
