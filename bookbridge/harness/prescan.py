@@ -2,9 +2,15 @@
 
 1. Split the whole book into passages and ask, per passage, for the named
    entities (with aliases, each alias carrying its own translation).
-2. Merge deterministically: two entries are the same entity when a name or
-   alias of one equals a name or alias of the other (case-insensitive). The
-   first main name seen wins; other names become aliases.
+2. Merge deterministically (rules found in the first real-model run, where a
+   shared surname fused Gregor Samsa with his father):
+   - entries with the same main name are one entity; the first seen wins;
+   - a *capitalised* alias equal to another entity's main name folds that
+     entity in ("Georg" ⊂ "Georg Bendemann");
+   - an alias claimed by two entities ("Mr. Samsa"), or a lowercase alias
+     naming another entity ("father"), is ambiguous and dropped;
+   - lowercase common nouns ("the sofa", "office") are dropped unless they
+     are people ("head clerk") or technical terms ("mithril").
 3. Count mentions (paragraphs naming the entity or an alias) with the same
    matcher the translator uses, and sort by it.
 4. One call writes voice cards for the most-mentioned people, from dialogue
@@ -93,42 +99,82 @@ def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dic
         return []
 
 
+def _capitalised(name: str) -> bool:
+    return any(ch.isupper() for ch in name)
+
+
 def _merge(raw: list[dict]) -> list[ScannedEntity]:
-    merged: list[ScannedEntity] = []
-    index: dict[str, int] = {}  # lowercased name or alias -> position in `merged`
+    groups = _drop_ambiguous_aliases(_fold_named_aliases(_group_by_name(raw)))
+    return [g for g in groups if g.category in ("person", "technical") or _capitalised(g.english)]
+
+
+def _group_by_name(raw: list[dict]) -> list[ScannedEntity]:
+    groups: dict[str, ScannedEntity] = {}
     for item in raw:
-        names = [item["name"], *(n for n, _ in item["aliases"])]
-        hit = next((index[n.lower()] for n in names if n.lower() in index), None)
-        if hit is None:
-            hit = len(merged)
-            merged.append(
-                ScannedEntity(
-                    english=item["name"], translation=item["translation"],
-                    category=item["category"], gender=item["gender"], notes=item["notes"],
-                )
-            )  # fmt: skip
-            pending = item["aliases"]
-        else:
-            pending = [(item["name"], item["translation"]), *item["aliases"]]
-        merged[hit] = _absorb(merged[hit], item, pending)
-        for name in merged[hit].names:
-            index[name.lower()] = hit
-    return merged
+        entity = ScannedEntity(
+            english=item["name"], translation=item["translation"], category=item["category"],
+            gender=item["gender"], notes=item["notes"],
+            aliases=tuple(AliasTarget(n, t) for n, t in item["aliases"]),
+        )  # fmt: skip
+        key = entity.english.lower()
+        base = groups.get(key, replace(entity, aliases=()))
+        groups[key] = _fold(base, entity, as_alias=False)
+    return list(groups.values())
 
 
-def _absorb(entity: ScannedEntity, item: dict, aliases: list[tuple[str, str]]) -> ScannedEntity:
-    known = {n.lower() for n in entity.names}
+def _fold(target: ScannedEntity, other: ScannedEntity, *, as_alias: bool) -> ScannedEntity:
+    """Absorb `other` into `target`: its aliases (and, if `as_alias`, its name)."""
+    named = (AliasTarget(other.english, other.translation),) if as_alias else ()
+    known = {n.lower() for n in target.names}
     extra = []
-    for name, translation in aliases:
-        if name.lower() not in known:
-            known.add(name.lower())
-            extra.append(AliasTarget(english=name, translation=translation))
+    for alias in named + other.aliases:
+        if alias.english.lower() not in known:
+            known.add(alias.english.lower())
+            extra.append(alias)
     return replace(
-        entity,
-        aliases=entity.aliases + tuple(extra),
-        gender=entity.gender or item["gender"],
-        notes=entity.notes or item["notes"],
+        target,
+        aliases=target.aliases + tuple(extra),
+        gender=target.gender or other.gender,
+        notes=target.notes or other.notes,
     )
+
+
+def _fold_named_aliases(groups: list[ScannedEntity]) -> list[ScannedEntity]:
+    """Fold entities linked by a capitalised alias into the earliest of them."""
+    root = list(range(len(groups)))
+
+    def find(i: int) -> int:
+        while root[i] != i:
+            i = root[i]
+        return i
+
+    by_main = {g.english.lower(): i for i, g in enumerate(groups)}
+    for i, g in enumerate(groups):
+        for alias in g.aliases:
+            j = by_main.get(alias.english.lower())
+            if j is not None and _capitalised(alias.english):
+                a, b = sorted((find(i), find(j)))
+                root[b] = a
+    merged: dict[int, ScannedEntity] = {}
+    for i, g in enumerate(groups):
+        r = find(i)
+        merged[r] = g if r == i else _fold(merged[r], g, as_alias=True)
+    return list(merged.values())
+
+
+def _drop_ambiguous_aliases(groups: list[ScannedEntity]) -> list[ScannedEntity]:
+    mains = {g.english.lower() for g in groups}
+    claims: dict[str, int] = {}
+    for g in groups:
+        for key in {a.english.lower() for a in g.aliases}:
+            claims[key] = claims.get(key, 0) + 1
+    return [
+        replace(g, aliases=tuple(
+            a for a in g.aliases
+            if claims[a.english.lower()] == 1 and a.english.lower() not in mains
+        ))
+        for g in groups
+    ]  # fmt: skip
 
 
 @dataclass(frozen=True)

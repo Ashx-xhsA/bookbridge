@@ -190,7 +190,11 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             "the book. Under `aliases`, list other names the passage uses for the same "
             'entity (nicknames, titles, epithets such as "the old wizard"), each '
             "with its own translation — an alias is translated as written, never as "
-            "the main name.",
+            "the main name. Add an alias only if it refers to that one entity in this "
+            "passage — never a surname shared by family members or a word like "
+            '"father" or "sir" that could mean someone else.',
+            "Skip ordinary objects, rooms and common nouns (sofa, desk, living room); "
+            "list only names and special terms whose translation must stay consistent.",
             'Return only JSON: {"entities": [{"name": str, "translation": str, '
             '"category": "person"|"place"|"organization"|"technical"|"general", '
             '"gender": "male"|"female"|"unknown"|null, "note": str|null, '
