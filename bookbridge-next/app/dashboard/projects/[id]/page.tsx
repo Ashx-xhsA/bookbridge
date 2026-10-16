@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
-import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
+import { SEGMENT_TEXT, isFullyTranslated, joinSegments, joinTranslations } from '@/lib/segments'
 import { BookOpen, ArrowLeft } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
@@ -20,7 +20,7 @@ export default async function ProjectPage({
   const project = await prisma.project.findUnique({
     where: { id },
     include: {
-      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_SOURCES } },
+      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_TEXT } },
       jobs: true,
       glossary: { orderBy: { english: 'asc' } },
     },
@@ -29,7 +29,7 @@ export default async function ProjectPage({
   if (!project) notFound()
   if (project.ownerId !== userId) notFound()
 
-  const translatedCount = project.chapters.filter((c) => c.translation).length
+  const translatedCount = project.chapters.filter((c) => isFullyTranslated(c.segments)).length
   const totalChapters = project.chapters.length
   const progress = totalChapters > 0 ? Math.round((translatedCount / totalChapters) * 100) : 0
 
@@ -119,7 +119,8 @@ export default async function ProjectPage({
             title: c.title,
             paragraphCount: c.segments.length,
             sourceContent: c.segments.length > 0 ? joinSegments(c.segments) : null,
-            translation: c.translation,
+            translation: joinTranslations(c.segments),
+            translated: isFullyTranslated(c.segments),
             summary: c.summary,
           }))}
           jobs={project.jobs.map((j) => ({

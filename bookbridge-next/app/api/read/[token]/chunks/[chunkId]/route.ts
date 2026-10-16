@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
-import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
+import { SEGMENT_TEXT, joinSegments, joinTranslations } from '@/lib/segments'
 import { getPublishedProjectId, tokenSchema } from '@/lib/public-project'
 
 const paramsSchema = z.object({
@@ -28,7 +28,7 @@ export async function GET(
     getPublishedProjectId(token),
     prisma.chapter.findUnique({
       where: { id: chunkId },
-      select: { projectId: true, translation: true, segments: SEGMENT_SOURCES },
+      select: { projectId: true, segments: SEGMENT_TEXT },
     }),
   ])
 
@@ -51,7 +51,7 @@ export async function GET(
   return NextResponse.json({
     data: {
       originalText: joinSegments(chapter.segments),
-      translatedText: chapter.translation,
+      translatedText: joinTranslations(chapter.segments),
     },
   })
 }

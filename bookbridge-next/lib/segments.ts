@@ -1,9 +1,13 @@
-// Source text lives in Segment rows (one per paragraph). Until Phase 2 moves
-// translation to segment level, callers that need a chapter's full text select
-// SEGMENT_SOURCES and join it with joinSegments.
+// Source and translation text live in Segment rows (one per paragraph).
+// Chapter-level views select SEGMENT_SOURCES / SEGMENT_TEXT and join here.
 
 export const SEGMENT_SOURCES = {
   select: { source: true },
+  orderBy: { index: 'asc' },
+} as const
+
+export const SEGMENT_TEXT = {
+  select: { source: true, translation: true },
   orderBy: { index: 'asc' },
 } as const
 
@@ -11,4 +15,25 @@ export const PARAGRAPH_SEPARATOR = '\n\n'
 
 export function joinSegments(segments: { source: string }[]): string {
   return segments.map((s) => s.source).join(PARAGRAPH_SEPARATOR)
+}
+
+// Joined translation of the segments done so far; null when none are.
+export function joinTranslations(segments: { translation: string | null }[]): string | null {
+  const done = segments.flatMap((s) => (s.translation ? [s.translation] : []))
+  return done.length > 0 ? done.join(PARAGRAPH_SEPARATOR) : null
+}
+
+export function isFullyTranslated(segments: { translation: string | null }[]): boolean {
+  return segments.length > 0 && segments.every((s) => !!s.translation)
+}
+
+// Cheap "is this chapter done?" probe for list views: the segment count plus
+// at most one untranslated segment, instead of loading every translation.
+export const CHAPTER_PROGRESS = {
+  _count: { select: { segments: true } },
+  segments: { where: { translation: null }, select: { id: true }, take: 1 },
+} as const
+
+export function isChapterDone(c: { _count: { segments: number }; segments: unknown[] }): boolean {
+  return c._count.segments > 0 && c.segments.length === 0
 }

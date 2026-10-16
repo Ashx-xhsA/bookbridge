@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { CHAPTER_PROGRESS, isChapterDone } from '@/lib/segments'
 
 export async function GET(
   _req: NextRequest,
@@ -22,23 +23,17 @@ export async function GET(
 
   const chapters = await prisma.chapter.findMany({
     where: { projectId: id },
-    select: {
-      id: true,
-      number: true,
-      title: true,
-      translation: true,
-      _count: { select: { segments: true } },
-    },
+    select: { id: true, number: true, title: true, ...CHAPTER_PROGRESS },
     orderBy: { number: 'asc' },
   })
 
   const untranslated = chapters
-    .filter((c) => !c.translation && c._count.segments > 0)
+    .filter((c) => c._count.segments > 0 && !isChapterDone(c))
     .map((c) => ({ id: c.id, number: c.number, title: c.title }))
 
   return NextResponse.json({
     total: chapters.length,
-    translated: chapters.filter((c) => c.translation).length,
+    translated: chapters.filter(isChapterDone).length,
     untranslated,
   })
 }

@@ -60,14 +60,12 @@ model Chapter {
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   number      Int
   title       String
-  // Chapter-level translation from the v1 pipeline. Phase 2 translates per
-  // Segment and this column goes away.
-  translation String?   @db.Text
   summary     String?   @db.Text
   segments    Segment[]
 }
 
-// One source paragraph. Source text lives only here (not on Chapter).
+// One source paragraph — the unit of translation. Source and translation
+// text live only here (not on Chapter).
 model Segment {
   id          String  @id @default(cuid())
   chapterId   String
@@ -112,6 +110,10 @@ model GlossaryTerm {
   translation String?
   category    String  @default("general")
   notes       String?
-  approved    Boolean @default(false)
-  userEdited  Boolean @default(false)
+  approved    Boolean  @default(false)
+  userEdited  Boolean  @default(false)
+  // Other surface forms of the same entity ("Mithrandir" for Gandalf). An
+  // alias match injects the term so the model knows who is meant; the alias
+  // itself is still translated as written.
+  aliases     String[] @default([])
 }

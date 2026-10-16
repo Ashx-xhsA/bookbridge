@@ -13,7 +13,9 @@ interface ChapterData {
   title: string
   paragraphCount: number
   sourceContent: string | null
+  // Joined translation of the segments done so far (may be partial)
   translation: string | null
+  translated: boolean
   summary: string | null
 }
 
@@ -21,24 +23,6 @@ interface JobData {
   id: string
   chapterId: string | null
   status: string
-}
-
-function extractTranslation(raw: string): string {
-  const trimmed = raw.trim()
-  if (!trimmed.startsWith('{')) return raw
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (typeof parsed?.text === 'string') return parsed.text
-  } catch {}
-  const m = trimmed.match(/"text"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"new_terms"|"\s*\})/)
-  if (m) {
-    return m[1]
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t')
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, '\\')
-  }
-  return raw
 }
 
 export default function ChapterExplorer({
@@ -79,7 +63,7 @@ export default function ChapterExplorer({
 
   const selected = chapters.find((c) => c.id === selectedId)
   const untranslatedChapters = chapters.filter(
-    (c) => !c.translation && c.sourceContent
+    (c) => !c.translated && c.sourceContent
   )
 
   function toggleChapter(id: string) {
@@ -93,7 +77,7 @@ export default function ChapterExplorer({
 
   async function handleSelectedTranslate() {
     const toTranslate = chapters.filter(
-      (c) => selectedChapterIds.has(c.id) && !c.translation && c.sourceContent
+      (c) => selectedChapterIds.has(c.id) && !c.translated && c.sourceContent
     )
     if (toTranslate.length === 0) return
     setBatchTranslating(true)
@@ -166,7 +150,7 @@ export default function ChapterExplorer({
 
 
   function getChapterStatus(chapter: ChapterData) {
-    if (chapter.translation) return 'translated'
+    if (chapter.translated) return 'translated'
     const job = jobs.find((j) => j.chapterId === chapter.id)
     if (job?.status === 'PROCESSING' || job?.status === 'RUNNING' || job?.status === 'PENDING')
       return 'translating'
@@ -188,7 +172,7 @@ export default function ChapterExplorer({
     )
   }
 
-  const translatedCount = chapters.filter((c) => c.translation).length
+  const translatedCount = chapters.filter((c) => c.translated).length
 
   return (
     <div className="flex h-[700px] gap-6">
@@ -399,7 +383,7 @@ export default function ChapterExplorer({
                       Translation
                     </p>
                     <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                      {extractTranslation(selected.translation)}
+                      {selected.translation}
                     </div>
                   </div>
                 </div>

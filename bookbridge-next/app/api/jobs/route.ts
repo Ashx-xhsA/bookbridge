@@ -2,7 +2,6 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
-import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import { workerFetch } from '@/lib/worker'
 import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
@@ -10,6 +9,10 @@ const bodySchema = z.object({
   projectId: z.string().cuid(),
   chapterId: z.string().cuid(),
 })
+
+// Paragraphs from before this chapter that seed the Worker's rolling context
+// window. The Worker trims to its configured window (max 10).
+const PRECEDING_SEGMENTS = 10
 
 // The check intentionally does not include SUCCEEDED — users may want to
 // re-translate a chapter after reviewing the first pass (e.g. after adding
@@ -51,14 +54,19 @@ export async function POST(req: NextRequest) {
 
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
-    select: { id: true, projectId: true, number: true, segments: SEGMENT_SOURCES },
+    select: {
+      id: true,
+      projectId: true,
+      number: true,
+      segments: { select: { index: true, source: true }, orderBy: { index: 'asc' } },
+    },
   })
   if (!chapter || chapter.projectId !== projectId) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
-  const sourceText = joinSegments(chapter.segments)
-  if (!sourceText.trim()) {
+  const segments = chapter.segments.filter((s) => s.source.trim())
+  if (segments.length === 0) {
     return NextResponse.json(
       { error: 'No source content to translate' },
       { status: 400 }
@@ -84,20 +92,15 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Adjacent-chapter summaries + full project glossary run in parallel.
-  // Summaries go into the system prompt as free-form context; glossary is
-  // forwarded structured so the Worker can render it with approval priority
-  // and (on the server-creds path) dedupe new_terms against it.
-  const [precedingChapters, glossaryRows] = await Promise.all([
-    prisma.chapter.findMany({
-      where: {
-        projectId,
-        number: { lt: chapter.number },
-        summary: { not: null },
-      },
-      select: { number: true, title: true, summary: true },
-      orderBy: { number: 'desc' },
-      take: 2,
+  // The full glossary goes to the Worker, which picks the terms (or aliases)
+  // that occur in each batch. The tail of the previous chapter seeds the
+  // context window — newest-first so `take` keeps the closest paragraphs.
+  const [precedingRows, glossaryRows] = await Promise.all([
+    prisma.segment.findMany({
+      where: { chapter: { projectId, number: { lt: chapter.number } } },
+      orderBy: [{ chapter: { number: 'desc' } }, { index: 'desc' }],
+      take: PRECEDING_SEGMENTS,
+      select: { source: true, translation: true },
     }),
     prisma.glossaryTerm.findMany({
       where: { projectId },
@@ -106,15 +109,12 @@ export async function POST(req: NextRequest) {
         translation: true,
         category: true,
         approved: true,
+        aliases: true,
       },
     }),
   ])
 
-  const contextParts: string[] = []
-  for (const prev of precedingChapters.reverse()) {
-    contextParts.push(`Previous chapter "${prev.title}": ${prev.summary}`)
-  }
-  const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
+  const preceding = precedingRows.reverse()
 
   const glossary = glossaryRows
     .filter((t): t is typeof t & { translation: string } => !!t.translation)
@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
       translation: t.translation,
       category: t.category,
       approved: t.approved,
+      aliases: t.aliases ?? [],
     }))
 
   const llmCreds = await getUserLLMCredentials(userId)
@@ -145,15 +146,15 @@ export async function POST(req: NextRequest) {
   // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
   after(async () => {
     try {
-      await workerFetch('/translate/chunk/async', {
+      await workerFetch('/translate/segments/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           job_id: job.id,
-          source_text: sourceText,
+          segments,
+          preceding,
           target_lang: project.targetLang,
           project_id: projectId,
-          context,
           llm: llmCreds,
           ...(glossary.length > 0 ? { glossary } : {}),
         }),

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
-import { SEGMENT_SOURCES } from '@/lib/segments'
+import { SEGMENT_TEXT } from '@/lib/segments'
 
 // publicToken is minted via crypto.randomUUID() in the project publish flow, so
 // the format is strict — reject anything non-UUID at the edge to shrink the
@@ -43,7 +43,7 @@ export async function getPublishedProjectForReader(token: string) {
     include: {
       chapters: {
         orderBy: { number: 'asc' },
-        include: { segments: SEGMENT_SOURCES },
+        include: { segments: SEGMENT_TEXT },
       },
     },
   })
