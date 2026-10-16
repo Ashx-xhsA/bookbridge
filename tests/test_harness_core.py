@@ -1,11 +1,18 @@
-"""Phase 2 harness building blocks: config, glossary matching, batching, parsing, prompts."""
+"""Harness building blocks: config, glossary matching, batching, parsing, prompts, bible."""
 
 import pytest
 
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.matching import match_glossary
-from bookbridge.harness.models import ContextSegment, GlossaryEntry, TranslatorError
+from bookbridge.harness.models import (
+    AliasTarget,
+    BookBible,
+    CharacterCard,
+    ContextSegment,
+    GlossaryEntry,
+    TranslatorError,
+)
 from bookbridge.harness.parsing import (
     SegmentAlignmentError,
     format_segments,
@@ -13,6 +20,7 @@ from bookbridge.harness.parsing import (
     parse_terms,
 )
 from bookbridge.harness.prompts import (
+    BIBLE_HEADING,
     CONTEXT_HEADING,
     GLOSSARY_HEADING,
     build_extraction_prompt,
@@ -20,16 +28,17 @@ from bookbridge.harness.prompts import (
 )
 
 
-def _term(
-    english: str, translation: str = "译", aliases: tuple[str, ...] = (), **kw
-) -> GlossaryEntry:
+def _term(english: str, translation: str = "译", **kw) -> GlossaryEntry:
     return GlossaryEntry(
         english=english,
         translation=translation,
         category=kw.get("category", "person"),
         approved=kw.get("approved", False),
-        aliases=aliases,
+        alias_of=kw.get("alias_of"),
     )
+
+
+GANDALF = AliasTarget(english="Gandalf", translation="甘道夫")
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +51,7 @@ class TestTranslationConfig:
         cfg = TranslationConfig()
         assert cfg.glossary_mode == "matched"
         assert cfg.context_window == 3
+        assert cfg.book_bible is True
 
     def test_rejects_unknown_glossary_mode(self) -> None:
         with pytest.raises(ValueError, match="glossary_mode"):
@@ -65,7 +75,7 @@ class TestTranslationConfig:
 class TestMatchGlossary:
     def test_matches_exact_term_on_word_boundary(self) -> None:
         frodo = _term("Frodo")
-        assert [m.entry for m in match_glossary([frodo], "Then Frodo left.")] == [frodo]
+        assert match_glossary([frodo], "Then Frodo left.") == [frodo]
 
     def test_ignores_substring_inside_other_word(self) -> None:
         assert match_glossary([_term("Sam")], "Samwise and Samuel arrived.") == []
@@ -73,7 +83,7 @@ class TestMatchGlossary:
     def test_matches_possessive_and_plural(self) -> None:
         terms = [_term("Frodo"), _term("Hobbit")]
         matched = match_glossary(terms, "Frodo's ring. Three Hobbits ran.")
-        assert {m.entry.english for m in matched} == {"Frodo", "Hobbit"}
+        assert {m.english for m in matched} == {"Frodo", "Hobbit"}
 
     def test_matches_curly_apostrophe_possessive(self) -> None:
         assert match_glossary([_term("Frodo")], "Frodo’s ring")
@@ -91,16 +101,14 @@ class TestMatchGlossary:
     def test_matches_multi_word_term_across_line_break(self) -> None:
         assert match_glossary([_term("Mount Doom")], "toward Mount\nDoom they went")
 
-    def test_alias_match_injects_term_and_reports_alias(self) -> None:
-        gandalf = _term("Gandalf", "甘道夫", aliases=("Mithrandir", "the Grey Pilgrim"))
-        [m] = match_glossary([gandalf], "Mithrandir smiled.")
-        assert m.entry == gandalf
-        assert m.aliases == ("Mithrandir",)
+    def test_alias_is_its_own_entry_matched_by_its_own_name(self) -> None:
+        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
+        assert match_glossary([alias], "Mithrandir smiled.") == [alias]
+        assert match_glossary([alias], "Gandalf smiled.") == []
 
-    def test_term_matched_once_even_with_multiple_hits(self) -> None:
-        gandalf = _term("Gandalf", aliases=("Mithrandir",))
-        [m] = match_glossary([gandalf], "Gandalf, also Mithrandir. Gandalf again.")
-        assert m.aliases == ("Mithrandir",)
+    def test_entry_matched_once_even_with_multiple_hits(self) -> None:
+        frodo = _term("Frodo")
+        assert match_glossary([frodo], "Frodo, Frodo, Frodo!") == [frodo]
 
     def test_regex_metacharacters_in_term_are_literal(self) -> None:
         assert match_glossary([_term("C++", category="technical")], "I like C") == []
@@ -109,7 +117,7 @@ class TestMatchGlossary:
     def test_preserves_input_order(self) -> None:
         terms = [_term("Sam"), _term("Frodo")]
         out = match_glossary(terms, "Frodo and Sam")
-        assert [m.entry.english for m in out] == ["Sam", "Frodo"]
+        assert [m.english for m in out] == ["Sam", "Frodo"]
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +225,12 @@ PRECEDING = [
 ]
 
 
-def _prompt(cfg: TranslationConfig, batch: list[str], glossary: list[GlossaryEntry]) -> str:
+def _prompt(
+    cfg: TranslationConfig,
+    batch: list[str],
+    glossary: list[GlossaryEntry],
+    bible: BookBible | None = None,
+) -> str:
     system, user = build_translation_prompt(
         batch,
         source_lang="en",
@@ -225,6 +238,7 @@ def _prompt(cfg: TranslationConfig, batch: list[str], glossary: list[GlossaryEnt
         glossary=glossary,
         preceding=PRECEDING,
         config=cfg,
+        bible=bible,
     )
     return system + "\n" + user
 
@@ -284,16 +298,68 @@ class TestTranslationPrompt:
         text = _prompt(TranslationConfig(), ["Nothing here."], [_term("Frodo")])
         assert GLOSSARY_HEADING not in text
 
-    def test_alias_hit_is_rendered_as_reference_not_replacement(self) -> None:
-        gandalf = _term("Gandalf", "甘道夫", aliases=("Mithrandir",))
-        text = _prompt(TranslationConfig(), ["Mithrandir smiled."], [gandalf])
-        assert "Gandalf → 甘道夫" in text
-        assert "Mithrandir" in text.split(GLOSSARY_HEADING, 1)[1]
+    def test_alias_is_rendered_with_own_translation_and_referent(self) -> None:
+        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
+        text = _prompt(TranslationConfig(), ["Mithrandir smiled."], [alias])
+        section = text.split(GLOSSARY_HEADING, 1)[1]
+        assert "Mithrandir → 米斯兰达" in section
+        assert "Gandalf / 甘道夫" in section
+        assert "never replace" in section
 
     def test_approved_terms_listed_before_suggested(self) -> None:
         glossary = [_term("Sam", "山姆"), _term("Frodo", "弗罗多", approved=True)]
         text = _prompt(TranslationConfig(), ["Sam and Frodo."], glossary)
         assert text.index("弗罗多") < text.index("山姆")
+
+
+BIBLE = BookBible(
+    style_guide="Plain, restrained modern Chinese; keep long sentences.",
+    characters=(
+        CharacterCard(
+            name="Gandalf",
+            translation="甘道夫",
+            gender="male",
+            voice="Grave, archaic, fond of riddles.",
+        ),
+        CharacterCard(name="Frodo", translation="弗罗多", gender="male", voice="Earnest."),
+    ),
+)
+
+
+class TestBiblePrompt:
+    def test_style_guide_and_matched_character_cards_are_injected(self) -> None:
+        text = _prompt(TranslationConfig(), ["Gandalf frowned."], [], BIBLE)
+        assert BIBLE_HEADING in text
+        assert "Plain, restrained modern Chinese" in text
+        assert "Grave, archaic" in text
+        assert "Earnest." not in text  # Frodo is not in this passage
+
+    def test_character_card_injected_via_alias_entry(self) -> None:
+        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
+        text = _prompt(TranslationConfig(), ["Mithrandir frowned."], [alias], BIBLE)
+        assert "Grave, archaic" in text
+
+    def test_alias_still_brings_card_in_full_glossary_mode(self) -> None:
+        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
+        text = _prompt(TranslationConfig(glossary_mode="full"), ["Mithrandir."], [alias], BIBLE)
+        assert "Grave, archaic" in text
+
+    def test_book_bible_off_removes_the_whole_section(self) -> None:
+        text = _prompt(TranslationConfig(book_bible=False), ["Gandalf frowned."], [], BIBLE)
+        assert BIBLE_HEADING not in text
+        assert "Plain, restrained" not in text
+        assert "Grave, archaic" not in text
+
+    def test_no_bible_means_no_section(self) -> None:
+        assert BIBLE_HEADING not in _prompt(TranslationConfig(), ["Gandalf."], [], None)
+
+    def test_bible_comes_before_glossary(self) -> None:
+        text = _prompt(TranslationConfig(), ["Gandalf."], [_term("Gandalf", "甘道夫")], BIBLE)
+        assert text.index(BIBLE_HEADING) < text.index(GLOSSARY_HEADING)
+
+    def test_gender_is_shown_on_cards(self) -> None:
+        text = _prompt(TranslationConfig(), ["Gandalf frowned."], [], BIBLE)
+        assert "male" in text.split(BIBLE_HEADING, 1)[1]
 
 
 class TestExtractionPrompt:

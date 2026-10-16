@@ -13,6 +13,9 @@ import pytest
 from bookbridge.harness import get_llm_client
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
+    AliasTarget,
+    BookBible,
+    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     TranslatorError,
@@ -20,7 +23,7 @@ from bookbridge.harness.models import (
 )
 from bookbridge.harness.parsing import format_segments
 from bookbridge.harness.pipeline import extract_terms, translate_segments
-from bookbridge.harness.prompts import CONTEXT_HEADING, SEGMENTS_HEADING
+from bookbridge.harness.prompts import BIBLE_HEADING, CONTEXT_HEADING, SEGMENTS_HEADING
 from bookbridge.harness.providers.mock import MockLLMClient
 from bookbridge.harness.providers.openai_compat import OpenAICompatClient
 
@@ -119,6 +122,21 @@ class TestTranslateSegments:
         assert "弗罗多" in first_system and "山姆" not in first_system
         assert "山姆" in second_system and "弗罗多" not in second_system
 
+    def test_bible_reaches_every_call_and_switch_removes_it(self) -> None:
+        bible = BookBible(
+            style_guide="Keep it terse.",
+            characters=(CharacterCard(name="Frodo", translation="弗罗多", voice="Earnest."),),
+        )
+        client = ScriptedClient(_echo)
+        cfg = TranslationConfig(max_batch_chars=1)
+        translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
+        assert all("Keep it terse." in system for system, _, _ in client.calls)
+
+        client = ScriptedClient(_echo)
+        cfg = TranslationConfig(max_batch_chars=1, book_bible=False)
+        translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
+        assert all(BIBLE_HEADING not in system for system, _, _ in client.calls)
+
     def test_misaligned_batch_is_split_and_retried(self) -> None:
         def respond(system: str, user: str, json_mode: bool) -> str:
             segs = _segments_in(user)
@@ -185,7 +203,12 @@ class TestExtractTerms:
 
     def test_skips_glossary_names_and_aliases(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json("Gandalf", "Mithrandir", "Sam"))
-        glossary = [GlossaryEntry("Gandalf", "甘道夫", "person", aliases=("Mithrandir",))]
+        glossary = [
+            GlossaryEntry("Gandalf", "甘道夫", "person"),
+            GlossaryEntry(
+                "Mithrandir", "米斯兰达", "person", alias_of=AliasTarget("Gandalf", "甘道夫")
+            ),
+        ]
         pairs = [("Gandalf spoke.", "甘道夫说。")]
         terms = extract_terms(client, pairs, target_lang="zh-Hans", glossary=glossary)
         assert [t.english for t in terms] == ["Sam"]
