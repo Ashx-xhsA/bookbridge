@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from bookbridge.harness.models import TranslatorError
+from bookbridge.harness.models import ProviderError
 from bookbridge.harness.prompts import BIBLE_HEADING, CONTEXT_HEADING
 from bookbridge.harness.providers.openai_compat import OpenAICompatClient
 from bookbridge.worker_api import routes
@@ -72,7 +72,8 @@ def test_returns_202_and_runs_job(client: TestClient, monkeypatch: pytest.Monkey
         response = client.post("/translate/segments/async", json=_body())
     assert response.status_code == 202
     assert response.json() == {"job_id": JOB_ID, "status": "accepted"}
-    [payload] = jobs
+    payload = jobs[-1]  # after one RUNNING progress callback
+    assert [j["status"] for j in jobs] == ["RUNNING", "SUCCEEDED"]
     assert payload["status"] == "SUCCEEDED"
     assert payload["segments"] == [
         {"index": 0, "translation": "[zh-Hans] Frodo ran."},
@@ -95,6 +96,7 @@ def test_rejects_malformed_job_id(client: TestClient) -> None:
         {"segments": [{"index": 0, "source": "a"}, {"index": 0, "source": "b"}]},
         {"config": {"glossary_mode": "vector"}},
         {"config": {"context_window": 11}},
+        {"config": {"max_batch_chars": 0}},
         {"preceding": [{"source": "x"}] * 11},
         {"glossary": [{"english": "A", "translation": "a", "alias_of": {"english": "B"}}]},
         {"bible": {"style_guide": "x" * 5001}},
@@ -119,7 +121,7 @@ def test_rejects_oversized_total_source(client: TestClient) -> None:
 
 def test_success_payload_maps_results_to_segment_indices() -> None:
     jobs, _ = _run(ScriptedClient(_translate_or_extract))
-    [payload] = jobs
+    payload = jobs[-1]
     assert payload["job_id"] == JOB_ID
     assert payload["status"] == "SUCCEEDED"
     assert [s["index"] for s in payload["segments"]] == [0, 2]
@@ -128,19 +130,50 @@ def test_success_payload_maps_results_to_segment_indices() -> None:
     assert payload["summary"] == "A short summary."
 
 
+def test_progress_callbacks_after_each_batch_then_final() -> None:
+    jobs, _ = _run(ScriptedClient(_translate_or_extract), config={"max_batch_chars": 1})
+    assert [j["status"] for j in jobs] == ["RUNNING", "RUNNING", "SUCCEEDED"]
+    assert jobs[0]["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert jobs[1]["segments"] == [{"index": 2, "translation": "T:Sam."}]
+
+
 def test_partial_failure_reports_successes_and_failed_indices() -> None:
     def respond(system: str, user: str, json_mode: bool) -> str:
         if not json_mode and "<<<" in user and "Sam." in _segments_in(user):
-            raise TranslatorError("upstream 503 body=secret")
+            return "garbled"  # cannot be aligned
         return _translate_or_extract(system, user, json_mode)
 
     jobs, _ = _run(ScriptedClient(respond))
-    [payload] = jobs
+    payload = jobs[-1]
     assert payload["status"] == "FAILED"
     assert payload["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
     assert payload["failed_indices"] == [2]
     assert "1 of 2" in payload["error"]
-    assert "secret" not in payload["error"]
+
+
+def test_provider_failure_stops_and_keeps_finished_segments() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        if not json_mode and "<<<" in user and "Sam." in _segments_in(user):
+            raise ProviderError("401 body=secret-token", retryable=False)
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, _ = _run(ScriptedClient(respond), config={"max_batch_chars": 1})
+    payload = jobs[-1]
+    assert payload["status"] == "FAILED"
+    assert payload["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert payload["error"] == "Translation provider failed; finished segments were kept"
+    assert "secret" not in str(payload)
+
+
+def test_term_extraction_failure_does_not_change_the_job() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        if json_mode:
+            raise RuntimeError("extraction exploded")
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, terms = _run(ScriptedClient(respond), project_id="proj_123456")
+    assert jobs[-1]["status"] == "SUCCEEDED"
+    assert terms == []
 
 
 def test_unexpected_exception_posts_generic_failure() -> None:
@@ -148,7 +181,7 @@ def test_unexpected_exception_posts_generic_failure() -> None:
         raise RuntimeError("DeepSeek returned 503 with stack trace AAA")
 
     jobs, terms = _run(ScriptedClient(respond))
-    [payload] = jobs
+    payload = jobs[-1]
     assert payload["status"] == "FAILED"
     assert payload["error"] == "Translation failed"
     assert "segments" not in payload

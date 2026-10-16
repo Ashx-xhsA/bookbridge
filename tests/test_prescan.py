@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import re
 
-from bookbridge.harness.models import TranslatorError
+import pytest
+
+from bookbridge.harness.models import ProviderError, TranslatorError
 from bookbridge.harness.prescan import ScanResult, scan_book
 from bookbridge.harness.providers.mock import MockLLMClient
 from tests.test_harness import ScriptedClient
@@ -151,6 +153,23 @@ class TestScanBook:
 
         result = scan_book(ScriptedClient(respond), BOOK, target_lang="zh-Hans", max_chunk_chars=60)
         assert list(_by_name(result)) == ["Georg"]
+
+    def test_raises_when_every_passage_fails(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            if _task(system) == "scan_entities":
+                raise TranslatorError("boom")
+            return Router({}).respond(system, user, json_mode)
+
+        with pytest.raises(TranslatorError, match="every passage"):
+            scan_book(ScriptedClient(respond), BOOK, target_lang="zh-Hans", max_chunk_chars=60)
+
+    def test_auth_error_aborts_the_scan_immediately(self) -> None:
+        client = ScriptedClient(
+            lambda s, u, j: (_ for _ in ()).throw(ProviderError("401", retryable=False))
+        )
+        with pytest.raises(ProviderError):
+            scan_book(client, BOOK, target_lang="zh-Hans", max_chunk_chars=60)
+        assert len(client.calls) == 1
 
     def test_failed_voice_and_style_calls_degrade_gracefully(self) -> None:
         router = Router(

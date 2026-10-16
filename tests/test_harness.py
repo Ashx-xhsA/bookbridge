@@ -13,6 +13,7 @@ import pytest
 from bookbridge.harness import get_llm_client
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
+    ProviderError,
     AliasTarget,
     BookBible,
     CharacterCard,
@@ -151,7 +152,7 @@ class TestTranslateSegments:
         def respond(system: str, user: str, json_mode: bool) -> str:
             segs = _segments_in(user)
             if "bad" in segs:
-                raise TranslatorError("boom")
+                return ""  # unusable output -> alignment error
             return format_segments([f"T:{s}" for s in segs])
 
         client = ScriptedClient(respond)
@@ -165,7 +166,7 @@ class TestTranslateSegments:
         def respond(system: str, user: str, json_mode: bool) -> str:
             segs = _segments_in(user)
             if segs == ["bad"]:
-                raise TranslatorError("boom")
+                return ""
             return format_segments([f"T:{s}" for s in segs])
 
         client = ScriptedClient(respond)
@@ -174,6 +175,57 @@ class TestTranslateSegments:
         last_user = client.calls[-1][1]
         assert "[source] bad" in last_user
         assert "[translation]" not in last_user
+
+    def test_retryable_provider_error_is_retried_with_backoff(self) -> None:
+        failures = iter(
+            [ProviderError("429", retryable=True), ProviderError("503", retryable=True)]
+        )
+
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            err = next(failures, None)
+            if err:
+                raise err
+            return _echo(system, user, json_mode)
+
+        client = ScriptedClient(respond)
+        with patch("bookbridge.harness.retry.time.sleep") as sleep:
+            result = translate_segments(client, ["a"], target_lang="zh-Hans")
+        assert result.translations == ["T:a"]
+        assert len(client.calls) == 3
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0, 4.0]
+
+    def test_auth_error_stops_at_once_and_keeps_earlier_batches(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            if "b" in _segments_in(user):
+                raise ProviderError("401", retryable=False)
+            return _echo(system, user, json_mode)
+
+        client = ScriptedClient(respond)
+        cfg = TranslationConfig(max_batch_chars=1, context_window=0)
+        result = translate_segments(client, ["a", "b", "c", "d"], target_lang="zh-Hans", config=cfg)
+        assert result.translations == ["T:a", None, None, None]
+        assert result.aborted is True
+        assert len(client.calls) == 2  # no split, no retry, no further batches
+
+    def test_persistent_rate_limit_stops_after_three_tries(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            raise ProviderError("429", retryable=True)
+
+        client = ScriptedClient(respond)
+        with patch("bookbridge.harness.retry.time.sleep"):
+            result = translate_segments(client, ["a", "b", "c"], target_lang="zh-Hans")
+        assert result.aborted is True
+        assert result.translations == [None, None, None]
+        assert len(client.calls) == 3
+
+    def test_progress_reported_after_each_batch(self) -> None:
+        seen: list[list[tuple[int, str]]] = []
+        cfg = TranslationConfig(max_batch_chars=1)
+        translate_segments(
+            ScriptedClient(_echo), ["a", "b"], target_lang="zh-Hans", config=cfg,
+            on_progress=seen.append,
+        )  # fmt: skip
+        assert seen == [[(0, "T:a")], [(1, "T:b")]]
 
     def test_configuration_errors_propagate(self) -> None:
         def respond(system: str, user: str, json_mode: bool) -> str:
@@ -338,6 +390,21 @@ class TestOpenAICompatClient:
     def test_unusable_body_raises_translator_error(self, body: dict | bytes) -> None:
         with patch(URLOPEN, return_value=_response(body)), pytest.raises(TranslatorError):
             _client().complete("s", "u")
+
+    @pytest.mark.parametrize(
+        ("code", "retryable"),
+        [(401, False), (403, False), (400, False), (429, True), (500, True), (503, True)],
+    )
+    def test_http_errors_are_classified(self, code: int, retryable: bool) -> None:
+        err = urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b""))  # type: ignore[arg-type]
+        with patch(URLOPEN, side_effect=err), pytest.raises(ProviderError) as exc:
+            _client().complete("s", "u")
+        assert exc.value.retryable is retryable
+
+    def test_timeout_is_retryable(self) -> None:
+        with patch(URLOPEN, side_effect=TimeoutError()), pytest.raises(ProviderError) as exc:
+            _client().complete("s", "u")
+        assert exc.value.retryable is True
 
     def test_timeout_env_is_clamped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "5000")
