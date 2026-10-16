@@ -40,16 +40,28 @@ def _pattern(form: str) -> re.Pattern[str]:
     return re.compile(regex, re.IGNORECASE)
 
 
-def occurs(form: str, text: str) -> bool:
+def _may_occur(form: str, text: str, lowered: str) -> bool:
+    """Cheap substring pre-check on the first word; skips most regex searches."""
+    head = form.split()[0]
+    if head != head.lower():
+        return head in text or head.upper() in text
+    return head in lowered
+
+
+def occurs(form: str, text: str, lowered: str | None = None) -> bool:
     """True when `form` appears in `text` under the matching rules above."""
-    return bool(form.strip()) and _pattern(form.strip()).search(text) is not None
+    form = form.strip()
+    if not form or not _may_occur(form, text, text.lower() if lowered is None else lowered):
+        return False
+    return _pattern(form).search(text) is not None
 
 
 def match_glossary(glossary: Iterable[GlossaryEntry], text: str) -> list[GlossaryMatch]:
     """Return entries whose name or any alias occurs in `text`, in input order."""
+    lowered = text.lower()
     matches: list[GlossaryMatch] = []
     for entry in glossary:
-        hit_aliases = tuple(a for a in entry.aliases if occurs(a, text))
-        if hit_aliases or occurs(entry.english, text):
+        hit_aliases = tuple(a for a in entry.aliases if occurs(a, text, lowered))
+        if hit_aliases or occurs(entry.english, text, lowered):
             matches.append(GlossaryMatch(entry=entry, aliases=hit_aliases))
     return matches
