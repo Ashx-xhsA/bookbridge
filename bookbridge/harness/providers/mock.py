@@ -1,59 +1,45 @@
-"""Mock translator — zero-network echo with deterministic extraction, for dev and CI."""
+"""Mock LLM client — zero network, deterministic, speaks the real prompt protocols.
+
+Translation calls echo each marked segment as `[<target>] <source>`;
+extraction calls return capitalised words from the `[source]` lines. Dev,
+CI and the mock eval run go through the same pipeline code as real providers.
+"""
 
 from __future__ import annotations
 
+import json
 import re
 
-from bookbridge.harness.translator import (
-    ExtractedTerm,
-    GlossaryEntry,
-    TranslateResult,
-    Translator,
-    validate_input,
-)
+from bookbridge.harness.models import Usage
+from bookbridge.harness.parsing import count_markers, format_segments, parse_segments
+from bookbridge.harness.prompts import SEGMENTS_HEADING
 
-# Matches likely proper nouns: capitalised word, at least 3 chars so we don't
-# grab sentence-initial "I" or short abbreviations like "IT". Deterministic
-# so tests and demos see the same terms come out every time.
+# Capitalised word of 3+ chars: skips sentence-initial "I" and "IT"-style caps.
 _TERM_PATTERN = re.compile(r"\b[A-Z][a-z]{2,}\b")
+_TARGET_RE = re.compile(r"^Target language: (\S+)$", re.MULTILINE)
+_SOURCE_LINE_RE = re.compile(r"^\[source\] (.*)$", re.MULTILINE)
 
 
-class MockTranslator(Translator):
-    """Returns source tagged with target lang, plus fixture new_terms.
+class MockLLMClient:
+    def __init__(self) -> None:
+        self.usage = Usage()
 
-    Extracts capitalised words as candidate terms — a toy heuristic that
-    mimics the structured output a real LLM provider produces. Echoes a
-    [glossary:N] marker into the text when a glossary is passed so tests
-    can observe the injection wiring end-to-end without a live provider.
-    """
+    def complete(self, system: str, user: str, *, json_mode: bool = False) -> str:
+        self.usage.calls += 1
+        found = _TARGET_RE.search(system)
+        lang = found.group(1) if found else "mock"
+        if json_mode:
+            return self._extract(user, lang)
+        block = user.split(SEGMENTS_HEADING, 1)[-1]
+        segments = parse_segments(block, expected=count_markers(block))
+        return format_segments([f"[{lang}] {s}" for s in segments])
 
-    def translate(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-        glossary: list[GlossaryEntry] | None = None,
-    ) -> TranslateResult:
-        validate_input(text, source_lang, target_lang)
-
-        existing_lower = {g.english.lower() for g in glossary or []}
-        seen: set[str] = set()
-        new_terms: list[ExtractedTerm] = []
-        for match in _TERM_PATTERN.findall(text):
-            key = match.lower()
-            if key in existing_lower or key in seen:
-                continue
-            seen.add(key)
-            new_terms.append(
-                ExtractedTerm(
-                    english=match,
-                    translation=f"[{target_lang}] {match}",
-                    category="general",
-                )
-            )
-
-        glossary_marker = f" [glossary:{len(glossary)}]" if glossary else ""
-        return TranslateResult(
-            text=f"[{target_lang}] {text}{glossary_marker}",
-            new_terms=new_terms,
-        )
+    @staticmethod
+    def _extract(user: str, lang: str) -> str:
+        words: list[str] = []
+        for line in _SOURCE_LINE_RE.findall(user):
+            words += [w for w in _TERM_PATTERN.findall(line) if w not in words]
+        terms = [
+            {"english": w, "translation": f"[{lang}] {w}", "category": "general"} for w in words
+        ]
+        return json.dumps({"terms": terms}, ensure_ascii=False)

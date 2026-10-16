@@ -9,7 +9,6 @@ from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
-from bookbridge.harness.pipeline import extract_terms, translate_segments
 
 from bookbridge.harness import get_llm_client
 from bookbridge.harness.config import TranslationConfig
@@ -20,6 +19,7 @@ from bookbridge.harness.models import (
     Usage,
 )
 from bookbridge.harness.parsing import format_segments
+from bookbridge.harness.pipeline import extract_terms, translate_segments
 from bookbridge.harness.prompts import CONTEXT_HEADING, SEGMENTS_HEADING
 from bookbridge.harness.providers.mock import MockLLMClient
 from bookbridge.harness.providers.openai_compat import OpenAICompatClient
@@ -137,7 +137,7 @@ class TestTranslateSegments:
             return format_segments([f"T:{s}" for s in segs])
 
         client = ScriptedClient(respond)
-        cfg = TranslationConfig(max_batch_chars=1)
+        cfg = TranslationConfig(max_batch_chars=1, context_window=0)
         result = translate_segments(client, ["a", "bad", "c"], target_lang="zh-Hans", config=cfg)
         assert result.translations == ["T:a", None, "T:c"]
         assert result.failed == [1]
@@ -186,7 +186,8 @@ class TestExtractTerms:
     def test_skips_glossary_names_and_aliases(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json("Gandalf", "Mithrandir", "Sam"))
         glossary = [GlossaryEntry("Gandalf", "甘道夫", "person", aliases=("Mithrandir",))]
-        terms = extract_terms(client, [("x", "y")], target_lang="zh-Hans", glossary=glossary)
+        pairs = [("Gandalf spoke.", "甘道夫说。")]
+        terms = extract_terms(client, pairs, target_lang="zh-Hans", glossary=glossary)
         assert [t.english for t in terms] == ["Sam"]
         assert "Gandalf" in client.calls[0][1]  # known terms are listed in the prompt
 

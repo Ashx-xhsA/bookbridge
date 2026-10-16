@@ -24,6 +24,10 @@ def marker(n: int) -> str:
     return f"<<<{n}>>>"
 
 
+def count_markers(content: str) -> int:
+    return len(_MARKER_RE.findall(content))
+
+
 def format_segments(segments: Sequence[str]) -> str:
     """Render a batch as `<<<1>>>\\ntext\\n<<<2>>>\\ntext…` (1-based, per batch)."""
     return "\n".join(f"{marker(i)}\n{seg}" for i, seg in enumerate(segments, start=1))
