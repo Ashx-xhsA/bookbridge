@@ -37,7 +37,8 @@ const bodySchema = z.discriminatedUnion('status', [
 ])
 
 // Large books produce hundreds of writes; the default 5 s is too tight.
-const MERGE_TIMEOUT_MS = 60_000
+const MERGE_TIMEOUT_MS = 55_000
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   const rejected = rejectUnlessWorker(req, 'bible-callback')
@@ -82,9 +83,13 @@ export async function POST(req: NextRequest) {
         select: {
           id: true, english: true, translation: true, approved: true, userEdited: true,
           gender: true, voice: true, notes: true, aliasOfId: true,
+          _count: { select: { aliases: true } },
         },
       })
-      const plan = planBibleMerge(existing, payload.entities)
+      const plan = planBibleMerge(
+        existing.map(({ _count, ...t }) => ({ ...t, aliasCount: _count.aliases })),
+        payload.entities
+      )
       await prisma.$transaction(
         async (tx) => {
           await applyPlan(tx, projectId, plan, existing)

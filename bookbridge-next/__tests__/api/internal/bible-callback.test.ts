@@ -143,7 +143,7 @@ describe('POST /api/internal/worker-callback/bible', () => {
     mockTermFindMany.mockResolvedValueOnce([
       {
         id: 't1', english: 'Gandalf', translation: '冈达夫', approved: false, userEdited: false,
-        gender: null, voice: null, notes: null, aliasOfId: null,
+        gender: null, voice: null, notes: null, aliasOfId: null, _count: { aliases: 0 },
       },
     ])
     mockTermCreateManyAndReturn.mockResolvedValueOnce([{ id: 'm1', english: 'Mithrandir' }])

@@ -71,7 +71,11 @@ describe('GET /api/projects/[id]/translate-batch', () => {
     expect(mockChapterFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         select: expect.objectContaining({
-          segments: { where: { translation: null }, select: { id: true }, take: 1 },
+          segments: {
+            where: { OR: [{ translation: null }, { status: 'failed' }] },
+            select: { id: true },
+            take: 1,
+          },
         }),
       })
     )

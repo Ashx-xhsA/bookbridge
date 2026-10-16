@@ -110,10 +110,12 @@ export async function POST(req: NextRequest) {
   const STALE_THRESHOLD_MS = 5 * 60 * 1000
   const existingJob = await prisma.translationJob.findFirst({
     where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
-    select: { id: true, status: true, createdAt: true },
+    select: { id: true, status: true, createdAt: true, updatedAt: true },
   })
   if (existingJob) {
-    const age = Date.now() - new Date(existingJob.createdAt).getTime()
+    // The Worker reports progress after every batch, which bumps updatedAt:
+    // a long chapter that is still moving is not stale.
+    const age = Date.now() - new Date(existingJob.updatedAt).getTime()
     if (age < STALE_THRESHOLD_MS) {
       return NextResponse.json(
         { id: existingJob.id, status: existingJob.status, error: 'Translation is already in progress for this chapter' },
@@ -191,7 +193,7 @@ export async function POST(req: NextRequest) {
   // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
   after(async () => {
     try {
-      await workerFetch('/translate/segments/async', {
+      const res = await workerFetch('/translate/segments/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -205,6 +207,8 @@ export async function POST(req: NextRequest) {
           ...(bible ? { bible } : {}),
         }),
       })
+      // workerFetch only throws on network errors; a 4xx/5xx must fail too.
+      if (!res.ok) throw new Error(`Worker responded ${res.status}`)
     } catch (err) {
       console.error('[api/jobs] worker dispatch failed', {
         jobId: job.id,

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { targetLangSchema } from '@/lib/languages'
 
 // /parse unzips and walks every document of the EPUB; a large book on a cold
 // worker can take tens of seconds. Lift the route budget so the platform
@@ -28,6 +29,11 @@ const workerParseSchema = z.object({
 })
 type WorkerParseResponse = z.infer<typeof workerParseSchema>
 
+const uploadFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(200).default('Untitled'),
+  targetLang: targetLangSchema.default('zh-Hans'),
+})
+
 export async function POST(req: NextRequest) {
   const { userId } = await auth()
   if (!userId) {
@@ -36,8 +42,14 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData()
   const file = formData.get('file') as File | null
-  const title = (formData.get('title') as string) || 'Untitled'
-  const targetLang = (formData.get('targetLang') as string) || 'zh-Hans'
+  const fields = uploadFieldsSchema.safeParse({
+    title: formData.get('title') || undefined,
+    targetLang: formData.get('targetLang') || undefined,
+  })
+  if (!fields.success) {
+    return NextResponse.json({ error: 'Invalid title or target language.' }, { status: 400 })
+  }
+  const { title, targetLang } = fields.data
 
   const fileName = file?.name?.toLowerCase() ?? ''
   if (!file || !ACCEPTED_EXTENSIONS.some((ext) => fileName.endsWith(ext))) {

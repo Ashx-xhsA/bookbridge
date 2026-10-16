@@ -21,6 +21,13 @@ const results = {
 }
 
 const bodySchema = z.discriminatedUnion('status', [
+  // Progress after each batch: stores those segments and doubles as the
+  // heartbeat the jobs route uses to tell a slow job from a dead one.
+  z.object({
+    job_id: z.string().min(1).max(128),
+    status: z.literal('RUNNING'),
+    ...results,
+  }),
   z.object({
     job_id: z.string().min(1).max(128),
     status: z.literal('SUCCEEDED'),
@@ -35,6 +42,17 @@ const bodySchema = z.discriminatedUnion('status', [
 ])
 
 type CallbackBody = z.infer<typeof bodySchema>
+
+// Large chapters mean many segment writes in one transaction.
+export const maxDuration = 60
+
+const ACTIVE = new Set(['PENDING', 'RUNNING'])
+
+function jobUpdate(payload: CallbackBody) {
+  if (payload.status === 'RUNNING') return { status: 'RUNNING' as const }
+  if (payload.status === 'SUCCEEDED') return { status: 'SUCCEEDED' as const, error: null }
+  return { status: 'FAILED' as const, error: payload.error ?? 'Translation failed' }
+}
 
 export async function POST(req: NextRequest) {
   const rejected = rejectUnlessWorker(req, 'worker-callback')
@@ -57,22 +75,21 @@ export async function POST(req: NextRequest) {
   try {
     const job = await prisma.translationJob.findUnique({
       where: { id: payload.job_id },
-      select: { id: true, chapterId: true },
+      select: { id: true, chapterId: true, status: true },
     })
     if (!job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+    // A job already finished (or replaced as stale) must not be overwritten
+    // by a Worker run that kept going in the background.
+    if (!ACTIVE.has(job.status)) {
+      return NextResponse.json({ error: 'Job is no longer active' }, { status: 409 })
     }
     // One atomic batch with the job status written last: the poller must
     // never observe a terminal job whose segments are not yet stored.
     await prisma.$transaction([
       ...(job.chapterId ? segmentWrites(job.chapterId, payload) : []),
-      prisma.translationJob.update({
-        where: { id: payload.job_id },
-        data:
-          payload.status === 'SUCCEEDED'
-            ? { status: 'SUCCEEDED', error: null }
-            : { status: 'FAILED', error: payload.error ?? 'Translation failed' },
-      }),
+      prisma.translationJob.update({ where: { id: payload.job_id }, data: jobUpdate(payload) }),
     ])
   } catch (err) {
     if ((err as { code?: string })?.code === 'P2025') {

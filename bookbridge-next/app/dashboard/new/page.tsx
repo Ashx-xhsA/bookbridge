@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2 } from 'lucide-react'
+import { TARGET_LANGUAGES } from '@/lib/languages'
 
 const ACCEPTED_EXTENSIONS = ['.epub', '.txt']
 
@@ -78,12 +79,11 @@ export default function NewProjectPage() {
             onChange={(e) => setTargetLang(e.target.value)}
             className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           >
-            <option value="zh-Hans">Chinese (Simplified)</option>
-            <option value="es">Spanish</option>
-            <option value="ar">Arabic</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="ja">Japanese</option>
+            {TARGET_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
           </select>
         </div>
 

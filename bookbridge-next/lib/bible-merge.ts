@@ -9,6 +9,8 @@
 // - Each alias is its own term (own translation) linked to its main term.
 //   An existing alias that already points somewhere is not relinked, and a
 //   name that is a main entity in this scan is never made an alias.
+// - Links stay one level deep: a term with its own aliases is never made an
+//   alias, and nothing is linked to a main term that is itself an alias.
 
 export type ScannedEntity = {
   english: string
@@ -31,6 +33,8 @@ export type ExistingTerm = {
   voice: string | null
   notes: string | null
   aliasOfId: string | null
+  // How many terms already point at this one.
+  aliasCount: number
 }
 
 export type TermCreate = {
@@ -100,10 +104,15 @@ export function planBibleMerge(existing: ExistingTerm[], entities: ScannedEntity
       if (mainKeys.has(aliasKey) || done.has(aliasKey)) continue
       done.add(aliasKey)
       planAlias(plan, byKey.get(aliasKey), alias, e.category)
-      if (!byKey.get(aliasKey)?.aliasOfId) plan.links.push({ alias: aliasKey, main: key })
+      if (canLink(byKey.get(aliasKey), found)) plan.links.push({ alias: aliasKey, main: key })
     }
   }
   return plan
+}
+
+function canLink(alias: ExistingTerm | undefined, main: ExistingTerm | undefined): boolean {
+  if (main?.aliasOfId) return false
+  return !alias || (!alias.aliasOfId && alias.aliasCount === 0)
 }
 
 function planAlias(

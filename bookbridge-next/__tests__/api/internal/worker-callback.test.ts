@@ -185,7 +185,7 @@ describe('POST /api/internal/worker-callback', () => {
   })
 
   it('only updates the job when it has no chapterId', async () => {
-    mockJobFindUnique.mockResolvedValueOnce({ id: JOB_ID, chapterId: null })
+    mockJobFindUnique.mockResolvedValueOnce({ id: JOB_ID, chapterId: null, status: 'PENDING' })
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(makeRequest(OK_BODY, { 'X-Worker-Secret': SECRET }))
     expect(res.status).toBe(200)

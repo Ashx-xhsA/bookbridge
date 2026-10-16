@@ -1,3 +1,5 @@
+import type { Prisma } from '@/app/generated/prisma/client'
+
 // Source and translation text live in Segment rows (one per paragraph).
 // Chapter-level views select SEGMENT_SOURCES / SEGMENT_TEXT and join here.
 
@@ -7,7 +9,7 @@ export const SEGMENT_SOURCES = {
 } as const
 
 export const SEGMENT_TEXT = {
-  select: { source: true, translation: true },
+  select: { source: true, translation: true, status: true },
   orderBy: { index: 'asc' },
 } as const
 
@@ -23,15 +25,24 @@ export function joinTranslations(segments: { translation: string | null }[]): st
   return done.length > 0 ? done.join(PARAGRAPH_SEPARATOR) : null
 }
 
-export function isFullyTranslated(segments: { translation: string | null }[]): boolean {
-  return segments.length > 0 && segments.every((s) => !!s.translation)
+// A segment whose retranslation failed keeps its old text (still shown) but
+// is not done: the chapter counts as untranslated until it is redone.
+export function isFullyTranslated(
+  segments: { translation: string | null; status?: string }[]
+): boolean {
+  return segments.length > 0 && segments.every((s) => !!s.translation && s.status !== 'failed')
 }
 
 // Cheap "is this chapter done?" probe for list views: the segment count plus
-// at most one untranslated segment, instead of loading every translation.
+// at most one segment still to do (untranslated or failed), instead of
+// loading every translation.
 export const CHAPTER_PROGRESS = {
   _count: { select: { segments: true } },
-  segments: { where: { translation: null }, select: { id: true }, take: 1 },
+  segments: {
+    where: { OR: [{ translation: null }, { status: 'failed' }] as Prisma.SegmentWhereInput[] },
+    select: { id: true },
+    take: 1,
+  },
 } as const
 
 export function isChapterDone(c: { _count: { segments: number }; segments: unknown[] }): boolean {
