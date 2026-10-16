@@ -277,3 +277,13 @@ def test_post_worker_callback_sends_secret_header(
     assert url == "https://bookbridge.example.test/api/internal/worker-callback"
     assert headers.get("X-worker-secret") == "shared-secret-xyz"
     assert headers.get("Content-type") == "application/json"
+
+
+def test_new_terms_are_posted_in_chunks_the_bff_accepts() -> None:
+    names = [f"Name{i:03d}" for i in range(250)]
+
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        return _terms_json(*names) if json_mode else _translate_or_extract(system, user, False)
+
+    _, terms = _run(ScriptedClient(respond), project_id="proj_123456")
+    assert [len(call["terms"]) for call in terms] == [200, 50]
