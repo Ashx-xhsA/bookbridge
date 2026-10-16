@@ -195,7 +195,10 @@ class TestParseTerms:
         assert [t.english for t in parse_terms(content, existing=["Frodo"])] == ["Sam"]
 
     def test_skips_malformed_items(self) -> None:
-        content = '{"terms": [1, {"english": ""}, {"english": "X"}, {"english": "Y", "translation": "y"}]}'
+        content = (
+            '{"terms": [1, {"english": ""}, {"english": "X"},'
+            ' {"english": "Y", "translation": "y"}]}'
+        )
         assert [t.english for t in parse_terms(content, existing=[])] == ["Y"]
 
     @pytest.mark.parametrize("content", ["not json", "[]", '{"terms": "x"}'])
