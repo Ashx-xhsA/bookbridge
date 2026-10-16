@@ -11,7 +11,7 @@ dependencies = [
     "pdfplumber",
     "typer",
     "rich",
-    "mcp",
+    "mcp<2",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
