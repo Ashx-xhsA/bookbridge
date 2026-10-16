@@ -287,3 +287,44 @@ class TestSafety:
         data = _epub3({"c.xhtml": _xhtml("<img src='x.png'/>")}, [("C", "c.xhtml")])
         with pytest.raises(IngestionError):
             read_epub(data)
+
+
+def _paragraphs(body: str) -> list[str]:
+    data = _epub3({"c1.xhtml": _xhtml(body)}, [("Chapter", "c1.xhtml")])
+    return read_epub(data).chapters[0].paragraphs
+
+
+class TestFootnoteReferences:
+    """Note markers are links to the notes, not text — they must not glue onto words."""
+
+    def test_strips_calibre_style_link_wrapping_superscript(self):
+        body = (
+            '<p><span>The Judgment</span><a href="notes.html#fp477591">'
+            "<sup><span>d</span></sup></a></p><p>IT WAS A SUNDAY.</p>"
+        )
+        assert _paragraphs(body) == ["The Judgment", "IT WAS A SUNDAY."]
+
+    def test_strips_superscript_wrapping_link(self):
+        body = '<p>He left.<sup><a href="#n12">12</a></sup> Then he returned.</p>'
+        assert _paragraphs(body) == ["He left. Then he returned."]
+
+    def test_strips_epub3_noteref_without_superscript(self):
+        body = '<p>Snow fell<a epub:type="noteref" href="#fn3">[3]</a> all night.</p>'
+        assert _paragraphs(body) == ["Snow fell all night."]
+
+    def test_strips_aria_noteref(self):
+        body = '<p>Snow fell<a role="doc-noteref" href="#fn3">*</a>.</p>'
+        assert _paragraphs(body) == ["Snow fell."]
+
+    def test_keeps_ordinary_internal_link_text(self):
+        body = '<p>See <a href="#ch2">Chapter Two</a> for more.</p>'
+        assert _paragraphs(body) == ["See Chapter Two for more."]
+
+    def test_keeps_superscript_without_link(self):
+        assert _paragraphs("<p>E = mc<sup>2</sup> and the 1<sup>st</sup> law.</p>") == [
+            "E = mc2 and the 1st law."
+        ]
+
+    def test_keeps_long_linked_superscript_text(self):
+        body = '<p>Intro <a href="#x"><sup>see the appendix</sup></a> end.</p>'
+        assert _paragraphs(body) == ["Intro see the appendix end."]
