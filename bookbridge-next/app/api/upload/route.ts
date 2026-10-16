@@ -4,6 +4,7 @@ import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
 import { targetLangSchema } from '@/lib/languages'
+import { MAX_BOOK_CHARS, bookChars } from '@/lib/book-limits'
 
 // /parse unzips and walks every document of the EPUB; a large book on a cold
 // worker can take tens of seconds. Lift the route budget so the platform
@@ -110,6 +111,17 @@ export async function POST(req: NextRequest) {
   }
 
   const chapters = parseData?.chapters ?? []
+
+  if (bookChars(chapters) > MAX_BOOK_CHARS) {
+    // Nothing usable was stored yet; drop the placeholder project.
+    await prisma.project.delete({ where: { id: project.id } })
+    return NextResponse.json(
+      {
+        error: `This book is too long (over ${MAX_BOOK_CHARS.toLocaleString('en-US')} characters). Please split it into volumes and upload them separately.`,
+      },
+      { status: 413 }
+    )
+  }
 
   if (chapters.length > 0 && parseData) {
     await prisma.$transaction([

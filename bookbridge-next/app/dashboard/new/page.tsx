@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2 } from 'lucide-react'
 import { TARGET_LANGUAGES } from '@/lib/languages'
+import { MAX_UPLOAD_BYTES } from '@/lib/book-limits'
 
 const ACCEPTED_EXTENSIONS = ['.epub', '.txt']
 
@@ -30,7 +31,8 @@ export default function NewProjectPage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('title', title || file.name.replace(/\.(epub|txt)$/i, ''))
+      // The upload route caps titles at 200 characters.
+      formData.append('title', (title || file.name.replace(/\.(epub|txt)$/i, '')).slice(0, 200))
       formData.append('targetLang', targetLang)
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
@@ -108,6 +110,9 @@ export default function NewProjectPage() {
                   const selected = e.target.files?.[0] || null
                   if (selected && !isAcceptedBook(selected.name)) {
                     setError('Only EPUB and TXT files are supported.')
+                    setFile(null)
+                  } else if (selected && selected.size > MAX_UPLOAD_BYTES) {
+                    setError('This file is larger than 4.5 MB. Please upload a smaller file or split the book into volumes.')
                     setFile(null)
                   } else {
                     setError('')
