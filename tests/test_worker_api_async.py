@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bookbridge.harness.models import TranslatorError
-from bookbridge.harness.prompts import CONTEXT_HEADING
+from bookbridge.harness.prompts import BIBLE_HEADING, CONTEXT_HEADING
 from bookbridge.harness.providers.openai_compat import OpenAICompatClient
 from bookbridge.worker_api import routes
 from bookbridge.worker_api.main import create_app
@@ -96,7 +96,9 @@ def test_rejects_malformed_job_id(client: TestClient) -> None:
         {"config": {"glossary_mode": "vector"}},
         {"config": {"context_window": 11}},
         {"preceding": [{"source": "x"}] * 11},
-        {"glossary": [{"english": "A", "translation": "a", "aliases": ["x" * 201]}]},
+        {"glossary": [{"english": "A", "translation": "a", "alias_of": {"english": "B"}}]},
+        {"bible": {"style_guide": "x" * 5001}},
+        {"config": {"book_bible": "maybe"}},
     ],
 )
 def test_rejects_invalid_body_with_422(client: TestClient, overrides: dict) -> None:
@@ -194,11 +196,33 @@ def test_config_and_preceding_reach_the_prompt() -> None:
     assert all(CONTEXT_HEADING not in user for _, user, _ in scripted.calls)
 
 
-def test_glossary_aliases_reach_the_prompt() -> None:
+def test_alias_rows_reach_the_prompt_with_referent() -> None:
     scripted = ScriptedClient(_translate_or_extract)
-    glossary = [{"english": "Gandalf", "translation": "甘道夫", "aliases": ["Mithrandir"]}]
+    glossary = [
+        {
+            "english": "Mithrandir",
+            "translation": "米斯兰达",
+            "alias_of": {"english": "Gandalf", "translation": "甘道夫"},
+        }
+    ]
     _run(scripted, glossary=glossary, segments=[{"index": 0, "source": "Mithrandir came."}])
-    assert "甘道夫" in scripted.calls[0][0]
+    system = scripted.calls[0][0]
+    assert "Mithrandir → 米斯兰达" in system and "Gandalf / 甘道夫" in system
+
+
+def test_bible_reaches_the_prompt_and_switch_removes_it() -> None:
+    bible = {
+        "style_guide": "Keep it terse.",
+        "characters": [{"name": "Frodo", "translation": "弗罗多", "voice": "Earnest."}],
+    }
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted, bible=bible)
+    assert "Keep it terse." in scripted.calls[0][0]
+    assert "Earnest." in scripted.calls[0][0]  # "Frodo ran." is in the batch
+
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted, bible=bible, config={"book_bible": False})
+    assert all(BIBLE_HEADING not in system for system, _, _ in scripted.calls)
 
 
 # ---------------------------------------------------------------------------
