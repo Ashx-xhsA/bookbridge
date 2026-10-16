@@ -187,3 +187,79 @@ def test_mock_client_runs_the_whole_scan() -> None:
     names = [e.english for e in result.entities]
     assert "Georg" in names
     assert result.style_guide
+
+
+class TestMergeSafety:
+    """Found in the DeepSeek smoke run: shared or generic aliases fused people."""
+
+    def _scan(self, entities: list[dict]) -> dict:
+        router = Router({"friend": entities})
+        return _by_name(scan_book(router.client, BOOK, target_lang="zh-Hans"))
+
+    def test_alias_claimed_by_two_entities_is_dropped_and_does_not_merge(self) -> None:
+        entities = self._scan(
+            [
+                _entity(
+                    "Gregor",
+                    "格里高尔",
+                    aliases=[{"name": "Mr. Samsa", "translation": "萨姆沙先生"}],
+                ),
+                _entity(
+                    "Father", "父亲", aliases=[{"name": "Mr. Samsa", "translation": "萨姆沙先生"}]
+                ),
+            ]
+        )
+        assert set(entities) == {"Gregor", "Father"}
+        assert entities["Gregor"].aliases == ()
+        assert entities["Father"].aliases == ()
+
+    def test_lowercase_alias_naming_another_entity_is_dropped_not_merged(self) -> None:
+        entities = self._scan(
+            [
+                _entity("Gregor", "格里高尔", aliases=[{"name": "father", "translation": "父亲"}]),
+                _entity("Father", "父亲"),
+            ]
+        )
+        assert set(entities) == {"Gregor", "Father"}
+        assert entities["Gregor"].aliases == ()
+
+    def test_capitalised_alias_naming_another_entity_still_merges(self) -> None:
+        entities = self._scan(
+            [
+                _entity("Georg", "格奥尔格"),
+                _entity(
+                    "Georg Bendemann",
+                    "格奥尔格·本德曼",
+                    aliases=[{"name": "Georg", "translation": "格奥尔格"}],
+                ),
+            ]
+        )
+        assert list(entities) == ["Georg"]
+        assert [a.english for a in entities["Georg"].aliases] == ["Georg Bendemann"]
+
+    def test_lowercase_epithet_alias_of_one_entity_is_kept(self) -> None:
+        entities = self._scan(
+            [_entity("Grete", "格蕾特", aliases=[{"name": "the sister", "translation": "妹妹"}])]
+        )
+        assert [a.english for a in entities["Grete"].aliases] == ["the sister"]
+
+    def test_lowercase_common_nouns_dropped_unless_person_or_technical(self) -> None:
+        entities = self._scan(
+            [
+                _entity("the sofa", "沙发", "general"),
+                _entity("living room", "起居室", "place"),
+                _entity("office", "办公室", "organization"),
+                _entity("head clerk", "首席秘书", "person"),
+                _entity("mithril", "秘银", "technical"),
+                _entity("St. Petersburg", "圣彼得堡", "place"),
+            ]
+        )
+        assert set(entities) == {"head clerk", "mithril", "St. Petersburg"}
+
+
+def test_scan_prompt_asks_to_skip_ordinary_nouns_and_shared_names() -> None:
+    from bookbridge.harness.prompts import build_scan_prompt
+
+    system, _ = build_scan_prompt("x", target_lang="zh-Hans")
+    assert "ordinary" in system
+    assert "only if it refers to that one entity" in system
