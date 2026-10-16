@@ -19,7 +19,7 @@ export async function GET(
 
   const bible = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { status: true, styleGuide: true, jobId: true, updatedAt: true },
+    select: { status: true, scanStatus: true, styleGuide: true, jobId: true, updatedAt: true },
   })
   return NextResponse.json({ bible }, { headers: { 'Cache-Control': 'no-store' } })
 }
@@ -57,13 +57,17 @@ export async function PATCH(
     select: { status: true },
   })
   if (!current) return NextResponse.json({ error: 'No bible yet' }, { status: 404 })
-  if (current.status === 'SCANNING' || current.status === 'FAILED') {
+  if (current.status === 'NONE') {
     return NextResponse.json({ error: 'Bible is not ready for review' }, { status: 409 })
   }
 
+  const { styleGuide, status } = parsed.data
   const bible = await prisma.bookBible.update({
     where: { projectId },
-    data: parsed.data,
+    data: {
+      ...(styleGuide !== undefined ? { styleGuide, styleGuideEdited: true } : {}),
+      ...(status ? { status } : {}),
+    },
     select: { status: true, styleGuide: true },
   })
   return NextResponse.json({ bible })

@@ -16,7 +16,9 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       id: true,
       title: true,
       ownerId: true,
-      bible: { select: { status: true, styleGuide: true, jobId: true, updatedAt: true } },
+      bible: {
+        select: { status: true, scanStatus: true, styleGuide: true, jobId: true, updatedAt: true },
+      },
       glossary: {
         where: { aliasOfId: null },
         orderBy: [{ mentions: 'desc' }, { english: 'asc' }],
@@ -59,7 +61,7 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       <div className="mt-6">
         {/* Remount after a scan finishes so client state starts from fresh data. */}
         <BibleReview
-          key={`${project.bible?.status}-${project.bible?.updatedAt.getTime()}`}
+          key={`${project.bible?.status}-${project.bible?.scanStatus}-${project.bible?.updatedAt.getTime()}`}
           projectId={id}
           bible={project.bible}
           entries={entries}

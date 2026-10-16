@@ -128,22 +128,34 @@ model GlossaryTerm {
   @@index([aliasOfId])
 }
 
-// Whole-book context from the pre-scan: the style guide plus scan status.
-// Characters, places and their aliases live in GlossaryTerm.
+// Whole-book context from the pre-scan: the style guide plus review and
+// scan state. Characters, places and their aliases live in GlossaryTerm.
+// Review status and scan status are separate so a re-scan (running or
+// failed) never takes the current bible out of use.
 model BookBible {
-  id         String      @id @default(cuid())
-  projectId  String      @unique
-  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  styleGuide String      @default("") @db.Text
-  status     BibleStatus @default(SCANNING)
-  // TranslationJob row used to poll the scan (chapterId is null for it).
-  jobId      String?
-  updatedAt  DateTime    @updatedAt
+  id               String      @id @default(cuid())
+  projectId        String      @unique
+  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  styleGuide       String      @default("") @db.Text
+  // Set when the user edits the style guide; a re-scan then keeps it.
+  styleGuideEdited Boolean     @default(false)
+  status           BibleStatus @default(NONE)
+  scanStatus       ScanStatus  @default(IDLE)
+  scanStartedAt    DateTime?
+  // TranslationJob row used to poll the latest scan (chapterId is null).
+  jobId            String?
+  updatedAt        DateTime    @updatedAt
 }
 
+// Review state: nothing drafted yet, drafted by a scan, or confirmed.
 enum BibleStatus {
-  SCANNING
+  NONE
   DRAFT
   CONFIRMED
+}
+
+enum ScanStatus {
+  IDLE
+  SCANNING
   FAILED
 }

@@ -19,7 +19,12 @@ export type BibleEntry = {
   aliases: AliasRow[]
 }
 
-type Bible = { status: string; styleGuide: string; jobId: string | null } | null
+type Bible = {
+  status: string
+  scanStatus: string
+  styleGuide: string
+  jobId: string | null
+} | null
 
 export type TermPatch = Partial<{
   translation: string
@@ -27,11 +32,25 @@ export type TermPatch = Partial<{
   voice: string | null
 }>
 
-const STATUS_LABEL: Record<string, string> = {
-  SCANNING: 'Scanning…',
+const REVIEW_LABEL: Record<string, string> = {
   DRAFT: 'Draft — review, then confirm',
   CONFIRMED: 'Confirmed',
-  FAILED: 'Scan failed — try again',
+}
+
+function headline(status: string | null, scanStatus: string | null): string {
+  if (status && REVIEW_LABEL[status]) return REVIEW_LABEL[status]
+  if (scanStatus === 'SCANNING') return 'Scanning…'
+  if (scanStatus === 'FAILED') return 'Scan failed — try again'
+  return 'Not scanned yet'
+}
+
+function detail(reviewable: boolean, scanStatus: string | null): string {
+  if (!reviewable) {
+    return 'Scan the whole book once to collect characters, aliases, voices and a style guide. Translating without it still works.'
+  }
+  if (scanStatus === 'SCANNING') return 'Re-scanning — the current bible stays in use until the scan finishes.'
+  if (scanStatus === 'FAILED') return 'The last scan failed — the current bible is still in use.'
+  return 'Translation uses the bible as soon as a draft exists. Aliases are translated as written — the main name is only a hint.'
 }
 
 // Scans of long books can take several minutes.
@@ -53,6 +72,7 @@ export default function BibleReview({
 }) {
   const router = useRouter()
   const [status, setStatus] = useState(bible?.status ?? null)
+  const [scanStatus, setScanStatus] = useState(bible?.scanStatus ?? null)
   const [styleGuide, setStyleGuide] = useState(bible?.styleGuide ?? '')
   const [savedStyle, setSavedStyle] = useState(bible?.styleGuide ?? '')
   const [entries, setEntries] = useState(initialEntries)
@@ -62,13 +82,16 @@ export default function BibleReview({
 
   // Resume polling when the page is opened while a scan is running.
   useEffect(() => {
-    if (bible?.status !== 'SCANNING' || !bible.jobId) return
+    if (bible?.scanStatus !== 'SCANNING' || !bible.jobId) return
     const controller = new AbortController()
     pollJob(bible.jobId, { signal: controller.signal, timeoutMs: SCAN_POLL_TIMEOUT_MS })
       .then(() => router.refresh())
       .catch(() => {})
     return () => controller.abort()
-  }, [bible?.status, bible?.jobId, router])
+  }, [bible?.scanStatus, bible?.jobId, router])
+
+  const scanning = scanStatus === 'SCANNING' || busy
+  const reviewable = status === 'DRAFT' || status === 'CONFIRMED'
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -106,7 +129,7 @@ export default function BibleReview({
 
   async function scan() {
     if (
-      status &&
+      reviewable &&
       !window.confirm(
         'Re-scan the whole book? Names you have not edited or approved will be updated; your edits are kept.'
       )
@@ -119,7 +142,7 @@ export default function BibleReview({
         { method: 'POST' },
         'Could not start the scan'
       )
-      setStatus('SCANNING')
+      setScanStatus('SCANNING')
       await pollJob(job.id, { timeoutMs: SCAN_POLL_TIMEOUT_MS })
       router.refresh()
     })
@@ -196,8 +219,6 @@ export default function BibleReview({
     onAddAlias: (english: string, translation: string) => addAlias(e, english, translation),
   })
 
-  const scanning = status === 'SCANNING' || busy
-  const reviewable = status === 'DRAFT' || status === 'CONFIRMED'
 
   return (
     <div className="space-y-6">
@@ -212,19 +233,13 @@ export default function BibleReview({
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
         <div>
-          <p className="text-sm font-semibold text-ink">
-            {status ? STATUS_LABEL[status] : 'Not scanned yet'}
-          </p>
-          <p className="mt-0.5 text-xs text-ink-muted">
-            {status
-              ? 'Translation uses the bible as soon as a draft exists. Aliases are translated as written — the main name is only a hint.'
-              : 'Scan the whole book once to collect characters, aliases, voices and a style guide. Translating without it still works.'}
-          </p>
+          <p className="text-sm font-semibold text-ink">{headline(status, scanStatus)}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">{detail(reviewable, scanStatus)}</p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={scan} disabled={scanning} className={secondary}>
             {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {scanning ? 'Scanning…' : status ? 'Re-scan' : 'Scan book'}
+            {scanning ? 'Scanning…' : reviewable || scanStatus === 'FAILED' ? 'Re-scan' : 'Scan book'}
           </button>
           {status === 'DRAFT' && (
             <button type="button" onClick={() => saveBible({ status: 'CONFIRMED' })} className={primary}>

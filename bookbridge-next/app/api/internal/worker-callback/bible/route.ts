@@ -29,7 +29,8 @@ const bodySchema = z.discriminatedUnion('status', [
   z.object({
     ...ids,
     status: z.literal('SUCCEEDED'),
-    style_guide: z.string().max(20000),
+    // Same cap as the Worker's translate request, so it can be sent back.
+    style_guide: z.string().max(5000),
     entities: z.array(entitySchema).max(1000),
   }),
   z.object({ ...ids, status: z.literal('FAILED'), error: z.string().max(500).optional() }),
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   const bible = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { jobId: true },
+    select: { jobId: true, styleGuideEdited: true },
   })
   if (!bible) return NextResponse.json({ error: 'Bible not found' }, { status: 404 })
   // A newer scan was started since; this result must not overwrite it.
@@ -68,7 +69,8 @@ export async function POST(req: NextRequest) {
   try {
     if (payload.status === 'FAILED') {
       await prisma.$transaction([
-        prisma.bookBible.update({ where: { projectId }, data: { status: 'FAILED' } }),
+        // The current bible stays in use; only the scan is marked failed.
+        prisma.bookBible.update({ where: { projectId }, data: { scanStatus: 'FAILED' } }),
         prisma.translationJob.update({
           where: { id: payload.job_id },
           data: { status: 'FAILED', error: payload.error ?? 'Bible scan failed' },
@@ -88,7 +90,14 @@ export async function POST(req: NextRequest) {
           await applyPlan(tx, projectId, plan, existing)
           await tx.bookBible.update({
             where: { projectId },
-            data: { status: 'DRAFT', styleGuide: payload.style_guide },
+            data: {
+              status: 'DRAFT',
+              scanStatus: 'IDLE',
+              // Never replace a user-edited or existing guide with an empty one.
+              ...(!bible.styleGuideEdited && payload.style_guide.trim()
+                ? { styleGuide: payload.style_guide }
+                : {}),
+            },
           })
           await tx.translationJob.update({
             where: { id: payload.job_id },

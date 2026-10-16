@@ -1,9 +1,14 @@
 -- Phase 3: book bible. Aliases become their own GlossaryTerm rows (with their
 -- own translation) pointing at the entity they name; the string-array column
 -- from Phase 2 goes away (never applied to a populated database).
+-- BookBible keeps review status (NONE/DRAFT/CONFIRMED) apart from scan status
+-- (IDLE/SCANNING/FAILED) so a re-scan never disables the current bible.
 
 -- CreateEnum
-CREATE TYPE "BibleStatus" AS ENUM ('SCANNING', 'DRAFT', 'CONFIRMED', 'FAILED');
+CREATE TYPE "BibleStatus" AS ENUM ('NONE', 'DRAFT', 'CONFIRMED');
+
+-- CreateEnum
+CREATE TYPE "ScanStatus" AS ENUM ('IDLE', 'SCANNING', 'FAILED');
 
 -- AlterTable
 ALTER TABLE "GlossaryTerm" DROP COLUMN "aliases",
@@ -17,7 +22,10 @@ CREATE TABLE "BookBible" (
     "id" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
     "styleGuide" TEXT NOT NULL DEFAULT '',
-    "status" "BibleStatus" NOT NULL DEFAULT 'SCANNING',
+    "styleGuideEdited" BOOLEAN NOT NULL DEFAULT false,
+    "status" "BibleStatus" NOT NULL DEFAULT 'NONE',
+    "scanStatus" "ScanStatus" NOT NULL DEFAULT 'IDLE',
+    "scanStartedAt" TIMESTAMP(3),
     "jobId" TEXT,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

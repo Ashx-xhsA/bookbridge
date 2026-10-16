@@ -1,22 +1,31 @@
 import Link from 'next/link'
 import { Sparkles } from 'lucide-react'
 
-const MESSAGES: Record<string, string> = {
-  NONE: 'Scan the book first to build a book bible — consistent names, aliases and character voices across chapters.',
-  FAILED: 'The last book scan failed. Scan again to build the book bible.',
-  SCANNING: 'The book is being scanned. The bible will be ready for review in a few minutes.',
-  DRAFT: 'Your book bible is a draft. Review names and aliases before translating.',
+const MESSAGES = {
+  scan: 'Scan the book first to build a book bible — consistent names, aliases and character voices across chapters.',
+  scanning: 'The book is being scanned. The bible will be ready for review in a few minutes.',
+  failed: 'The last book scan failed. Scan again to build the book bible.',
+  draft: 'Your book bible is a draft. Review names and aliases before translating.',
 }
 
-// Translating is never blocked; this only nudges toward scanning / review.
+function messageFor(status: string | null, scanStatus: string | null): string | null {
+  if (status === 'CONFIRMED') return null
+  if (status === 'DRAFT') return MESSAGES.draft
+  if (scanStatus === 'SCANNING') return MESSAGES.scanning
+  if (scanStatus === 'FAILED') return MESSAGES.failed
+  return MESSAGES.scan
+}
+
 export default function BibleNudge({
   projectId,
   status,
+  scanStatus,
 }: {
   projectId: string
   status: string | null
+  scanStatus: string | null
 }) {
-  const message = MESSAGES[status ?? 'NONE']
+  const message = messageFor(status, scanStatus)
   if (!message) return null
   return (
     <div

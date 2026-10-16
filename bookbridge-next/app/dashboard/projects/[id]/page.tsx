@@ -24,7 +24,7 @@ export default async function ProjectPage({
       chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_TEXT } },
       jobs: true,
       glossary: { orderBy: { english: 'asc' } },
-      bible: { select: { status: true } },
+      bible: { select: { status: true, scanStatus: true } },
     },
   })
 
@@ -121,7 +121,11 @@ export default async function ProjectPage({
       </div>
 
       {totalChapters > 0 && (
-        <BibleNudge projectId={project.id} status={project.bible?.status ?? null} />
+        <BibleNudge
+          projectId={project.id}
+          status={project.bible?.status ?? null}
+          scanStatus={project.bible?.scanStatus ?? null}
+        />
       )}
 
       <div className="mt-8">

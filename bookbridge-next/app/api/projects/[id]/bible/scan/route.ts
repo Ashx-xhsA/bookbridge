@@ -25,11 +25,12 @@ export async function POST(
 
   const existing = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { status: true, updatedAt: true },
+    select: { scanStatus: true, scanStartedAt: true },
   })
   if (
-    existing?.status === 'SCANNING' &&
-    Date.now() - new Date(existing.updatedAt).getTime() < STALE_SCAN_MS
+    existing?.scanStatus === 'SCANNING' &&
+    existing.scanStartedAt &&
+    Date.now() - new Date(existing.scanStartedAt).getTime() < STALE_SCAN_MS
   ) {
     return NextResponse.json({ error: 'A scan is already running' }, { status: 409 })
   }
@@ -61,16 +62,19 @@ export async function POST(
     data: { projectId, status: 'PENDING' },
     select: { id: true, status: true },
   })
+  // Only the scan state changes: an existing bible stays in use (and keeps
+  // its review status) until the new scan succeeds.
+  const scanStartedAt = new Date()
   await prisma.bookBible.upsert({
     where: { projectId },
-    create: { projectId, status: 'SCANNING', jobId: job.id },
-    update: { status: 'SCANNING', jobId: job.id },
+    create: { projectId, scanStatus: 'SCANNING', scanStartedAt, jobId: job.id },
+    update: { scanStatus: 'SCANNING', scanStartedAt, jobId: job.id },
   })
 
   // See api/jobs: after() keeps the dispatch inside the request lifecycle.
   after(async () => {
     try {
-      await workerFetch('/bible/scan/async', {
+      const res = await workerFetch('/bible/scan/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -81,6 +85,8 @@ export async function POST(
           llm: llmCreds,
         }),
       })
+      // workerFetch only throws on network errors; a 4xx/5xx must fail too.
+      if (!res.ok) throw new Error(`Worker responded ${res.status}`)
     } catch (err) {
       console.error('[bible/scan] worker dispatch failed', { jobId: job.id, err: String(err) })
       try {
@@ -88,7 +94,7 @@ export async function POST(
           where: { id: job.id },
           data: { status: 'FAILED', error: 'Worker unavailable' },
         })
-        await prisma.bookBible.update({ where: { projectId }, data: { status: 'FAILED' } })
+        await prisma.bookBible.update({ where: { projectId }, data: { scanStatus: 'FAILED' } })
       } catch {
         // best-effort — the stale-scan window lets the user retry
       }
