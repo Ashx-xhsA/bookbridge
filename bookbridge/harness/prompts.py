@@ -115,6 +115,7 @@ def render_context(preceding: Sequence[ContextSegment], window: int) -> str:
 
 def _system_prompt(source_lang: str, target_lang: str, count: int, sections: Sequence[str]) -> str:
     parts = [
+        "Task: translate",
         f"You are a literary translator. Translate from {source_lang} to {target_lang}.",
         f"Target language: {target_lang}",
         f"The input has {count} segment(s), each introduced by a marker line such as "
@@ -158,6 +159,7 @@ def build_extraction_prompt(
     """Return (system, user) messages asking for new proper nouns / terms as JSON."""
     system = "\n".join(
         [
+            "Task: extract_terms",
             "You build a translation glossary from source/translation pairs.",
             f"Target language: {target_lang}",
             "List proper nouns (people, places, organizations) and recurring technical "
@@ -174,3 +176,61 @@ def build_extraction_prompt(
         for i, (src, tgt) in enumerate(pairs, start=1)
     )
     return system, f"Known terms: {known}\n\n{body}"
+
+
+def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
+    """Ask for the named entities in one passage of the book (pre-scan)."""
+    system = "\n".join(
+        [
+            "Task: scan_entities",
+            "You prepare a translation bible for a novel, one passage at a time.",
+            f"Target language: {target_lang}",
+            "List the named characters, places, organizations and recurring special "
+            "terms in the passage. For each give the translation to use throughout "
+            "the book. Under `aliases`, list other names the passage uses for the same "
+            'entity (nicknames, titles, epithets such as "the old wizard"), each '
+            "with its own translation — an alias is translated as written, never as "
+            "the main name.",
+            'Return only JSON: {"entities": [{"name": str, "translation": str, '
+            '"category": "person"|"place"|"organization"|"technical"|"general", '
+            '"gender": "male"|"female"|"unknown"|null, "note": str|null, '
+            '"aliases": [{"name": str, "translation": str}]}]}',
+        ]
+    )
+    return system, passage
+
+
+def build_voice_prompt(
+    characters: Sequence[tuple[str, str, Sequence[str]]], *, target_lang: str
+) -> tuple[str, str]:
+    """Ask for one voice card per character from sample passages."""
+    system = "\n".join(
+        [
+            "Task: voice_cards",
+            "You describe how each character speaks, for a translator.",
+            f"Target language: {target_lang}",
+            "For each character write one or two sentences, in the target language, "
+            "on register, tone and verbal habits, and how they address others.",
+            'Return only JSON: {"voices": [{"name": str, "voice": str}]}',
+        ]
+    )
+    blocks = [
+        f"### {name}\n({translation})\n" + "\n".join(f"- {s}" for s in samples)
+        for name, translation, samples in characters
+    ]
+    return system, "\n\n".join(blocks)
+
+
+def build_style_prompt(samples: Sequence[str], *, target_lang: str) -> tuple[str, str]:
+    """Ask for a short style guide for translating this book."""
+    system = "\n".join(
+        [
+            "Task: style_guide",
+            "You write a style guide for translating a novel.",
+            f"Target language: {target_lang}",
+            "From the sample passages, describe in 3–6 short bullet points, in the "
+            "target language: narrative voice, register, sentence rhythm, how to "
+            "render dialogue, and anything to avoid. Return only the bullet points.",
+        ]
+    )
+    return system, "\n\n".join(samples)

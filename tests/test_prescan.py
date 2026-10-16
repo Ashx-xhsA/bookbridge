@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import re
 
-from bookbridge.harness.prescan import ScanResult, scan_book
-
 from bookbridge.harness.models import TranslatorError
+from bookbridge.harness.prescan import ScanResult, scan_book
 from bookbridge.harness.providers.mock import MockLLMClient
 from tests.test_harness import ScriptedClient
 

@@ -18,6 +18,8 @@ from bookbridge.harness.prompts import SEGMENTS_HEADING
 _TERM_PATTERN = re.compile(r"\b[A-Z][a-z]{2,}\b")
 _TARGET_RE = re.compile(r"^Target language: (\S+)$", re.MULTILINE)
 _SOURCE_LINE_RE = re.compile(r"^\[source\] (.*)$", re.MULTILINE)
+_TASK_RE = re.compile(r"^Task: (\w+)$", re.MULTILINE)
+_VOICE_NAME_RE = re.compile(r"^### (.+)$", re.MULTILINE)
 
 
 class MockLLMClient:
@@ -28,6 +30,12 @@ class MockLLMClient:
         self.usage.calls += 1
         found = _TARGET_RE.search(system)
         lang = found.group(1) if found else "mock"
+        task = _TASK_RE.search(system)
+        if json_mode and task and task.group(1) == "scan_entities":
+            return self._scan(user, lang)
+        if json_mode and task and task.group(1) == "voice_cards":
+            voices = [{"name": n, "voice": f"[{lang}] voice"} for n in _VOICE_NAME_RE.findall(user)]
+            return json.dumps({"voices": voices}, ensure_ascii=False)
         if json_mode:
             return self._extract(user, lang)
         block = user.split(SEGMENTS_HEADING, 1)[-1]
@@ -35,6 +43,15 @@ class MockLLMClient:
             return f"[{lang}] {user[:200]}"
         segments = parse_segments(block, expected=count_markers(block))
         return format_segments([f"[{lang}] {s}" for s in segments])
+
+    @staticmethod
+    def _scan(passage: str, lang: str) -> str:
+        names = list(dict.fromkeys(_TERM_PATTERN.findall(passage)))
+        entities = [
+            {"name": n, "translation": f"[{lang}] {n}", "category": "person", "aliases": []}
+            for n in names
+        ]
+        return json.dumps({"entities": entities}, ensure_ascii=False)
 
     @staticmethod
     def _extract(user: str, lang: str) -> str:

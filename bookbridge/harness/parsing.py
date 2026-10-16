@@ -88,3 +88,59 @@ def parse_terms(content: str, existing: Iterable[str]) -> list[ExtractedTerm]:
             seen.add(term.english.lower())
             terms.append(term)
     return terms
+
+
+def _json_object(content: str) -> dict:
+    try:
+        parsed = json.loads(strip_code_fence(content))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def parse_entities(content: str) -> list[dict]:
+    """Parse a pre-scan reply `{"entities": [...]}` into cleaned dicts.
+
+    Keeps items with a name and translation; normalises the category; aliases
+    become `[(name, translation)]` and need both fields too.
+    """
+    items = _json_object(content).get("entities")
+    out: list[dict] = []
+    for raw in items if isinstance(items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        name, tran = _text(raw.get("name")), _text(raw.get("translation"))
+        if not name or not tran:
+            continue
+        cat = raw.get("category")
+        aliases = raw.get("aliases") if isinstance(raw.get("aliases"), list) else []
+        out.append(
+            {
+                "name": name,
+                "translation": tran,
+                "category": cat if isinstance(cat, str) and cat in TERM_CATEGORIES else "general",
+                "gender": _text(raw.get("gender")) or None,
+                "notes": _text(raw.get("note") or raw.get("notes")) or None,
+                "aliases": [
+                    (_text(a.get("name")), _text(a.get("translation")))
+                    for a in aliases
+                    if isinstance(a, dict) and _text(a.get("name")) and _text(a.get("translation"))
+                ],
+            }
+        )
+    return out
+
+
+def parse_voices(content: str) -> dict[str, str]:
+    """Parse `{"voices": [{"name", "voice"}]}` into {name: voice}."""
+    items = _json_object(content).get("voices")
+    pairs = (
+        (_text(v.get("name")), _text(v.get("voice")))
+        for v in (items if isinstance(items, list) else [])
+        if isinstance(v, dict)
+    )
+    return {name: voice for name, voice in pairs if name and voice}
+
+
+def _text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
