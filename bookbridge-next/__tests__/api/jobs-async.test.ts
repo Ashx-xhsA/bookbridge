@@ -504,9 +504,14 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     ])
   })
 
-  it.each(['DRAFT', 'CONFIRMED'])(
-    'sends the %s bible: style guide plus person cards, most-mentioned first',
-    async (status) => {
+  it.each([
+    ['DRAFT', 'IDLE'],
+    ['CONFIRMED', 'IDLE'],
+    ['CONFIRMED', 'SCANNING'], // still used while a re-scan runs
+    ['DRAFT', 'FAILED'], // ... and after a re-scan failed
+  ])(
+    'sends the %s bible (scan %s): style guide plus person cards, most-mentioned first',
+    async (status, scanStatus) => {
       vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
       mockProjectFindUnique.mockResolvedValueOnce({
         id: PROJECT_ID,
@@ -519,7 +524,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
         projectId: PROJECT_ID,
         number: 1,
       })
-      mockBibleFindUnique.mockResolvedValueOnce({ status, styleGuide: '- 简洁' })
+      mockBibleFindUnique.mockResolvedValueOnce({ status, scanStatus, styleGuide: '- 简洁' })
       mockGlossaryTermFindMany.mockResolvedValueOnce([
         { english: 'Ron', translation: '罗恩', category: 'person', approved: false,
           gender: 'male', voice: null, notes: null, mentions: 3, aliasOf: null },
@@ -548,7 +553,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     }
   )
 
-  it.each(['SCANNING', 'FAILED'])('omits a %s bible', async (status) => {
+  it('omits a bible that has never been drafted', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
     mockProjectFindUnique.mockResolvedValueOnce({
       id: PROJECT_ID,
@@ -561,7 +566,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       projectId: PROJECT_ID,
       number: 1,
     })
-    mockBibleFindUnique.mockResolvedValueOnce({ status, styleGuide: '- 简洁' })
+    mockBibleFindUnique.mockResolvedValueOnce({ status: 'NONE', scanStatus: 'SCANNING', styleGuide: '' })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
     mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
 

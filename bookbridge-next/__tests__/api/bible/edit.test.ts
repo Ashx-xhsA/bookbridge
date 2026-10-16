@@ -108,11 +108,18 @@ describe('PATCH /api/projects/[id]/bible', () => {
     expect((await PATCH(json('PATCH', { status: 'CONFIRMED' }), bibleParams)).status).toBe(404)
   })
 
-  it.each(['SCANNING', 'FAILED'])('returns 409 when the bible is %s', async (status) => {
+  it('returns 409 while there is nothing to review yet', async () => {
     signedIn()
-    mockBibleFindUnique.mockResolvedValueOnce({ status })
+    mockBibleFindUnique.mockResolvedValueOnce({ status: 'NONE' })
     const { PATCH } = await import('@/app/api/projects/[id]/bible/route')
     expect((await PATCH(json('PATCH', { status: 'CONFIRMED' }), bibleParams)).status).toBe(409)
+  })
+
+  it('can confirm while a re-scan is running', async () => {
+    signedIn()
+    mockBibleFindUnique.mockResolvedValueOnce({ status: 'DRAFT', scanStatus: 'SCANNING' })
+    const { PATCH } = await import('@/app/api/projects/[id]/bible/route')
+    expect((await PATCH(json('PATCH', { status: 'CONFIRMED' }), bibleParams)).status).toBe(200)
   })
 
   it('saves the style guide and confirms', async () => {
@@ -122,7 +129,7 @@ describe('PATCH /api/projects/[id]/bible', () => {
     expect(res.status).toBe(200)
     expect(mockBibleUpdate).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
-      data: { styleGuide: '- 简洁', status: 'CONFIRMED' },
+      data: { styleGuide: '- 简洁', styleGuideEdited: true, status: 'CONFIRMED' },
       select: { status: true, styleGuide: true },
     })
     expect((await res.json()).bible.status).toBe('CONFIRMED')

@@ -97,7 +97,7 @@ describe('POST /api/projects/[id]/bible/scan', () => {
 
   it('returns 409 while a recent scan is still running', async () => {
     signedIn()
-    mockBibleFindUnique.mockResolvedValueOnce({ status: 'SCANNING', updatedAt: new Date() })
+    mockBibleFindUnique.mockResolvedValueOnce({ scanStatus: 'SCANNING', scanStartedAt: new Date() })
     const { POST } = await import('@/app/api/projects/[id]/bible/scan/route')
     expect((await POST(post(), params)).status).toBe(409)
     expect(mockJobCreate).not.toHaveBeenCalled()
@@ -106,8 +106,8 @@ describe('POST /api/projects/[id]/bible/scan', () => {
   it('allows a new scan when the previous one is stale', async () => {
     signedIn()
     mockBibleFindUnique.mockResolvedValueOnce({
-      status: 'SCANNING',
-      updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+      scanStatus: 'SCANNING',
+      scanStartedAt: new Date(Date.now() - 60 * 60 * 1000),
     })
     const { POST } = await import('@/app/api/projects/[id]/bible/scan/route')
     expect((await POST(post(), params)).status).toBe(202)
@@ -120,7 +120,7 @@ describe('POST /api/projects/[id]/bible/scan', () => {
     expect((await POST(post(), params)).status).toBe(400)
   })
 
-  it('creates a poll job, marks the bible SCANNING and dispatches every chapter', async () => {
+  it('creates a poll job, marks the scan running and dispatches every chapter', async () => {
     signedIn()
     const { POST } = await import('@/app/api/projects/[id]/bible/scan/route')
     const res = await POST(post(), params)
@@ -133,8 +133,9 @@ describe('POST /api/projects/[id]/bible/scan', () => {
     })
     expect(mockBibleUpsert).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
-      create: { projectId: PROJECT_ID, status: 'SCANNING', jobId: JOB_ID },
-      update: { status: 'SCANNING', jobId: JOB_ID },
+      // Review status is untouched: an existing bible stays in use while re-scanning.
+      create: { projectId: PROJECT_ID, scanStatus: 'SCANNING', scanStartedAt: expect.any(Date), jobId: JOB_ID },
+      update: { scanStatus: 'SCANNING', scanStartedAt: expect.any(Date), jobId: JOB_ID },
     })
     const [url, init] = mockFetch.mock.calls[0] as [string, { body: string }]
     expect(url).toBe('http://worker.test/bible/scan/async')
@@ -148,9 +149,13 @@ describe('POST /api/projects/[id]/bible/scan', () => {
     expect(body.llm.llm_api_key).toBe('sk-test')
   })
 
-  it('marks job and bible FAILED when the Worker is unreachable', async () => {
+  it.each([
+    ['unreachable', () => mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'))],
+    ['returns 503', () => mockFetch.mockResolvedValueOnce(new Response('busy', { status: 503 }))],
+    ['rejects the payload (422)', () => mockFetch.mockResolvedValueOnce(new Response('{}', { status: 422 }))],
+  ])('marks the job and the scan FAILED when the Worker is %s', async (_why, arrange) => {
     signedIn()
-    mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'))
+    arrange()
     const { POST } = await import('@/app/api/projects/[id]/bible/scan/route')
     await POST(post(), params)
     await vi.waitFor(() => expect(mockBibleUpdate).toHaveBeenCalled())
@@ -160,7 +165,7 @@ describe('POST /api/projects/[id]/bible/scan', () => {
     })
     expect(mockBibleUpdate).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
-      data: { status: 'FAILED' },
+      data: { scanStatus: 'FAILED' },
     })
   })
 })
@@ -177,6 +182,7 @@ describe('GET /api/projects/[id]/bible', () => {
     const updatedAt = new Date('2026-10-16T10:00:00Z')
     mockBibleFindUnique.mockResolvedValueOnce({
       status: 'DRAFT',
+      scanStatus: 'IDLE',
       styleGuide: '- 简洁',
       jobId: JOB_ID,
       updatedAt,
@@ -185,7 +191,13 @@ describe('GET /api/projects/[id]/bible', () => {
     const res = await GET(new NextRequest('http://localhost'), params)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      bible: { status: 'DRAFT', styleGuide: '- 简洁', jobId: JOB_ID, updatedAt: updatedAt.toISOString() },
+      bible: {
+        status: 'DRAFT',
+        scanStatus: 'IDLE',
+        styleGuide: '- 简洁',
+        jobId: JOB_ID,
+        updatedAt: updatedAt.toISOString(),
+      },
     })
   })
 

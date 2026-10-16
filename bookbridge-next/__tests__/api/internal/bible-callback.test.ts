@@ -75,7 +75,7 @@ describe('POST /api/internal/worker-callback/bible', () => {
     vi.resetModules()
     order.length = 0
     process.env.WORKER_CALLBACK_SECRET = SECRET
-    mockBibleFindUnique.mockResolvedValue({ jobId: JOB_ID })
+    mockBibleFindUnique.mockResolvedValue({ jobId: JOB_ID, styleGuideEdited: false })
     mockTermFindMany.mockResolvedValue([])
     mockTermCreateManyAndReturn.mockResolvedValue([
       { id: 'g1', english: 'Gandalf' },
@@ -130,7 +130,7 @@ describe('POST /api/internal/worker-callback/bible', () => {
     })
     expect(mockBibleUpdate).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
-      data: { status: 'DRAFT', styleGuide: '- 简洁克制' },
+      data: { status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁克制' },
     })
     expect(mockJobUpdate).toHaveBeenCalledWith({
       where: { id: JOB_ID },
@@ -159,7 +159,31 @@ describe('POST /api/internal/worker-callback/bible', () => {
     })
   })
 
-  it('marks bible and job FAILED on a failed scan', async () => {
+  it('keeps a style guide the user edited', async () => {
+    mockBibleFindUnique.mockResolvedValueOnce({ jobId: JOB_ID, styleGuideEdited: true })
+    const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
+    await POST(req(OK))
+    expect(mockBibleUpdate).toHaveBeenCalledWith({
+      where: { projectId: PROJECT_ID },
+      data: { status: 'DRAFT', scanStatus: 'IDLE' },
+    })
+  })
+
+  it('never replaces the style guide with an empty one', async () => {
+    const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
+    await POST(req({ ...OK, style_guide: '  ' }))
+    expect(mockBibleUpdate).toHaveBeenCalledWith({
+      where: { projectId: PROJECT_ID },
+      data: { status: 'DRAFT', scanStatus: 'IDLE' },
+    })
+  })
+
+  it('rejects a style guide longer than the Worker accepts back', async () => {
+    const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
+    expect((await POST(req({ ...OK, style_guide: 'x'.repeat(5001) }))).status).toBe(400)
+  })
+
+  it('marks the scan and job FAILED but keeps the bible in use', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
     const res = await POST(
       req({ job_id: JOB_ID, project_id: PROJECT_ID, status: 'FAILED', error: 'Bible scan failed' })
@@ -167,7 +191,7 @@ describe('POST /api/internal/worker-callback/bible', () => {
     expect(res.status).toBe(200)
     expect(mockBibleUpdate).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
-      data: { status: 'FAILED' },
+      data: { scanStatus: 'FAILED' },
     })
     expect(mockJobUpdate).toHaveBeenCalledWith({
       where: { id: JOB_ID },

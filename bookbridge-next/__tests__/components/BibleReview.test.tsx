@@ -88,7 +88,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'SCANNING', styleGuide: '', jobId: 'job9' }}
+        bible={{ status: 'NONE', scanStatus: 'SCANNING', styleGuide: '', jobId: 'job9' }}
         entries={[]}
       />
     )
@@ -97,11 +97,37 @@ describe('BibleReview', () => {
     expect(mockPollJob).toHaveBeenCalledWith('job9', expect.any(Object))
   })
 
+  it('keeps the bible editable during a re-scan', () => {
+    render(
+      <BibleReview
+        projectId={PROJECT_ID}
+        bible={{ status: 'CONFIRMED', scanStatus: 'SCANNING', styleGuide: '- 简洁', jobId: 'job9' }}
+        entries={[gandalf]}
+      />
+    )
+    expect(screen.getByRole('button', { name: /scanning/i })).toBeDisabled()
+    expect(screen.getByLabelText('Style guide')).toBeInTheDocument()
+    expect(screen.getByText('Confirmed')).toBeInTheDocument()
+  })
+
+  it('reports a failed re-scan without hiding the current bible', () => {
+    render(
+      <BibleReview
+        projectId={PROJECT_ID}
+        bible={{ status: 'DRAFT', scanStatus: 'FAILED', styleGuide: '', jobId: null }}
+        entries={[gandalf]}
+      />
+    )
+    expect(screen.getByText(/last scan failed/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /re-scan/i })).toBeEnabled()
+    expect(screen.getByLabelText('Voice of Gandalf')).toBeInTheDocument()
+  })
+
   it('splits characters from places and shows aliases', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '- 简洁', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
         entries={[gandalf, shire]}
       />
     )
@@ -117,7 +143,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '- 简洁', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
         entries={[]}
       />
     )
@@ -131,7 +157,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '- 简洁', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
         entries={[]}
       />
     )
@@ -148,7 +174,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
         entries={[gandalf]}
       />
     )
@@ -177,7 +203,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
         entries={[gandalf]}
       />
     )
@@ -198,7 +224,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
         entries={[gandalf]}
       />
     )
@@ -211,7 +237,7 @@ describe('BibleReview', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', styleGuide: '', jobId: null }}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
         entries={[gandalf, shire]}
       />
     )
@@ -223,12 +249,13 @@ describe('BibleReview', () => {
 
 describe('BibleNudge', () => {
   it.each([
-    [null, /scan the book first/i, 'Open book bible'],
-    ['FAILED', /scan failed/i, 'Open book bible'],
-    ['SCANNING', /being scanned/i, 'Open book bible'],
-    ['DRAFT', /draft/i, 'Review bible'],
-  ])('status %s nudges toward the bible page', (status, text, link) => {
-    render(<BibleNudge projectId={PROJECT_ID} status={status} />)
+    [null, null, /scan the book first/i, 'Open book bible'],
+    ['NONE', 'FAILED', /scan failed/i, 'Open book bible'],
+    ['NONE', 'SCANNING', /being scanned/i, 'Open book bible'],
+    ['DRAFT', 'IDLE', /draft/i, 'Review bible'],
+    ['DRAFT', 'SCANNING', /draft/i, 'Review bible'],
+  ])('status %s / scan %s nudges toward the bible page', (status, scanStatus, text, link) => {
+    render(<BibleNudge projectId={PROJECT_ID} status={status} scanStatus={scanStatus} />)
     expect(screen.getByText(text)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: link })).toHaveAttribute(
       'href',
@@ -236,8 +263,10 @@ describe('BibleNudge', () => {
     )
   })
 
-  it('stays quiet once the bible is confirmed', () => {
-    const { container } = render(<BibleNudge projectId={PROJECT_ID} status="CONFIRMED" />)
+  it('stays quiet once the bible is confirmed, even while re-scanning', () => {
+    const { container } = render(
+      <BibleNudge projectId={PROJECT_ID} status="CONFIRMED" scanStatus="SCANNING" />
+    )
     expect(container).toBeEmptyDOMElement()
   })
 })
