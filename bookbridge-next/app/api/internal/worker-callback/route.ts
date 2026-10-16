@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import type { Prisma } from '@/app/generated/prisma/client'
 import prisma from '@/lib/prisma'
+import { rejectUnlessWorker } from '@/lib/worker-secret'
 
 // Server-to-server endpoint. The Python Worker POSTs here with the result of
 // a background /translate/segments/async job. We verify a shared secret in
@@ -36,27 +36,9 @@ const bodySchema = z.discriminatedUnion('status', [
 
 type CallbackBody = z.infer<typeof bodySchema>
 
-function secretsEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a)
-  const bb = Buffer.from(b)
-  if (ba.length !== bb.length) return false
-  return timingSafeEqual(ba, bb)
-}
-
 export async function POST(req: NextRequest) {
-  const expected = process.env.WORKER_CALLBACK_SECRET
-  if (!expected) {
-    console.error('[worker-callback] WORKER_CALLBACK_SECRET is not configured')
-    return NextResponse.json(
-      { error: 'Callback receiver not configured' },
-      { status: 500 }
-    )
-  }
-
-  const provided = req.headers.get('x-worker-secret') ?? ''
-  if (!provided || !secretsEqual(provided, expected)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const rejected = rejectUnlessWorker(req, 'worker-callback')
+  if (rejected) return rejected
 
   let raw: unknown
   try {

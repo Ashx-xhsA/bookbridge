@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { rejectUnlessWorker } from '@/lib/worker-secret'
 
 // Server-to-server endpoint. After each chunk translation, the Python Worker
 // POSTs newly-extracted terms here (authenticated via WORKER_CALLBACK_SECRET).
@@ -20,27 +20,9 @@ const bodySchema = z.object({
   terms: z.array(termSchema).min(1).max(200),
 })
 
-function secretsEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a)
-  const bb = Buffer.from(b)
-  if (ba.length !== bb.length) return false
-  return timingSafeEqual(ba, bb)
-}
-
 export async function POST(req: NextRequest) {
-  const expected = process.env.WORKER_CALLBACK_SECRET
-  if (!expected) {
-    console.error('[glossary-callback] WORKER_CALLBACK_SECRET is not configured')
-    return NextResponse.json(
-      { error: 'Callback receiver not configured' },
-      { status: 500 }
-    )
-  }
-
-  const provided = req.headers.get('x-worker-secret') ?? ''
-  if (!provided || !secretsEqual(provided, expected)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const rejected = rejectUnlessWorker(req, 'glossary-callback')
+  if (rejected) return rejected
 
   let raw: unknown
   try {
