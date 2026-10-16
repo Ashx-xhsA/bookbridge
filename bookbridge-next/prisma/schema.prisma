@@ -42,6 +42,7 @@ model Project {
   chapters    Chapter[]
   jobs        TranslationJob[]
   glossary    GlossaryTerm[]
+  bible       BookBible?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 }
@@ -55,13 +56,13 @@ enum ProjectStatus {
 }
 
 model Chapter {
-  id          String    @id @default(cuid())
-  projectId   String
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  number      Int
-  title       String
-  summary     String?   @db.Text
-  segments    Segment[]
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number    Int
+  title     String
+  summary   String?   @db.Text
+  segments  Segment[]
 }
 
 // One source paragraph — the unit of translation. Source and translation
@@ -103,17 +104,46 @@ enum JobStatus {
 }
 
 model GlossaryTerm {
-  id          String  @id @default(cuid())
+  id          String         @id @default(cuid())
   projectId   String
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   english     String
   translation String?
-  category    String  @default("general")
+  category    String         @default("general")
   notes       String?
-  approved    Boolean  @default(false)
-  userEdited  Boolean  @default(false)
-  // Other surface forms of the same entity ("Mithrandir" for Gandalf). An
-  // alias match injects the term so the model knows who is meant; the alias
-  // itself is still translated as written.
-  aliases     String[] @default([])
+  approved    Boolean        @default(false)
+  userEdited  Boolean        @default(false)
+  // Book-bible fields (people mostly): pronouns/gender and how they speak.
+  gender      String?
+  voice       String?        @db.Text
+  // Paragraphs naming this term or one of its aliases, from the pre-scan.
+  mentions    Int            @default(0)
+  // An alias ("Mithrandir") is its own term with its own fixed translation,
+  // pointing at the entity it names (Gandalf). The model is told who is meant
+  // but translates the alias as written.
+  aliasOfId   String?
+  aliasOf     GlossaryTerm?  @relation("Alias", fields: [aliasOfId], references: [id], onDelete: SetNull)
+  aliases     GlossaryTerm[] @relation("Alias")
+
+  @@index([aliasOfId])
+}
+
+// Whole-book context from the pre-scan: the style guide plus scan status.
+// Characters, places and their aliases live in GlossaryTerm.
+model BookBible {
+  id         String      @id @default(cuid())
+  projectId  String      @unique
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  styleGuide String      @default("") @db.Text
+  status     BibleStatus @default(SCANNING)
+  // TranslationJob row used to poll the scan (chapterId is null for it).
+  jobId      String?
+  updatedAt  DateTime    @updatedAt
+}
+
+enum BibleStatus {
+  SCANNING
+  DRAFT
+  CONFIRMED
+  FAILED
 }

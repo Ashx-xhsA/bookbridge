@@ -14,6 +14,40 @@ const bodySchema = z.object({
 // window. The Worker trims to its configured window (max 10).
 const PRECEDING_SEGMENTS = 10
 
+// Worker cap on character cards per request; most-mentioned win.
+const MAX_BIBLE_CHARACTERS = 500
+
+// A drafted or confirmed bible is injected (translating before review is
+// allowed; the UI nudges the user to review first). Character cards are the
+// project's people — aliases excluded, they are glossary rows of their own.
+function bibleForWorker(
+  row: { status: string; styleGuide: string } | null,
+  terms: {
+    english: string
+    translation: string
+    category: string
+    gender: string | null
+    voice: string | null
+    notes: string | null
+    mentions: number
+    aliasOf: unknown
+  }[]
+) {
+  if (!row || (row.status !== 'DRAFT' && row.status !== 'CONFIRMED')) return undefined
+  const characters = terms
+    .filter((t) => t.category === 'person' && !t.aliasOf)
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, MAX_BIBLE_CHARACTERS)
+    .map((t) => ({
+      name: t.english,
+      translation: t.translation,
+      gender: t.gender,
+      voice: t.voice,
+      notes: t.notes,
+    }))
+  return { style_guide: row.styleGuide, characters }
+}
+
 // The check intentionally does not include SUCCEEDED — users may want to
 // re-translate a chapter after reviewing the first pass (e.g. after adding
 // glossary terms or fixing source text). Concurrent double-clicks from the
@@ -92,10 +126,10 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // The full glossary goes to the Worker, which picks the terms (or aliases)
-  // that occur in each batch. The tail of the previous chapter seeds the
-  // context window — newest-first so `take` keeps the closest paragraphs.
-  const [precedingRows, glossaryRows] = await Promise.all([
+  // The full glossary goes to the Worker, which picks the terms that occur
+  // in each batch. The tail of the previous chapter seeds the context
+  // window — newest-first so `take` keeps the closest paragraphs.
+  const [precedingRows, glossaryRows, bibleRow] = await Promise.all([
     prisma.segment.findMany({
       where: { chapter: { projectId, number: { lt: chapter.number } } },
       orderBy: [{ chapter: { number: 'desc' } }, { index: 'desc' }],
@@ -109,22 +143,33 @@ export async function POST(req: NextRequest) {
         translation: true,
         category: true,
         approved: true,
-        aliases: true,
+        gender: true,
+        voice: true,
+        notes: true,
+        mentions: true,
+        aliasOf: { select: { english: true, translation: true } },
       },
+    }),
+    prisma.bookBible.findUnique({
+      where: { projectId },
+      select: { status: true, styleGuide: true },
     }),
   ])
 
   const preceding = precedingRows.reverse()
-
-  const glossary = glossaryRows
-    .filter((t): t is typeof t & { translation: string } => !!t.translation)
-    .map((t) => ({
-      english: t.english,
-      translation: t.translation,
-      category: t.category,
-      approved: t.approved,
-      aliases: t.aliases ?? [],
-    }))
+  const terms = glossaryRows.filter(
+    (t): t is typeof t & { translation: string } => !!t.translation
+  )
+  const glossary = terms.map((t) => ({
+    english: t.english,
+    translation: t.translation,
+    category: t.category,
+    approved: t.approved,
+    ...(t.aliasOf?.translation
+      ? { alias_of: { english: t.aliasOf.english, translation: t.aliasOf.translation } }
+      : {}),
+  }))
+  const bible = bibleForWorker(bibleRow, terms)
 
   const llmCreds = await getUserLLMCredentials(userId)
   if (!llmCreds) {
@@ -157,6 +202,7 @@ export async function POST(req: NextRequest) {
           project_id: projectId,
           llm: llmCreds,
           ...(glossary.length > 0 ? { glossary } : {}),
+          ...(bible ? { bible } : {}),
         }),
       })
     } catch (err) {
