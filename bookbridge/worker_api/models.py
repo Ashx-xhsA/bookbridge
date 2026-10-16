@@ -42,27 +42,22 @@ class TranslateChunkAsyncRequest(BaseModel):
     llm: LLMCredentials | None = None
 
 
-class ChunkData(BaseModel):
-    chunk_id: int
+class ChapterData(BaseModel):
+    number: int
     title: str
-    start_page: int
-    end_page: int
-    page_count: int
-    content: str | None = None
+    paragraphs: list[str]
+
+
+class ParseResponse(BaseModel):
+    job_id: str
+    status: str = "completed"
+    chapters: list[ChapterData]
 
 
 class TranslateChunkResponse(BaseModel):
     job_id: str
     status: str = "queued"
-    chunks: list[ChunkData] | None = None
     translation: str | None = None
-
-
-class JobStatusResponse(BaseModel):
-    job_id: str
-    status: str
-    error: str | None = None
-    chunks: list[ChunkData] | None = None
 
 
 class HealthResponse(BaseModel):

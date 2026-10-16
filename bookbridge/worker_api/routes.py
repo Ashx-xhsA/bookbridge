@@ -2,11 +2,9 @@
 
 import logging
 import re
-import tempfile
 import uuid
-from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness import get_translator
 from bookbridge.harness.translator import (
@@ -16,17 +14,18 @@ from bookbridge.harness.translator import (
     TranslatorError,
     render_glossary_prompt_section,
 )
-from bookbridge.ingestion.chunker import build_chunk_manifest
-from bookbridge.ingestion.pdf_reader import extract_pages
+from bookbridge.ingestion.epub_reader import read_epub
+from bookbridge.ingestion.models import Book, IngestionError
+from bookbridge.ingestion.txt_reader import read_txt
 from bookbridge.worker_api.callback import (
     post_glossary_callback,
     post_worker_callback,
 )
 from bookbridge.worker_api.models import (
-    ChunkData,
+    ChapterData,
     GlossaryTermInput,
     HealthResponse,
-    JobStatusResponse,
+    ParseResponse,
     SummarizeRequest,
     SummarizeResponse,
     TranslateChunkAsyncRequest,
@@ -55,11 +54,13 @@ def _to_glossary_entries(
 
 router = APIRouter()
 
-MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
-
-# In-memory job store — used only by /parse for the deprecated async polling path.
-# /translate/chunk is now synchronous and does not write here (ref issue #52).
-_jobs: dict[str, dict] = {}
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+UNSUPPORTED_FORMAT = "Only EPUB and TXT files are accepted."
+_READERS = {".epub": read_epub, ".txt": read_txt}
+_CONTENT_TYPES = {
+    ".epub": {"application/epub+zip", "application/octet-stream"},
+    ".txt": {"text/plain", "application/octet-stream"},
+}
 
 # Tight character set so arbitrary URL-unsafe or injection-flavoured values are
 # rejected before reaching the translator or callback. Accepts UUIDs and CUIDs.
@@ -71,67 +72,35 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.post("/parse", response_model=TranslateChunkResponse)
-def parse(
-    file: UploadFile,
-    chapter_count: int | None = Form(default=None),
-) -> TranslateChunkResponse:
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
-    if file.content_type not in ("application/pdf", "application/octet-stream"):
-        raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
+def _suffix(filename: str | None) -> str:
+    name = (filename or "").lower()
+    return next((ext for ext in _READERS if name.endswith(ext)), "")
 
-    data = file.file.read(MAX_PDF_BYTES + 1)
-    if len(data) > MAX_PDF_BYTES:
-        raise HTTPException(status_code=413, detail="PDF exceeds maximum allowed size (50 MB).")
 
-    if chapter_count is not None and chapter_count <= 0:
-        raise HTTPException(status_code=422, detail="chapter_count must be a positive integer.")
+@router.post("/parse", response_model=ParseResponse)
+def parse(file: UploadFile) -> ParseResponse:
+    """Parse an EPUB or TXT upload into chapters of paragraphs."""
+    suffix = _suffix(file.filename)
+    content_type = (file.content_type or "").split(";")[0].strip()
+    if not suffix or content_type not in _CONTENT_TYPES[suffix]:
+        raise HTTPException(status_code=422, detail=UNSUPPORTED_FORMAT)
 
-    tmp_path: Path | None = None
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds maximum allowed size (50 MB).")
+
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = Path(tmp.name)
-        pages = extract_pages(tmp_path)
+        book: Book = _READERS[suffix](data, source_file=file.filename or "")
+    except IngestionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("parse failed for %s upload", suffix)
+        raise HTTPException(status_code=422, detail="Could not read the uploaded book.") from exc
 
-        if chapter_count is not None and chapter_count > len(pages):
-            raise HTTPException(
-                status_code=422,
-                detail=f"chapter_count ({chapter_count}) exceeds total pages ({len(pages)}).",
-            )
-
-        manifest = build_chunk_manifest(
-            pages, source_file=file.filename, chapter_count=chapter_count
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=422, detail="Could not read the uploaded PDF.")
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
-
-    chunks = [
-        ChunkData(
-            chunk_id=c.chunk_id,
-            title=c.title,
-            start_page=c.start_page,
-            end_page=c.end_page,
-            page_count=c.page_count,
-            content="\n\n".join(pages.get(p, "") for p in range(c.start_page, c.end_page + 1)),
-        )
-        for c in manifest.chunks
+    chapters = [
+        ChapterData(number=c.number, title=c.title, paragraphs=c.paragraphs) for c in book.chapters
     ]
-    if not chunks:
-        raise HTTPException(
-            status_code=422,
-            detail="No chapter markers found in the PDF.",
-        )
-
-    job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "completed", "chunks": chunks, "error": None}
-    return TranslateChunkResponse(job_id=job_id, status="completed", chunks=chunks)
+    return ParseResponse(job_id=str(uuid.uuid4()), status="completed", chapters=chapters)
 
 
 @router.post("/translate/chunk", response_model=TranslateChunkResponse)
@@ -439,19 +408,6 @@ def translate_chunk_async(
         body.llm.model_dump() if body.llm else None,
     )
     return {"job_id": body.job_id, "status": "accepted"}
-
-
-@router.get("/job/{job_id}", response_model=JobStatusResponse)
-def get_job(job_id: str) -> JobStatusResponse:
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    return JobStatusResponse(
-        job_id=job_id,
-        status=job["status"],
-        error=job.get("error"),
-        chunks=job.get("chunks"),
-    )
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
