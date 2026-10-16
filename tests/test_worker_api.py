@@ -101,81 +101,14 @@ def test_job_polling_endpoint_is_removed(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# POST /translate/chunk
+# Chapter-level translate endpoints are gone (Phase 2: segment-level only)
 # ---------------------------------------------------------------------------
 
 
-def test_translate_chunk_returns_translation(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """POST /translate/chunk runs harness synchronously and returns translation (issue #52)."""
-    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
-    response = client.post(
-        "/translate/chunk",
-        json={
-            "project_id": "proj-1",
-            "chunk_id": "1",
-            "source_text": "hello",
-            "target_lang": "zh-Hans",
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert "job_id" in body and isinstance(body["job_id"], str)
-    assert body["status"] == "completed"
-    assert body["translation"] == "[zh-Hans] hello"
-
-
-def test_translate_chunk_rejects_missing_source_text(client: TestClient) -> None:
-    response = client.post(
-        "/translate/chunk",
-        json={"project_id": "proj-1", "chunk_id": "1", "target_lang": "zh-Hans"},
-    )
-    assert response.status_code == 422
-
-
-def test_translate_chunk_rejects_invalid_target_lang(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
-    response = client.post(
-        "/translate/chunk",
-        json={
-            "project_id": "proj-1",
-            "chunk_id": "1",
-            "source_text": "hello",
-            "target_lang": "klingon",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_translate_chunk_propagates_provider_error_as_502(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Translator failures surface as 502 with a generic detail (no stack trace leak)."""
-    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
-
-    def boom(*_a: object, **_kw: object) -> str:
-        raise RuntimeError("provider internal failure with sensitive detail")
-
-    with patch(
-        "bookbridge.harness.providers.mock.MockTranslator.translate",
-        side_effect=boom,
-    ):
-        response = client.post(
-            "/translate/chunk",
-            json={
-                "project_id": "proj-1",
-                "chunk_id": "1",
-                "source_text": "hello",
-                "target_lang": "zh-Hans",
-            },
-        )
-    assert response.status_code == 502
-    assert response.json()["detail"] == "Translation provider failed"
-    assert "sensitive detail" not in response.text
-    assert "Traceback" not in response.text
+@pytest.mark.parametrize("path", ["/translate/chunk", "/translate/chunk/async"])
+def test_chunk_translate_endpoints_are_removed(client: TestClient, path: str) -> None:
+    response = client.post(path, json={"source_text": "hi", "target_lang": "zh-Hans"})
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
