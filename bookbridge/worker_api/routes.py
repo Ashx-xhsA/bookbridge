@@ -29,6 +29,8 @@ from bookbridge.worker_api.models import (
 logger = logging.getLogger(__name__)
 
 SUMMARY_SOURCE_CHARS = 8000
+# Matches the BFF glossary callback's max terms per request.
+GLOSSARY_CALLBACK_BATCH = 200
 
 
 router = APIRouter()
@@ -121,13 +123,13 @@ def _post_new_terms(
         if text is not None
     ]
     terms = extract_terms(llm, pairs, target_lang=body.target_lang, glossary=glossary)
-    if terms and body.project_id:
+    rows = [
+        {"english": t.english, "translation": t.translation, "category": t.category} for t in terms
+    ]
+    for start in range(0, len(rows), GLOSSARY_CALLBACK_BATCH):
         post_glossary_callback(
-            project_id=body.project_id,
-            terms=[
-                {"english": t.english, "translation": t.translation, "category": t.category}
-                for t in terms
-            ],
+            project_id=body.project_id or "",
+            terms=rows[start : start + GLOSSARY_CALLBACK_BATCH],
         )
 
 
