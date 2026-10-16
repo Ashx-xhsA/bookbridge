@@ -4,8 +4,8 @@ import io
 import zipfile
 
 import pytest
-from bookbridge.ingestion.epub_reader import DRMProtectedError, EpubLimits, read_epub
 
+from bookbridge.ingestion.epub_reader import DRMProtectedError, EpubLimits, read_epub
 from bookbridge.ingestion.models import IngestionError
 
 CONTAINER = """<?xml version="1.0"?>

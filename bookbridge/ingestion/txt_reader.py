@@ -79,7 +79,7 @@ def read_txt(
     paragraphs = split_paragraphs(text)
     if not paragraphs:
         raise IngestionError("The text file is empty.")
-    chapters = _group_by_headings(paragraphs) or _split_fixed(paragraphs, paragraphs_per_part)
+    chapters = group_by_headings(paragraphs) or _split_fixed(paragraphs, paragraphs_per_part)
     return Book(source_file=source_file, chapters=chapters)
 
 
@@ -123,7 +123,7 @@ def is_heading(paragraph: str) -> bool:
     return any(p.match(paragraph) for p in HEADING_PATTERNS)
 
 
-def _group_by_headings(paragraphs: list[str]) -> list[Chapter]:
+def group_by_headings(paragraphs: list[str]) -> list[Chapter]:
     """Group paragraphs under headings. Returns [] when no heading starts a chapter.
 
     A heading immediately followed by another heading (e.g. a table of contents

@@ -25,6 +25,7 @@ from defusedxml import DefusedXmlException
 from defusedxml.ElementTree import fromstring as parse_xml
 
 from bookbridge.ingestion.models import Book, Chapter, IngestionError
+from bookbridge.ingestion.txt_reader import group_by_headings
 
 MB = 1024 * 1024
 FONT_OBFUSCATION_ALGORITHMS = {
@@ -81,6 +82,10 @@ def read_epub(data: bytes, source_file: str = "", limits: EpubLimits | None = No
         package = reader.read_package(reader.rootfile_path())
         toc = reader.read_toc(package)
         chapters = _build_chapters(reader, package.spine, toc)
+    if len(chapters) == 1:
+        # TXT-converted EPUBs often have a one-entry TOC over the whole text;
+        # fall back to the same heading rules the TXT reader uses.
+        chapters = group_by_headings(chapters[0].paragraphs) or chapters
     if not chapters:
         raise IngestionError("No readable text was found in the EPUB.")
     return Book(source_file=source_file, chapters=chapters)
