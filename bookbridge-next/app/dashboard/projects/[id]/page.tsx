@@ -3,10 +3,11 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
 import { SEGMENT_TEXT, isFullyTranslated, joinSegments, joinTranslations } from '@/lib/segments'
-import { BookOpen, ArrowLeft } from 'lucide-react'
+import { BookOpen, ArrowLeft, Sparkles } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
 import ChapterExplorer from './ChapterExplorer'
+import BibleNudge from './BibleNudge'
 
 export default async function ProjectPage({
   params,
@@ -23,6 +24,7 @@ export default async function ProjectPage({
       chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_TEXT } },
       jobs: true,
       glossary: { orderBy: { english: 'asc' } },
+      bible: { select: { status: true } },
     },
   })
 
@@ -72,6 +74,13 @@ export default async function ProjectPage({
         </div>
         <div className="flex gap-2">
           <Link
+            href={`/dashboard/projects/${id}/bible`}
+            className="rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
+          >
+            <Sparkles className="mr-1 inline h-4 w-4" />
+            Book bible
+          </Link>
+          <Link
             href={`/dashboard/projects/${id}/glossary`}
             className="relative rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
           >
@@ -110,6 +119,10 @@ export default async function ProjectPage({
           />
         </div>
       </div>
+
+      {totalChapters > 0 && (
+        <BibleNudge projectId={project.id} status={project.bible?.status ?? null} />
+      )}
 
       <div className="mt-8">
         <ChapterExplorer
