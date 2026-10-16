@@ -53,9 +53,9 @@ describe('GET /api/projects/[id]/translate-batch', () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as ReturnType<typeof auth> extends Promise<infer T> ? T : never)
     mockProjectFindUnique.mockResolvedValueOnce({ ownerId: 'user_abc' })
     mockChapterFindMany.mockResolvedValueOnce([
-      { id: 'ch1', number: 1, title: 'One', translation: 'Translated', sourceContent: 'text' },
-      { id: 'ch2', number: 2, title: 'Two', translation: null, sourceContent: 'text' },
-      { id: 'ch3', number: 3, title: 'Three', translation: null, sourceContent: null },
+      { id: 'ch1', number: 1, title: 'One', translation: 'Translated', _count: { segments: 3 } },
+      { id: 'ch2', number: 2, title: 'Two', translation: null, _count: { segments: 2 } },
+      { id: 'ch3', number: 3, title: 'Three', translation: null, _count: { segments: 0 } },
     ])
 
     const { GET } = await import('@/app/api/projects/[id]/translate-batch/route')

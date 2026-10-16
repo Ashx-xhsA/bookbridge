@@ -168,7 +168,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -211,7 +211,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -253,7 +253,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
@@ -314,7 +314,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
@@ -355,7 +355,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -407,5 +407,59 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     const { POST } = await import('@/app/api/jobs/route')
     const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
     expect(res.status).toBe(404)
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 1: source text lives in Segment rows, joined in index order.
+  // -------------------------------------------------------------------------
+  it('sends the chapter segments joined by blank lines as source_text', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ source: 'First paragraph.' }, { source: 'Second paragraph.' }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(202)
+    expect(mockChapterFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          segments: { select: { source: true }, orderBy: { index: 'asc' } },
+        }),
+      })
+    )
+    const workerInit = mockGlobalFetch.mock.calls[0]?.[1] as { body: string }
+    expect(JSON.parse(workerInit.body).source_text).toBe(
+      'First paragraph.\n\nSecond paragraph.'
+    )
+  })
+
+  it('returns 400 when the chapter has no segments', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(400)
+    expect(mockJobCreate).not.toHaveBeenCalled()
   })
 })

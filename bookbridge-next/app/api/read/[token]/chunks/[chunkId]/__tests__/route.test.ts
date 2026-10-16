@@ -58,15 +58,14 @@ const publishedProject = {
   publicToken: VALID_TOKEN,
 }
 
+const SOURCE_TEXT = 'It was the best of times,\n\nit was the worst of times.'
+
 const fakeChapter = {
   id: CHUNK_ID,
   projectId: PROJECT_ID,
   number: 1,
   title: 'Chapter One',
-  startPage: 1,
-  endPage: 20,
-  pageCount: 20,
-  sourceContent: 'It was the best of times, it was the worst of times.',
+  segments: [{ source: 'It was the best of times,' }, { source: 'it was the worst of times.' }],
   translation: '这是最好的时代，这是最坏的时代。',
 }
 
@@ -114,7 +113,7 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
     const body = await res.json()
     expect(body.data).toBeDefined()
     // Response must expose reading-view field names (not raw DB column names)
-    expect(body.data.originalText).toBe(fakeChapter.sourceContent)
+    expect(body.data.originalText).toBe(SOURCE_TEXT)
     expect(body.data.translatedText).toBe(fakeChapter.translation)
     // Must NOT expose internal fields
     expect(body.data.projectId).toBeUndefined()
@@ -213,16 +212,16 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.data.originalText).toBe(fakeChapter.sourceContent)
+    expect(body.data.originalText).toBe(SOURCE_TEXT)
     expect(body.data.translatedText).toBeNull()
   })
 
-  // Edge case — chapter exists but sourceContent has not been ingested yet.
+  // Edge case — chapter exists but has no segments (nothing ingested).
   // Returning 200 with originalText: null would give the reader a blank screen
   // and no signal. Treat this as "not yet available" → 404 so the caller can
   // retry or surface a clear message.
-  it('returns 404 when the chapter has not been ingested (sourceContent is null)', async () => {
-    const unIngestedChapter = { ...fakeChapter, sourceContent: null }
+  it('returns 404 when the chapter has no segments', async () => {
+    const unIngestedChapter = { ...fakeChapter, segments: [] }
     mockProjectFindFirst.mockResolvedValueOnce(publishedProject)
     mockChapterFindUnique.mockResolvedValueOnce(unIngestedChapter)
     const { GET } = await import('@/app/api/read/[token]/chunks/[chunkId]/route')
