@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 CALLBACK_PATH = "/api/internal/worker-callback"
 GLOSSARY_CALLBACK_PATH = "/api/internal/worker-callback/glossary"
+BIBLE_CALLBACK_PATH = "/api/internal/worker-callback/bible"
 REQUEST_TIMEOUT_SECONDS: float = 10.0
 
 
@@ -69,6 +70,15 @@ def post_worker_callback(payload: dict) -> None:
     No-op with an error log if env vars are missing (dev) — never raises,
     so a misconfigured callback does not crash the worker process.
     """
+    _post(CALLBACK_PATH, payload)
+
+
+def post_bible_callback(payload: dict) -> None:
+    """POST a finished (or failed) book-bible scan; same contract as above."""
+    _post(BIBLE_CALLBACK_PATH, payload)
+
+
+def _post(path: str, payload: dict) -> None:
     base = os.environ.get("CALLBACK_BASE_URL", "").rstrip("/")
     secret = os.environ.get("WORKER_CALLBACK_SECRET", "")
     if not base or not secret:
@@ -79,7 +89,7 @@ def post_worker_callback(payload: dict) -> None:
         )
         return
 
-    url = f"{base}{CALLBACK_PATH}"
+    url = f"{base}{path}"
     body = json.dumps(payload).encode("utf-8")
     req = Request(
         url,

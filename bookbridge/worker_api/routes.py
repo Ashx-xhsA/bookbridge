@@ -7,17 +7,28 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 from bookbridge.harness.config import TranslationConfig
-from bookbridge.harness.models import ContextSegment, GlossaryEntry, LLMClient, SegmentsResult
+from bookbridge.harness.models import (
+    AliasTarget,
+    BookBible,
+    CharacterCard,
+    ContextSegment,
+    GlossaryEntry,
+    LLMClient,
+    SegmentsResult,
+)
 from bookbridge.harness.pipeline import extract_terms, translate_segments
+from bookbridge.harness.prescan import ScannedEntity, scan_book
 from bookbridge.ingestion.epub_reader import read_epub
 from bookbridge.ingestion.models import Book, IngestionError
 from bookbridge.ingestion.txt_reader import read_txt
 from bookbridge.worker_api.callback import (
+    post_bible_callback,
     post_glossary_callback,
     post_worker_callback,
 )
 from bookbridge.worker_api.llm import client_for
 from bookbridge.worker_api.models import (
+    BibleScanAsyncRequest,
     ChapterData,
     HealthResponse,
     ParseResponse,
@@ -31,6 +42,8 @@ logger = logging.getLogger(__name__)
 SUMMARY_SOURCE_CHARS = 8000
 # Matches the BFF glossary callback's max terms per request.
 GLOSSARY_CALLBACK_BATCH = 200
+# Entities are sorted by mentions; the long tail past this is noise for review.
+MAX_BIBLE_ENTITIES = 1000
 
 
 router = APIRouter()
@@ -91,10 +104,27 @@ def _glossary(body: TranslateSegmentsAsyncRequest) -> list[GlossaryEntry]:
             translation=g.translation,
             category=g.category,
             approved=g.approved,
-            aliases=tuple(g.aliases),
+            alias_of=AliasTarget(g.alias_of.english, g.alias_of.translation)
+            if g.alias_of
+            else None,
         )
         for g in body.glossary
     ]
+
+
+def _bible(body: TranslateSegmentsAsyncRequest) -> BookBible | None:
+    if body.bible is None:
+        return None
+    return BookBible(
+        style_guide=body.bible.style_guide,
+        characters=tuple(
+            CharacterCard(
+                name=c.name, translation=c.translation,
+                gender=c.gender, voice=c.voice, notes=c.notes,
+            )
+            for c in body.bible.characters
+        ),
+    )  # fmt: skip
 
 
 def _summarize(llm: LLMClient, text: str, max_words: int = 100) -> str | None:
@@ -167,6 +197,7 @@ def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
             glossary=glossary,
             preceding=[ContextSegment(p.source, p.translation) for p in body.preceding],
             config=TranslationConfig(**body.config.model_dump()),
+            bible=_bible(body),
         )
         if body.project_id:
             _post_new_terms(llm, body, glossary, result)
@@ -192,6 +223,50 @@ def translate_segments_async(
     if not JOB_ID_PATTERN.match(body.job_id):
         raise HTTPException(status_code=400, detail="Invalid job_id format")
     background_tasks.add_task(run_translation_job, body)
+    return {"job_id": body.job_id, "status": "accepted"}
+
+
+def _entity_payload(e: ScannedEntity) -> dict:
+    return {
+        "english": e.english,
+        "translation": e.translation,
+        "category": e.category,
+        "gender": e.gender,
+        "notes": e.notes,
+        "voice": e.voice,
+        "mentions": e.mentions,
+        "aliases": [{"english": a.english, "translation": a.translation} for a in e.aliases],
+    }
+
+
+def run_bible_scan(body: BibleScanAsyncRequest) -> None:
+    """Background task: pre-scan the book and POST the draft bible to the BFF.
+
+    Never raises; unexpected errors become a generic FAILED callback (A09).
+    """
+    base = {"job_id": body.job_id, "project_id": body.project_id}
+    try:
+        result = scan_book(client_for(body.llm), body.chapters, target_lang=body.target_lang)
+    except Exception as exc:
+        logger.warning("bible scan %s failed: %s", body.job_id, type(exc).__name__)
+        post_bible_callback({**base, "status": "FAILED", "error": "Bible scan failed"})
+        return
+    post_bible_callback(
+        {
+            **base,
+            "status": "SUCCEEDED",
+            "style_guide": result.style_guide,
+            "entities": [_entity_payload(e) for e in result.entities[:MAX_BIBLE_ENTITIES]],
+        }
+    )
+
+
+@router.post("/bible/scan/async", status_code=202)
+def bible_scan_async(body: BibleScanAsyncRequest, background_tasks: BackgroundTasks) -> dict:
+    """Accept a whole-book pre-scan, return 202, run it in the background."""
+    if not JOB_ID_PATTERN.match(body.job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format")
+    background_tasks.add_task(run_bible_scan, body)
     return {"job_id": body.job_id, "status": "accepted"}
 
 

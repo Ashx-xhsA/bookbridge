@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, Field, StrictBool, model_validator
 
 from bookbridge.harness.config import MAX_CONTEXT_WINDOW
 from bookbridge.harness.models import ALLOWED_TARGET_LANGS
@@ -13,6 +13,21 @@ MAX_SEGMENT_CHARS = 100_000
 MAX_SEGMENTS = 5_000
 MAX_TOTAL_SOURCE_CHARS = 1_000_000
 MAX_GLOSSARY = 5_000
+MAX_BOOK_CHARS = 5_000_000
+
+
+def _check_lang(v: str) -> str:
+    if v not in ALLOWED_TARGET_LANGS:
+        raise ValueError("unsupported target_lang")
+    return v
+
+
+TargetLang = Annotated[str, AfterValidator(_check_lang)]
+
+
+class AliasOfInput(BaseModel):
+    english: str = Field(..., min_length=1, max_length=200)
+    translation: str = Field(..., min_length=1, max_length=500)
 
 
 class GlossaryTermInput(BaseModel):
@@ -22,9 +37,8 @@ class GlossaryTermInput(BaseModel):
     translation: str = Field(..., min_length=1, max_length=500)
     category: str = Field("general", min_length=1, max_length=50)
     approved: bool = False
-    aliases: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
-        default_factory=list, max_length=20
-    )
+    # Set when this term is another name for an entity ("Mithrandir" → Gandalf).
+    alias_of: AliasOfInput | None = None
 
 
 class LLMCredentials(BaseModel):
@@ -50,11 +64,25 @@ class TranslationConfigInput(BaseModel):
 
     glossary_mode: Literal["full", "matched"] = "matched"
     context_window: int = Field(3, ge=0, le=MAX_CONTEXT_WINDOW)
+    book_bible: StrictBool = True
+
+
+class CharacterInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    translation: str = Field(..., min_length=1, max_length=500)
+    gender: str | None = Field(None, max_length=50)
+    voice: str | None = Field(None, max_length=1000)
+    notes: str | None = Field(None, max_length=1000)
+
+
+class BibleInput(BaseModel):
+    style_guide: str = Field("", max_length=5000)
+    characters: list[CharacterInput] = Field(default_factory=list, max_length=500)
 
 
 class TranslateSegmentsAsyncRequest(BaseModel):
     job_id: str = Field(..., min_length=1, max_length=128)
-    target_lang: str = Field(..., min_length=2)
+    target_lang: TargetLang
     segments: list[SegmentInput] = Field(..., min_length=1, max_length=MAX_SEGMENTS)
     # Segments just before the first one (e.g. the end of the previous
     # chapter) — seeds the rolling context window.
@@ -65,15 +93,10 @@ class TranslateSegmentsAsyncRequest(BaseModel):
     project_id: str | None = Field(None, min_length=1, max_length=128)
     glossary: list[GlossaryTermInput] = Field(default_factory=list, max_length=MAX_GLOSSARY)
     config: TranslationConfigInput = Field(default_factory=TranslationConfigInput)
+    # The project's reviewed (or draft) book bible; injected when config.book_bible.
+    bible: BibleInput | None = None
     # Per-user LLM credentials; when absent the Worker's env provider is used.
     llm: LLMCredentials | None = None
-
-    @field_validator("target_lang")
-    @classmethod
-    def _known_target(cls, v: str) -> str:
-        if v not in ALLOWED_TARGET_LANGS:
-            raise ValueError("unsupported target_lang")
-        return v
 
     @model_validator(mode="after")
     def _bounded_and_unique(self) -> TranslateSegmentsAsyncRequest:
@@ -81,6 +104,23 @@ class TranslateSegmentsAsyncRequest(BaseModel):
             raise ValueError("total source text too large")
         if len({s.index for s in self.segments}) != len(self.segments):
             raise ValueError("duplicate segment index")
+        return self
+
+
+class BibleScanAsyncRequest(BaseModel):
+    job_id: str = Field(..., min_length=1, max_length=128)
+    project_id: str = Field(..., min_length=1, max_length=128)
+    target_lang: TargetLang
+    # Paragraphs per chapter, in reading order.
+    chapters: list[list[Annotated[str, Field(max_length=MAX_SEGMENT_CHARS)]]] = Field(
+        ..., min_length=1, max_length=MAX_SEGMENTS
+    )
+    llm: LLMCredentials | None = None
+
+    @model_validator(mode="after")
+    def _bounded(self) -> BibleScanAsyncRequest:
+        if sum(len(p) for ch in self.chapters for p in ch) > MAX_BOOK_CHARS:
+            raise ValueError("book too large to scan")
         return self
 
 
