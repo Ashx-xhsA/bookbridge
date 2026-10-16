@@ -11,7 +11,7 @@ Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **P
 ## Project Structure
 ```
 bookbridge/         # Python Worker package
-  ingestion/        # PDF reading, chunking, term extraction
+  ingestion/        # EPUB/TXT reading into chapters and paragraphs
   glossary/         # ChromaDB RAG store (local to Worker)
   harness/          # translation orchestrator + Claude API client
   quality/          # per-language quality checkers
@@ -26,7 +26,7 @@ docs/               # PRD, API design, sprint notes
 
 ## Python Conventions
 - Type hints on all signatures; ruff enforced
-- Dataclasses for domain objects (`ChunkManifest`, `ChunkInfo`, `Term`, `TranslationJob`)
+- Dataclasses for domain objects (`Book`, `Chapter`, `Term`, `TranslationJob`)
 - `pathlib.Path` over `os.path`; functions under 40 lines
 - TDD: write failing test first, then implement
 - Run: `pytest tests/ -v --tb=short`
