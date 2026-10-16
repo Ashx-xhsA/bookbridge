@@ -66,7 +66,7 @@ describe('POST /api/internal/worker-callback', () => {
     vi.clearAllMocks()
     vi.resetModules()
     process.env.WORKER_CALLBACK_SECRET = SECRET
-    mockJobFindUnique.mockResolvedValue({ id: JOB_ID, chapterId: CHAPTER_ID })
+    mockJobFindUnique.mockResolvedValue({ id: JOB_ID, chapterId: CHAPTER_ID, status: 'PENDING' })
   })
 
   // -------------------------------------------------------------------------
@@ -119,7 +119,7 @@ describe('POST /api/internal/worker-callback', () => {
     expect(mockJobUpdate).not.toHaveBeenCalled()
   })
 
-  it('returns 400 when status is not SUCCEEDED or FAILED', async () => {
+  it('returns 400 when status is not RUNNING, SUCCEEDED or FAILED', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
@@ -246,6 +246,36 @@ describe('POST /api/internal/worker-callback', () => {
       })
     )
   })
+
+  it('stores a progress batch and keeps the job RUNNING (heartbeat)', async () => {
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    const res = await POST(
+      makeRequest(
+        { job_id: JOB_ID, status: 'RUNNING', segments: [{ index: 3, translation: '丁' }] },
+        { 'X-Worker-Secret': SECRET }
+      )
+    )
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 3 },
+      data: { translation: '丁', status: 'translated' },
+    })
+    expect(mockJobUpdate).toHaveBeenCalledWith({
+      where: { id: JOB_ID },
+      data: { status: 'RUNNING' },
+    })
+  })
+
+  it.each(['SUCCEEDED', 'FAILED'])(
+    'ignores a late callback for a job that is already %s',
+    async (status) => {
+      mockJobFindUnique.mockResolvedValueOnce({ id: JOB_ID, chapterId: CHAPTER_ID, status })
+      const { POST } = await import('@/app/api/internal/worker-callback/route')
+      const res = await POST(makeRequest(OK_BODY, { 'X-Worker-Secret': SECRET }))
+      expect(res.status).toBe(409)
+      expect(mockTransaction).not.toHaveBeenCalled()
+    }
+  )
 
   it('returns 404 when job does not exist', async () => {
     mockJobFindUnique.mockResolvedValueOnce(null)

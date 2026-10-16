@@ -26,6 +26,7 @@ function term(overrides: Partial<ExistingTerm> = {}): ExistingTerm {
     voice: null,
     notes: null,
     aliasOfId: null,
+    aliasCount: 0,
     ...overrides,
   }
 }
@@ -140,5 +141,21 @@ describe('planBibleMerge', () => {
     )
     expect(plan.creates.map((c) => c.english)).toEqual(['Gandalf', 'Mithrandir'])
     expect(plan.links).toHaveLength(1)
+  })
+
+  it('does not make a term with its own aliases into an alias (no chains)', () => {
+    const existing = [term(), term({ id: 't2', english: 'Mithrandir', aliasCount: 2 })]
+    const plan = planBibleMerge(existing, [
+      entity({ aliases: [{ english: 'Mithrandir', translation: '米斯兰达' }] }),
+    ])
+    expect(plan.links).toEqual([])
+  })
+
+  it('does not link aliases to a main term that is itself an alias', () => {
+    const existing = [term({ aliasOfId: 'tX' })]
+    const plan = planBibleMerge(existing, [
+      entity({ aliases: [{ english: 'Mithrandir', translation: '米斯兰达' }] }),
+    ])
+    expect(plan.links).toEqual([])
   })
 })

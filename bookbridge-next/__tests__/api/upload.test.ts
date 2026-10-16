@@ -84,6 +84,19 @@ describe('POST /api/upload — unit tests via mocked formData', () => {
     expect(mockProjectCreate).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { targetLang: 'ar' }, // offered by the old form but unsupported by the Worker
+    { targetLang: 'xx' },
+    { title: 'x'.repeat(201) },
+  ])('returns 400 for %o without creating a project', async (fields) => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as AuthReturn)
+    const { POST } = await import('@/app/api/upload/route')
+    const res = await POST(fakeRequest({ file: { name: 'book.epub' }, title: 'Book', ...fields }))
+    expect(res.status).toBe(400)
+    expect(mockProjectCreate).not.toHaveBeenCalled()
+    expect(workerFetch).not.toHaveBeenCalled()
+  })
+
   it.each(['novel.epub', 'NOVEL.TXT'])('accepts %s', async (name) => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as AuthReturn)
     vi.mocked(workerFetch).mockResolvedValueOnce(

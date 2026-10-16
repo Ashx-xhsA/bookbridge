@@ -576,6 +576,70 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     expect(body.bible).toBeUndefined()
   })
 
+  it.each([500, 422])('marks the job FAILED when the Worker responds %i', async (code) => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: code }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    await vi.waitFor(() => expect(mockJobUpdate).toHaveBeenCalled())
+    expect(mockJobUpdate).toHaveBeenCalledWith({
+      where: { id: JOB_ID },
+      data: { status: 'FAILED', error: 'Worker unavailable' },
+    })
+  })
+
+  it('treats a long job that still reports progress as active (409)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobFindFirst.mockResolvedValueOnce({
+      id: 'clh3p7b1p0009qzrmkf8g4zzz',
+      status: 'RUNNING',
+      createdAt: new Date(Date.now() - 30 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 60 * 1000), // progress a minute ago
+    })
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(409)
+    expect(mockJobCreate).not.toHaveBeenCalled()
+  })
+
+  it('replaces a job with no progress for 5 minutes', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobFindFirst.mockResolvedValueOnce({
+      id: 'clh3p7b1p0009qzrmkf8g4zzz',
+      status: 'RUNNING',
+      createdAt: new Date(Date.now() - 30 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 6 * 60 * 1000),
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(202)
+  })
+
   it('returns 400 when the chapter has no segments', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
     mockProjectFindUnique.mockResolvedValueOnce({
