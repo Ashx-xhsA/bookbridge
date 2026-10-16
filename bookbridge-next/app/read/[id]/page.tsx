@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import {
   getPublishedProjectForReader,
   tokenSchema,
@@ -187,7 +188,7 @@ export default async function ReaderPage({
     const chapters = project.chapters.map((ch) => ({
       number: ch.number,
       title: ch.title,
-      source: ch.sourceContent || '',
+      source: joinSegments(ch.segments),
       translation: ch.translation || '',
     }))
 
@@ -206,7 +207,9 @@ export default async function ReaderPage({
 
   const project = await prisma.project.findUnique({
     where: { id },
-    include: { chapters: { orderBy: { number: 'asc' } } },
+    include: {
+      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_SOURCES } },
+    },
   })
 
   if (!project) return notFound()
@@ -216,7 +219,7 @@ export default async function ReaderPage({
     id: ch.id,
     number: ch.number,
     title: ch.title,
-    source: ch.sourceContent || '',
+    source: joinSegments(ch.segments),
     translation: ch.translation || '',
   }))
 

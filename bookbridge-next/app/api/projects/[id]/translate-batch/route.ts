@@ -22,12 +22,18 @@ export async function GET(
 
   const chapters = await prisma.chapter.findMany({
     where: { projectId: id },
-    select: { id: true, number: true, title: true, translation: true, sourceContent: true },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      translation: true,
+      _count: { select: { segments: true } },
+    },
     orderBy: { number: 'asc' },
   })
 
   const untranslated = chapters
-    .filter((c) => !c.translation && c.sourceContent)
+    .filter((c) => !c.translation && c._count.segments > 0)
     .map((c) => ({ id: c.id, number: c.number, title: c.title }))
 
   return NextResponse.json({

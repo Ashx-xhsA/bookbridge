@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import { workerFetch } from '@/lib/worker'
 import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
@@ -50,13 +51,14 @@ export async function POST(req: NextRequest) {
 
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
-    select: { id: true, sourceContent: true, projectId: true, number: true },
+    select: { id: true, projectId: true, number: true, segments: SEGMENT_SOURCES },
   })
   if (!chapter || chapter.projectId !== projectId) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
-  if (!chapter.sourceContent?.trim()) {
+  const sourceText = joinSegments(chapter.segments)
+  if (!sourceText.trim()) {
     return NextResponse.json(
       { error: 'No source content to translate' },
       { status: 400 }
@@ -148,7 +150,7 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           job_id: job.id,
-          source_text: chapter.sourceContent,
+          source_text: sourceText,
           target_lang: project.targetLang,
           project_id: projectId,
           context,

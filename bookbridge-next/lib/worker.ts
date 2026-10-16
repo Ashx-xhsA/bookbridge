@@ -1,7 +1,7 @@
 // Per-call timeout (ms). The default is scoped to synchronous /translate/chunk
 // calls that must fit under Vercel's hobby-tier 10 s function ceiling so the
 // route can still return its own 502 instead of hitting a gateway 504.
-// Longer-running endpoints (notably /parse on a multi-hundred-page PDF) must
+// Longer-running endpoints (notably /parse on a large EPUB) must
 // pass an explicit timeoutMs via the options argument.
 const DEFAULT_TIMEOUT_MS = 6000
 

@@ -4,6 +4,13 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Loader2 } from 'lucide-react'
 
+const ACCEPTED_EXTENSIONS = ['.epub', '.txt']
+
+function isAcceptedBook(name: string): boolean {
+  const lower = name.toLowerCase()
+  return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+
 export default function NewProjectPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -12,23 +19,18 @@ export default function NewProjectPage() {
   const [targetLang, setTargetLang] = useState('zh-Hans')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
-  const [chapterMode, setChapterMode] = useState<'auto' | 'manual'>('auto')
-  const [chapterCount, setChapterCount] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!file) return setError('Please select a PDF file.')
+    if (!file) return setError('Please select an EPUB or TXT file.')
     setUploading(true)
     setError('')
 
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('title', title || file.name.replace(/\.pdf$/i, ''))
+      formData.append('title', title || file.name.replace(/\.(epub|txt)$/i, ''))
       formData.append('targetLang', targetLang)
-      if (chapterMode === 'manual' && chapterCount) {
-        formData.append('chapterCount', chapterCount)
-      }
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
 
@@ -37,7 +39,7 @@ export default function NewProjectPage() {
         data = await res.json()
       } catch {
         throw new Error(
-          'Processing timed out — the PDF may be too large. Try a file under 200 pages, or split the PDF first.'
+          'Processing timed out — the book may be too large. Try a smaller file.'
         )
       }
 
@@ -54,7 +56,7 @@ export default function NewProjectPage() {
     <div className="mx-auto max-w-xl">
       <h1 className="font-serif text-2xl font-bold text-ink">New Translation Project</h1>
       <p className="mt-1 text-sm text-ink-muted">
-        Upload a PDF to start translating.
+        Upload an EPUB or TXT book to start translating.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
@@ -86,7 +88,7 @@ export default function NewProjectPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-ink">PDF File</label>
+          <label className="block text-sm font-medium text-ink">Book File (EPUB or TXT)</label>
           <div
             data-testid="dropzone"
             className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-parchment px-6 py-10 hover:border-accent/40"
@@ -95,17 +97,17 @@ export default function NewProjectPage() {
             <div className="text-center">
               <Upload className="mx-auto h-8 w-8 text-ink-muted" />
               <p className="mt-2 text-sm text-ink-light">
-                {file ? file.name : 'Click to upload a PDF'}
+                {file ? file.name : 'Click to upload an EPUB or TXT file'}
               </p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept={ACCEPTED_EXTENSIONS.join(',')}
                 className="hidden"
                 onChange={(e) => {
                   const selected = e.target.files?.[0] || null
-                  if (selected && !selected.name.toLowerCase().endsWith('.pdf')) {
-                    setError('Only PDF files are supported.')
+                  if (selected && !isAcceptedBook(selected.name)) {
+                    setError('Only EPUB and TXT files are supported.')
                     setFile(null)
                   } else {
                     setError('')
@@ -115,54 +117,6 @@ export default function NewProjectPage() {
               />
             </div>
           </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-ink">Chapter Detection</label>
-          <div className="mt-1 flex rounded-lg border border-parchment overflow-hidden text-sm">
-            <button
-              type="button"
-              onClick={() => setChapterMode('auto')}
-              className={`flex-1 px-4 py-2 font-medium transition-colors ${
-                chapterMode === 'auto'
-                  ? 'bg-accent text-white'
-                  : 'bg-white text-ink-light hover:bg-parchment/30'
-              }`}
-            >
-              Auto-detect
-            </button>
-            <button
-              type="button"
-              onClick={() => setChapterMode('manual')}
-              className={`flex-1 px-4 py-2 font-medium transition-colors ${
-                chapterMode === 'manual'
-                  ? 'bg-accent text-white'
-                  : 'bg-white text-ink-light hover:bg-parchment/30'
-              }`}
-            >
-              Manual
-            </button>
-          </div>
-          {chapterMode === 'auto' && (
-            <p className="mt-1.5 text-xs text-ink-muted">
-              Detects chapters, parts, roman numerals, and common foreign headings automatically.
-            </p>
-          )}
-          {chapterMode === 'manual' && (
-            <div className="mt-2">
-              <input
-                type="number"
-                min={1}
-                value={chapterCount}
-                onChange={(e) => setChapterCount(e.target.value)}
-                placeholder="How many chapters?"
-                className="w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <p className="mt-1.5 text-xs text-ink-muted">
-                Pages will be divided evenly. Use this when auto-detect gets it wrong.
-              </p>
-            </div>
-          )}
         </div>
 
         {error && (

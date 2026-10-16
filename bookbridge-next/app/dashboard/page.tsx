@@ -45,7 +45,7 @@ export default async function DashboardPage() {
           <FileText className="mx-auto h-12 w-12 text-parchment" />
           <h3 className="mt-4 font-serif text-lg font-medium text-ink">No books yet</h3>
           <p className="mt-2 text-sm text-ink-muted">
-            Upload a PDF to start translating.
+            Upload an EPUB or TXT book to start translating.
           </p>
           <Link
             href="/dashboard/new"

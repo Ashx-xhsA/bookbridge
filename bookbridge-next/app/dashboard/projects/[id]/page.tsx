@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import { BookOpen, ArrowLeft } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
@@ -19,7 +20,7 @@ export default async function ProjectPage({
   const project = await prisma.project.findUnique({
     where: { id },
     include: {
-      chapters: { orderBy: { number: 'asc' } },
+      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_SOURCES } },
       jobs: true,
       glossary: { orderBy: { english: 'asc' } },
     },
@@ -116,9 +117,8 @@ export default async function ProjectPage({
             id: c.id,
             number: c.number,
             title: c.title,
-            startPage: c.startPage,
-            endPage: c.endPage,
-            sourceContent: c.sourceContent,
+            paragraphCount: c.segments.length,
+            sourceContent: c.segments.length > 0 ? joinSegments(c.segments) : null,
             translation: c.translation,
             summary: c.summary,
           }))}

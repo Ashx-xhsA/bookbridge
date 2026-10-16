@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES } from '@/lib/segments'
 
 // publicToken is minted via crypto.randomUUID() in the project publish flow, so
 // the format is strict — reject anything non-UUID at the edge to shrink the
@@ -32,7 +33,7 @@ export async function getPublishedProjectWithChapters(token: string) {
   })
 }
 
-// Reader-page variant: includes sourceContent + translation so the public
+// Reader-page variant: includes segments + translation so the public
 // reader can render the full two-column view in one Server Component pass.
 // Exposing chunks in bulk is OK here because the token IS the authorization —
 // same privilege as the per-chunk endpoint, just batched.
@@ -42,6 +43,7 @@ export async function getPublishedProjectForReader(token: string) {
     include: {
       chapters: {
         orderBy: { number: 'asc' },
+        include: { segments: SEGMENT_SOURCES },
       },
     },
   })

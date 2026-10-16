@@ -55,17 +55,29 @@ enum ProjectStatus {
 }
 
 model Chapter {
-  id            String  @id @default(cuid())
-  projectId     String
-  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  number        Int
-  title         String
-  startPage     Int
-  endPage       Int
-  pageCount     Int
-  sourceContent String? @db.Text
-  translation   String? @db.Text
-  summary       String? @db.Text
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      Int
+  title       String
+  // Chapter-level translation from the v1 pipeline. Phase 2 translates per
+  // Segment and this column goes away.
+  translation String?   @db.Text
+  summary     String?   @db.Text
+  segments    Segment[]
+}
+
+// One source paragraph. Source text lives only here (not on Chapter).
+model Segment {
+  id          String  @id @default(cuid())
+  chapterId   String
+  chapter     Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  index       Int
+  source      String  @db.Text
+  translation String? @db.Text
+  status      String  @default("pending") // pending | translated | reviewed | failed
+
+  @@unique([chapterId, index])
 }
 
 model TranslationJob {

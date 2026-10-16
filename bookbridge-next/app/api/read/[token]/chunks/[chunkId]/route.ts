@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import { getPublishedProjectId, tokenSchema } from '@/lib/public-project'
 
 const paramsSchema = z.object({
@@ -27,7 +28,7 @@ export async function GET(
     getPublishedProjectId(token),
     prisma.chapter.findUnique({
       where: { id: chunkId },
-      select: { projectId: true, sourceContent: true, translation: true },
+      select: { projectId: true, translation: true, segments: SEGMENT_SOURCES },
     }),
   ])
 
@@ -35,21 +36,21 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
   }
 
-  // Chunk-level 404: missing, cross-project IDOR, or source not yet ingested.
+  // Chunk-level 404: missing, cross-project IDOR, or no segments ingested.
   // Different error body ("Not found") than the project-level 404 because the
   // token is valid here — the ambiguity the enumeration-prevention rule is
   // about (project existence) is not at risk from this branch.
   if (
     !chapter ||
     chapter.projectId !== projectId ||
-    chapter.sourceContent === null
+    chapter.segments.length === 0
   ) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   return NextResponse.json({
     data: {
-      originalText: chapter.sourceContent,
+      originalText: joinSegments(chapter.segments),
       translatedText: chapter.translation,
     },
   })

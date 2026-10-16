@@ -11,8 +11,7 @@ interface ChapterData {
   id: string
   number: number
   title: string
-  startPage: number
-  endPage: number
+  paragraphCount: number
   sourceContent: string | null
   translation: string | null
   summary: string | null
@@ -180,7 +179,7 @@ export default function ChapterExplorer({
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
         <p className="mt-4 text-sm text-ink-muted">
-          Scanning chapters from your PDF...
+          Scanning chapters from your book...
         </p>
         <p className="mt-1 text-xs text-ink-muted">
           This may take a moment for large files.
@@ -300,7 +299,7 @@ export default function ChapterExplorer({
                       {chapter.number}. {chapter.title}
                     </p>
                     <p className="text-xs text-ink-muted">
-                      pp. {chapter.startPage}–{chapter.endPage}
+                      {chapter.paragraphCount} paragraphs
                     </p>
                   </div>
                 </button>
@@ -323,7 +322,7 @@ export default function ChapterExplorer({
                   {selected.title}
                 </h3>
                 <p className="mt-1 text-xs text-ink-muted">
-                  Pages {selected.startPage}–{selected.endPage}
+                  {selected.paragraphCount} paragraphs
                 </p>
               </div>
               <div className="flex items-center gap-2">
