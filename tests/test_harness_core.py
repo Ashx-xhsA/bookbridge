@@ -1,6 +1,7 @@
 """Phase 2 harness building blocks: config, glossary matching, batching, parsing, prompts."""
 
 import pytest
+
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.matching import match_glossary
