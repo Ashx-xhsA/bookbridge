@@ -41,6 +41,8 @@ HEADING_TAGS = {"h1", "h2", "h3"}
 SKIP_TAGS = {"head", "script", "style", "svg"}
 _XML_ENCODING = re.compile(rb"""^<\?xml[^>]*encoding=["']([A-Za-z0-9._-]+)["']""")
 _SPACE = re.compile(r"\s+")
+# A linked superscript this short is a note marker ("d", "12", "[3]", "*").
+MAX_NOTE_MARKER_CHARS = 4
 
 
 class DRMProtectedError(IngestionError):
@@ -267,6 +269,14 @@ class _NavParser(HTMLParser):
         return self.navs[0][1] if self.navs else []
 
 
+@dataclass
+class _OpenLink:
+    start: int  # index into the text buffer where the link's text begins
+    internal: bool  # href points at a fragment (#id), as note links do
+    noteref: bool  # marked epub:type="noteref" / role="doc-noteref"
+    has_sup: bool  # inside or wrapping a <sup>
+
+
 class _ContentParser(HTMLParser):
     """Turns an XHTML document into a stream of paragraphs and anchor hits.
 
@@ -281,12 +291,20 @@ class _ContentParser(HTMLParser):
         self._buf: list[str] = []
         self._skip = 0
         self._in_heading = False
+        self._sup_depth = 0
+        self._links: list[_OpenLink] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in SKIP_TAGS:
             self._skip += 1
         elif tag == "br":
             self._buf.append("\n")
+        elif tag == "sup":
+            self._sup_depth += 1
+            if self._links:
+                self._links[-1].has_sup = True
+        elif tag == "a":
+            self._open_link(dict(attrs))
         if tag in BLOCK_TAGS:
             self._flush()
             self._in_heading = tag in HEADING_TAGS
@@ -298,6 +316,10 @@ class _ContentParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in SKIP_TAGS and self._skip:
             self._skip -= 1
+        elif tag == "sup" and self._sup_depth:
+            self._sup_depth -= 1
+        elif tag == "a" and self._links:
+            self._close_link(self._links.pop())
         if tag in BLOCK_TAGS:
             self._flush()
             self._in_heading = False
@@ -311,10 +333,30 @@ class _ContentParser(HTMLParser):
         super().close()
         self._flush()
 
+    def _open_link(self, attrs: dict[str, str | None]) -> None:
+        kinds = f"{attrs.get('epub:type') or ''} {attrs.get('role') or ''}"
+        self._links.append(
+            _OpenLink(
+                start=len(self._buf),
+                internal="#" in (attrs.get("href") or ""),
+                noteref="noteref" in kinds,
+                has_sup=self._sup_depth > 0,
+            )
+        )
+
+    def _close_link(self, link: _OpenLink) -> None:
+        """Drop a note marker's text: an explicit noteref, or a short linked superscript."""
+        text = "".join(self._buf[link.start :]).strip()
+        short_sup = link.internal and link.has_sup and len(text) <= MAX_NOTE_MARKER_CHARS
+        if link.noteref or short_sup:
+            del self._buf[link.start :]
+
     def _flush(self) -> None:
         lines = (_SPACE.sub(" ", line).strip() for line in "".join(self._buf).split("\n"))
         text = "\n".join(line for line in lines if line)
         self._buf = []
+        for link in self._links:  # a link spanning a block boundary restarts here
+            link.start = 0
         if not text:
             return
         if self._in_heading and self.first_heading is None:
