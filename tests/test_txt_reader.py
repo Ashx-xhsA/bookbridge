@@ -1,9 +1,9 @@
 """Tests for the plain-text book reader (Phase 1)."""
 
 import pytest
-from bookbridge.ingestion.txt_reader import decode_text, read_txt
 
 from bookbridge.ingestion.models import IngestionError
+from bookbridge.ingestion.txt_reader import decode_text, read_txt
 
 
 class TestDecodeText:
@@ -24,7 +24,7 @@ class TestDecodeText:
 
     def test_rejects_undecodable_bytes(self):
         with pytest.raises(IngestionError):
-            decode_text(b"\xff\xfe\xfd\x80\x81" * 3 + b"\x00\xff")
+            decode_text(b"abc\x80\xff\x80")
 
 
 class TestParagraphs:
@@ -127,3 +127,8 @@ class TestEmptyInput:
     def test_rejects_empty_text(self):
         with pytest.raises(IngestionError):
             read_txt(b"   \n\n  ")
+
+
+def test_rejects_binary_masquerading_as_text():
+    with pytest.raises(IngestionError):
+        read_txt(bytes(range(1, 32)) * 50)
