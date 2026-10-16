@@ -206,7 +206,7 @@ Representative PRs (each has a `code-reviewer` C.L.E.A.R. comment visible in its
 | [#48](https://github.com/UchihaSusie/bookbridge/pull/48) | Fix: PDF upload dropzone click | Claude Code via `/tdd-add-module` | `code-reviewer` sub-agent |
 | [#39](https://github.com/UchihaSusie/bookbridge/pull/39) | PDF upload API route with worker proxy | Claude Code | `code-reviewer` sub-agent |
 
-**AI disclosure metadata** — every PR description follows the project's [`pull_request_template.md`](../.github/pull_request_template.md) structure, which includes:
+**AI disclosure metadata** — every PR description follows the project's [`pull_request_template.md`](../../.github/pull_request_template.md) structure, which includes:
 
 - Percentage of the change that was AI-generated
 - Tool used (Claude Code + model / skills invoked)
@@ -302,8 +302,8 @@ Tests assert observable behaviour and reject bad inputs, not just happy paths. R
 
 The pipeline is split across two workflow files:
 
-- [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — build, lint, typecheck, tests, E2E, and AI PR review
-- [`.github/workflows/security.yml`](../.github/workflows/security.yml) — security gates (detailed in §4.2)
+- [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — build, lint, typecheck, tests, E2E, and AI PR review
+- [`.github/workflows/security.yml`](../../.github/workflows/security.yml) — security gates (detailed in §4.2)
 
 | # | Stage | Status | Configured in |
 |---|---|---|---|
@@ -331,7 +331,7 @@ On every pull request, `security.yml` also **posts an automated comment** summar
 
 ### 4.3 OWASP Top 10 — documented in CLAUDE.md
 
-OWASP awareness is not just referenced — it is a load-bearing section of the root [`CLAUDE.md`](../CLAUDE.md): a 10-row table mapping each OWASP category (A01–A10) to the specific BookBridge defense (Clerk `auth()` + ownership checks, Zod schema validation on every API route, BFF pattern to avoid A10 SSRF, Gitleaks for A02, `npm audit` for A06, etc.). Because `CLAUDE.md` is loaded at the start of every Claude Code session, this OWASP context is present for every AI-assisted code change, and the `security-reviewer` agent (§4.2 row 5) consults the same table when reviewing PRs.
+OWASP awareness is not just referenced — it is a load-bearing section of the root [`CLAUDE.md`](../../CLAUDE.md): a 10-row table mapping each OWASP category (A01–A10) to the specific BookBridge defense (Clerk `auth()` + ownership checks, Zod schema validation on every API route, BFF pattern to avoid A10 SSRF, Gitleaks for A02, `npm audit` for A06, etc.). Because `CLAUDE.md` is loaded at the start of every Claude Code session, this OWASP context is present for every AI-assisted code change, and the `security-reviewer` agent (§4.2 row 5) consults the same table when reviewing PRs.
 
 ---
 
@@ -350,7 +350,7 @@ Supporting material: [`HW5_RETROSPECTIVE.md`](HW5_RETROSPECTIVE.md) — a deep-d
 
 ### 5.2 Issue-driven testable specifications
 
-Every feature was scoped as a GitHub Issue using the project's [`feature.md`](../.github/ISSUE_TEMPLATE/feature.md) template, which pushes acceptance criteria into **testable specifications** rather than narrative descriptions. The template requires:
+Every feature was scoped as a GitHub Issue using the project's [`feature.md`](../../.github/ISSUE_TEMPLATE/feature.md) template, which pushes acceptance criteria into **testable specifications** rather than narrative descriptions. The template requires:
 
 - **Acceptance Criteria** — bulleted testable conditions (e.g. "returns 403 when `resource.ownerId !== userId`")
 - **Security Definition of Done** — checkboxes for A01 auth + ownership, A03 Zod input validation, A07 no hardcoded secrets, A10 no user-controlled shell/URL; plus dependency integrity (`npm audit`, verify packages are not AI-hallucinated) and data exposure (no PII / secrets / stack traces in logs or error messages)
@@ -396,7 +396,7 @@ We are declaring this as a gap rather than re-labelling activity we did not actu
 ### 5.5 C.L.E.A.R. reviews · AI disclosure · peer evaluation
 
 - **C.L.E.A.R. framework** — applied on every PR via the `code-reviewer` sub-agent at Step 7 of the `/create-pr` skill (see §2.7). Review comments are AI-authored; human-authored review comments are not claimed (see §5.4 disclosure).
-- **AI disclosure metadata** — every PR description follows [`pull_request_template.md`](../.github/pull_request_template.md), which declares AI-generated percentage, tool used, and human review status (§2.7).
+- **AI disclosure metadata** — every PR description follows [`pull_request_template.md`](../../.github/pull_request_template.md), which declares AI-generated percentage, tool used, and human review status (§2.7).
 - **Peer evaluation** — submitted separately via the course's designated peer-evaluation channel. Given the phase-lead model described in §5.4, the peer evaluation reflects a partnership where each partner's strongest contributions were in their lead sprint and real-time partner-to-partner coordination was limited.
 
 ---
@@ -407,7 +407,7 @@ We are declaring this as a gap rather than re-labelling activity we did not actu
 
 ### 6.1 README with architecture
 
-The repo root [`README.md`](../README.md) is kept deliberately lean — most rubric evidence lives in this submission report (§1–§6), and the README exists to get a first-time reader oriented and point them at the report.
+The repo root [`README.md`](../../README.md) is kept deliberately lean — most rubric evidence lives in this submission report (§1–§6), and the README exists to get a first-time reader oriented and point them at the report.
 
 What the README provides:
 

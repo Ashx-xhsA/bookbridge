@@ -146,7 +146,6 @@ Every issue you generate MUST use this exact structure:
 - [ ] PR reviewed and approved
 - [ ] Security Gate 7 checklist completed
 - [ ] No `console.log` with sensitive data
-- [ ] `legacy/` directory untouched
 ```
 
 ---
@@ -211,7 +210,6 @@ Assign appropriate labels from this set:
 - **No security theater**: OWASP gates must reference the specific code location and pattern, not just acknowledge the threat.
 - **TDD is non-negotiable**: Every issue must specify the exact test file path, test function name, and assertion intent for the red phase.
 - **Dependency hygiene**: No issue should have an unclear dependency chain. If A depends on B, B must be a separate issue that is listed.
-- **Legacy is sacred**: No issue should ever touch or reference `legacy/` as a modification target.
 - **Worker isolation**: No issue should expose the Worker URL to the browser or suggest direct browser-to-Worker communication.
 
 ---
@@ -224,7 +222,6 @@ Before presenting any set of issues, verify:
 - [ ] Every API Route issue includes Zod validation and `auth()` requirements
 - [ ] Every issue has a concrete TDD red-phase specification
 - [ ] Every issue has at least one OWASP gate
-- [ ] No issue modifies `legacy/`
 - [ ] No issue uses ChromaDB or SQLite for persistent state
 - [ ] All file paths in issues are consistent with the actual project structure
 - [ ] Commit prefix conventions are correctly referenced in TDD sections

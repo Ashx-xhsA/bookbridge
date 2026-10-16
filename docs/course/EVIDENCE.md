@@ -32,19 +32,19 @@ Items required to satisfy rubric grading — screenshots, links, or command outp
 
   - Create-pr
 
-    ![create-pr skill — step 1](./docs/evidence/image-20260418173231573.png)
+    ![create-pr skill — step 1](./evidence/image-20260418173231573.png)
 
-    ![create-pr skill — step 2](./docs/evidence/image-20260418173255306.png)
+    ![create-pr skill — step 2](./evidence/image-20260418173255306.png)
 - [ ] **MCP Server usage** — session log or screenshot showing Glossary MCP server called during development
 - [ ] **Agents usage** — session log, PR comment, or screenshot showing output from `security-reviewer`, `code-reviewer`, `test-writer`, etc.
 
   - code-reviewer:
 
-    ![code-reviewer agent output](./docs/evidence/image-20260418172430290.png)
+    ![code-reviewer agent output](./evidence/image-20260418172430290.png)
 
   - test-writer (called in `start-issue` skill)
 
-    ![test-writer agent output](./docs/evidence/image-20260418223933106.png)
+    ![test-writer agent output](./evidence/image-20260418223933106.png)
 
 ## Parallel Development
 

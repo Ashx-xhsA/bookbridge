@@ -22,7 +22,6 @@ app/                # Next.js App Router (Sprint 2+)
   api/              # BFF API Routes
 prisma/             # Prisma schema + migrations
 docs/               # PRD, API design, sprint notes
-legacy/             # reference baseline — do not modify
 ```
 
 ## Python Conventions
@@ -65,7 +64,6 @@ legacy/             # reference baseline — do not modify
 
 ## Don'ts
 - Don't store secrets in code
-- Don't modify `legacy/`
 - Don't use ChromaDB or SQLite as persistent state (PostgreSQL only)
 
 @import docs/PRD.md

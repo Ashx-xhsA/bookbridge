@@ -11,7 +11,6 @@ dependencies = [
     "pdfplumber",
     "typer",
     "rich",
-    "jinja2",
     "mcp",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",

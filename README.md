@@ -11,7 +11,7 @@
 
 ## For graders — start here
 
-**👉 [`docs/report.md`](docs/report.md)** — the full submission report. Covers all six rubric categories (Application Quality · Claude Code Mastery · Testing & TDD · CI/CD & Production · Team Process · Documentation & Demo) with inline links to every evidence artefact.
+**👉 [`docs/course/report.md`](docs/course/report.md)** — the full submission report. Covers all six rubric categories (Application Quality · Claude Code Mastery · Testing & TDD · CI/CD & Production · Team Process · Documentation & Demo) with inline links to every evidence artefact.
 ### Blog post
 Published on Substack: BookBridge: An AI-Powered Book Translation Platform That Actually Understands Structure
 
@@ -19,19 +19,19 @@ Published on Substack: BookBridge: An AI-Powered Book Translation Platform That 
 https://youtu.be/Dwah3sysQh4
 
 ### Individual reflections (500 words per partner)
-[`Zhanyi Chen`](docs/reflections/ash.md) — Zhanyi Chen
+[`Zhanyi Chen`](docs/course/reflections/ash.md) — Zhanyi Chen
 
-[`Shuai Ren`](docs/reflections/shuai-ren.md) — Shuai Ren
+[`Shuai Ren`](docs/course/reflections/shuai-ren.md) — Shuai Ren
 
 Evidence bundles referenced from the report:
 
 | Bundle | Contents |
 |---|---|
-| [`docs/evidence/coverage/`](docs/evidence/coverage/) | Raw terminal output of `vitest --coverage` (86.9% stmts) and `pytest --cov=bookbridge` (77%) |
-| [`docs/claude-memory/`](docs/claude-memory/) | Sanitized snapshot of the Claude Code auto-memory directory (8 files) |
-| [`docs/sprint-1-planning.md`](docs/sprint-1-planning.md) · [`docs/sprint-1-retrospective.md`](docs/sprint-1-retrospective.md) | Sprint 1 — Python Foundation |
-| [`docs/sprint-2-planning.md`](docs/sprint-2-planning.md) · [`docs/sprint-2-retrospective.md`](docs/sprint-2-retrospective.md) | Sprint 2 — Deploy First |
-| [`docs/standups.md`](docs/standups.md) | Async-coordination record with honest gap disclosure (see report §5.4) |
+| [`docs/course/evidence/coverage/`](docs/course/evidence/coverage/) | Raw terminal output of `vitest --coverage` (86.9% stmts) and `pytest --cov=bookbridge` (77%) |
+| [`docs/course/claude-memory/`](docs/course/claude-memory/) | Sanitized snapshot of the Claude Code auto-memory directory (8 files) |
+| [`docs/course/sprint-1-planning.md`](docs/course/sprint-1-planning.md) · [`docs/course/sprint-1-retrospective.md`](docs/course/sprint-1-retrospective.md) | Sprint 1 — Python Foundation |
+| [`docs/course/sprint-2-planning.md`](docs/course/sprint-2-planning.md) · [`docs/course/sprint-2-retrospective.md`](docs/course/sprint-2-retrospective.md) | Sprint 2 — Deploy First |
+| [`docs/course/standups.md`](docs/course/standups.md) | Async-coordination record with honest gap disclosure (see report §5.4) |
 
 ---
 

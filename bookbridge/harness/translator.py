@@ -78,9 +78,8 @@ class Translator(Protocol):
 def validate_input(text: str, source_lang: str, target_lang: str) -> None:
     """Reject empty, oversized, or unknown-language inputs before calling a provider.
 
-    Centralised so every provider enforces the same rules, including MyMemory which
-    builds the values into a URL and must reject unsafe content before issuing the
-    request (A10 / SSRF-adjacent: don't forward attacker-controlled query params).
+    Centralised so every provider enforces the same rules before any request is
+    issued.
     """
     if not text:
         raise ValueError("Empty source_text")
