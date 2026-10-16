@@ -161,6 +161,20 @@ describe('NewProjectPage — book upload dropzone (issue #47, EPUB/TXT since Pha
     ).toBeInTheDocument()
   })
 
+  it('rejects a file larger than the upload limit before sending it', () => {
+    render(<NewProjectPage />)
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const big = makeEpubFile('huge.epub')
+    Object.defineProperty(big, 'size', { value: 5 * 1024 * 1024 })
+    Object.defineProperty(fileInput, 'files', {
+      value: { 0: big, length: 1, item: () => big },
+      writable: false,
+    })
+    fireEvent.change(fileInput)
+    expect(screen.getByText(/larger than 4\.5 MB/i)).toBeInTheDocument()
+    expect(screen.queryByText('huge.epub')).not.toBeInTheDocument()
+  })
+
   // -------------------------------------------------------------------------
   // Test 5 — Submitting without selecting a file shows the "Please select"
   //           error (edge case: zero-size input leaves file state null)

@@ -8,6 +8,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 
 const mockProjectCreate = vi.fn()
 const mockProjectUpdate = vi.fn()
+const mockProjectDelete = vi.fn()
 const mockChapterCreate = vi.fn()
 const mockTranslationJobCreate = vi.fn()
 const mockUserUpsert = vi.fn()
@@ -18,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
     project: {
       create: (...args: unknown[]) => mockProjectCreate(...args),
       update: (...args: unknown[]) => mockProjectUpdate(...args),
+      delete: (...args: unknown[]) => mockProjectDelete(...args),
     },
     chapter: {
       create: (...args: unknown[]) => mockChapterCreate(...args),
@@ -95,6 +97,47 @@ describe('POST /api/upload — unit tests via mocked formData', () => {
     expect(res.status).toBe(400)
     expect(mockProjectCreate).not.toHaveBeenCalled()
     expect(workerFetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects a book over 1.5 million characters and removes the project', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as AuthReturn)
+    const paragraph = 'x'.repeat(100_000)
+    vi.mocked(workerFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          job_id: 'wjob-1',
+          status: 'completed',
+          chapters: [
+            { number: 1, title: 'One', paragraphs: Array(8).fill(paragraph) },
+            { number: 2, title: 'Two', paragraphs: Array(8).fill(paragraph) },
+          ],
+        }),
+        { status: 200 }
+      )
+    )
+    const { POST } = await import('@/app/api/upload/route')
+    const res = await POST(fakeRequest({ file: { name: 'huge.epub' }, title: 'Huge' }))
+    expect(res.status).toBe(413)
+    expect((await res.json()).error).toMatch(/too long/i)
+    expect(mockChapterCreate).not.toHaveBeenCalled()
+    expect(mockProjectDelete).toHaveBeenCalledWith({ where: { id: 'proj-new' } })
+  })
+
+  it('accepts a book right at the limit', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as AuthReturn)
+    vi.mocked(workerFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          job_id: 'wjob-1',
+          status: 'completed',
+          chapters: [{ number: 1, title: 'One', paragraphs: ['x'.repeat(1_500_000)] }],
+        }),
+        { status: 200 }
+      )
+    )
+    const { POST } = await import('@/app/api/upload/route')
+    const res = await POST(fakeRequest({ file: { name: 'big.txt' }, title: 'Big' }))
+    expect(res.status).toBe(200)
   })
 
   it.each(['novel.epub', 'NOVEL.TXT'])('accepts %s', async (name) => {
