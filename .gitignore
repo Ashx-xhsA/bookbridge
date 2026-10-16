@@ -11,3 +11,4 @@ HW-rubic/
 
 # Smoke runs contain full book text; only eval summaries get committed
 evals/results/smoke-*.json
+evals/results/smoke-*.html
