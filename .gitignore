@@ -13,7 +13,8 @@ HW-rubic/
 evals/results/smoke-*.json
 evals/results/smoke-*.html
 
-# Planning docs and chat logs stay local (personal notes, not part of the repo)
+# Planning docs, progress log and chat logs stay local (personal notes, not part of the repo)
+docs/PROGRESS.md
 docs/ROADMAP.md
 docs/refactor-plan.md
 docs/chat-log/
