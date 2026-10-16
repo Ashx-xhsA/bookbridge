@@ -186,7 +186,7 @@ describe('PATCH /api/projects/[id]/glossary/[termId] — bible fields', () => {
   ])('rejects an alias link when %s', async (_why, target, ownAliases) => {
     signedIn()
     mockTermFindUnique.mockResolvedValueOnce(term()).mockResolvedValueOnce(target)
-    mockTermCount.mockResolvedValueOnce(ownAliases)
+    mockTermCount.mockResolvedValue(ownAliases)
     const { PATCH } = await import('@/app/api/projects/[id]/glossary/[termId]/route')
     expect((await PATCH(json('PATCH', { aliasOfId: MAIN_ID }), termParams)).status).toBe(400)
     expect(mockTermUpdate).not.toHaveBeenCalled()
