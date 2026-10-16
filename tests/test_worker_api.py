@@ -1,13 +1,14 @@
 """Failing tests for FastAPI worker endpoints (TDD red phase — issue #16)."""
 
 import io
+import zipfile
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from bookbridge.ingestion.models import ChunkInfo, ChunkManifest
 from bookbridge.worker_api.main import create_app
+from tests.test_epub_reader import _epub3, _xhtml
 
 
 @pytest.fixture()
@@ -28,98 +29,75 @@ def test_health_check_returns_200(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# POST /parse
+# POST /parse  (EPUB / TXT)
 # ---------------------------------------------------------------------------
 
 
-def test_parse_endpoint_returns_job_id_status_and_chunks(client: TestClient) -> None:
-    """POST /parse returns {job_id, status: "completed", chunks: [...]} synchronously.
-
-    Each chunk includes a ``content`` field — joined page text for start_page..end_page
-    separated by ``\\n\\n`` (issue #51).
-    """
-    fake_manifest = ChunkManifest(
-        source_file="test.pdf",
-        total_pages=2,
-        chunks=[ChunkInfo(chunk_id=1, title="Chapter 1", start_page=1, end_page=2, page_count=2)],
+def test_parse_txt_returns_chapters_with_paragraphs(client: TestClient) -> None:
+    text = "CHAPTER I\n\nAlpha.\n\nCHAPTER II\n\nBeta.\n\nGamma."
+    response = client.post(
+        "/parse", files={"file": ("book.txt", io.BytesIO(text.encode()), "text/plain")}
     )
-    fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
-    with (
-        patch(
-            "bookbridge.worker_api.routes.extract_pages",
-            return_value={1: "page one text", 2: "page two text"},
-        ),
-        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest),
-    ):
-        response = client.post(
-            "/parse",
-            files={"file": ("test.pdf", fake_pdf, "application/pdf")},
-        )
     assert response.status_code == 200
     body = response.json()
     assert isinstance(body["job_id"], str)
     assert body["status"] == "completed"
-    assert body["chunks"] == [
-        {
-            "chunk_id": 1,
-            "title": "Chapter 1",
-            "start_page": 1,
-            "end_page": 2,
-            "page_count": 2,
-            "content": "page one text\n\npage two text",
-        }
+    assert body["chapters"] == [
+        {"number": 1, "title": "CHAPTER I", "paragraphs": ["CHAPTER I", "Alpha."]},
+        {"number": 2, "title": "CHAPTER II", "paragraphs": ["CHAPTER II", "Beta.", "Gamma."]},
     ]
 
 
-def test_parse_chunk_content_is_non_empty_when_pages_have_text(client: TestClient) -> None:
-    """Regression guard for 0-based vs 1-based page key alignment.
-
-    If ``extract_pages`` ever switched to 0-based keys while the chunker kept
-    1-based ``start_page``/``end_page``, ``content`` would silently become an
-    empty string and every downstream translation would fail with
-    "No source content to translate". This test catches that specifically.
-    """
-    fake_manifest = ChunkManifest(
-        source_file="test.pdf",
-        total_pages=3,
-        chunks=[ChunkInfo(chunk_id=1, title="C1", start_page=1, end_page=3, page_count=3)],
+def test_parse_epub_returns_chapters(client: TestClient) -> None:
+    data = _epub3({"c1.xhtml": _xhtml("<p>Alpha.</p>")}, [("One", "c1.xhtml")])
+    response = client.post(
+        "/parse", files={"file": ("book.epub", io.BytesIO(data), "application/epub+zip")}
     )
-    fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
-    with (
-        patch(
-            "bookbridge.worker_api.routes.extract_pages",
-            return_value={1: "alpha", 2: "beta", 3: "gamma"},
-        ),
-        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest),
-    ):
-        response = client.post(
-            "/parse",
-            files={"file": ("test.pdf", fake_pdf, "application/pdf")},
-        )
     assert response.status_code == 200
-    content = response.json()["chunks"][0]["content"]
-    assert content, "content must be non-empty when pages have text"
-    assert "alpha" in content and "gamma" in content
+    assert response.json()["chapters"] == [{"number": 1, "title": "One", "paragraphs": ["Alpha."]}]
 
 
-def test_parse_empty_chunks_returns_422(client: TestClient) -> None:
-    """A PDF with no chapter markers is surfaced as an error, not silent success."""
-    empty_manifest = ChunkManifest(source_file="test.pdf", total_pages=5, chunks=[])
-    fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
-    with (
-        patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}),
-        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=empty_manifest),
-    ):
+def test_parse_rejects_pdf(client: TestClient) -> None:
+    response = client.post(
+        "/parse", files={"file": ("book.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")}
+    )
+    assert response.status_code == 422
+    assert "EPUB" in response.json()["detail"]
+
+
+def test_parse_rejects_oversized_upload(client: TestClient) -> None:
+    with patch("bookbridge.worker_api.routes.MAX_UPLOAD_BYTES", 10):
         response = client.post(
-            "/parse",
-            files={"file": ("test.pdf", fake_pdf, "application/pdf")},
+            "/parse", files={"file": ("book.txt", io.BytesIO(b"x" * 11), "text/plain")}
         )
+    assert response.status_code == 413
+
+
+def test_parse_rejects_drm_epub_with_clear_message(client: TestClient) -> None:
+    buf = io.BytesIO(_epub3({"c.xhtml": _xhtml("<p>x</p>")}, [("C", "c.xhtml")]))
+    with zipfile.ZipFile(buf, "a") as zf:
+        zf.writestr("META-INF/rights.xml", "<rights/>")
+    response = client.post(
+        "/parse", files={"file": ("drm.epub", io.BytesIO(buf.getvalue()), "application/epub+zip")}
+    )
+    assert response.status_code == 422
+    assert "DRM" in response.json()["detail"]
+
+
+def test_parse_empty_txt_returns_422(client: TestClient) -> None:
+    response = client.post(
+        "/parse", files={"file": ("empty.txt", io.BytesIO(b"  \n"), "text/plain")}
+    )
     assert response.status_code == 422
 
 
 def test_parse_rejects_missing_file(client: TestClient) -> None:
     response = client.post("/parse")
     assert response.status_code == 422
+
+
+def test_job_polling_endpoint_is_removed(client: TestClient) -> None:
+    assert client.get("/job/some-job-id").status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -201,48 +179,15 @@ def test_translate_chunk_propagates_provider_error_as_502(
 
 
 # ---------------------------------------------------------------------------
-# GET /job/{job_id}
-# ---------------------------------------------------------------------------
-
-
-def test_get_job_status_returns_status_field(client: TestClient) -> None:
-    # /translate/chunk is synchronous and no longer populates _jobs; seed via /parse instead.
-    fake_manifest = ChunkManifest(
-        source_file="t.pdf",
-        total_pages=5,
-        chunks=[ChunkInfo(chunk_id=1, title="C1", start_page=1, end_page=5, page_count=5)],
-    )
-    fake_pdf = io.BytesIO(b"%PDF-1.4 fake")
-    with (
-        patch("bookbridge.worker_api.routes.extract_pages", return_value={1: "text"}),
-        patch("bookbridge.worker_api.routes.build_chunk_manifest", return_value=fake_manifest),
-    ):
-        create = client.post("/parse", files={"file": ("t.pdf", fake_pdf, "application/pdf")})
-    job_id = create.json()["job_id"]
-
-    response = client.get(f"/job/{job_id}")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["job_id"] == job_id
-    assert "error" in body
-
-
-def test_get_job_status_404_for_unknown_id(client: TestClient) -> None:
-    response = client.get("/job/nonexistent-job-id")
-    assert response.status_code == 404
-
-
-# ---------------------------------------------------------------------------
 # Error handling — no stack traces exposed
 # ---------------------------------------------------------------------------
 
 
-def test_invalid_pdf_returns_422_no_stack_trace(client: TestClient) -> None:
-    """An unreadable PDF returns 422 with no raw traceback in the response."""
-    bad_pdf = io.BytesIO(b"this is not a pdf")
+def test_invalid_epub_returns_422_no_stack_trace(client: TestClient) -> None:
+    """An unreadable EPUB returns 422 with no raw traceback in the response."""
     response = client.post(
         "/parse",
-        files={"file": ("bad.pdf", bad_pdf, "application/pdf")},
+        files={"file": ("bad.epub", io.BytesIO(b"not a zip"), "application/epub+zip")},
     )
     assert response.status_code == 422
     text = response.text
