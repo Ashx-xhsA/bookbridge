@@ -162,6 +162,17 @@ class TestEpub3:
         assert [c.title for c in book.chapters] == ["Opening", "Section 2"]
 
 
+    def test_single_toc_chapter_falls_back_to_heading_detection(self):
+        body = "<p>第一章 开端</p><p>甲。</p><p>第二章 重逢</p><p>乙。</p>"
+        data = _epub3({"all.xhtml": _xhtml(body)}, [("開始", "all.xhtml")])
+        book = read_epub(data)
+        assert [c.title for c in book.chapters] == ["第一章 开端", "第二章 重逢"]
+        assert book.chapters[1].paragraphs == ["第二章 重逢", "乙。"]
+
+    def test_single_chapter_without_headings_is_kept(self):
+        data = _epub3({"c.xhtml": _xhtml("<p>Alpha.</p><p>Beta.</p>")}, [("Only", "c.xhtml")])
+        assert [c.title for c in read_epub(data).chapters] == ["Only"]
+
 class TestEpub2Ncx:
     def test_reads_ncx_toc(self):
         ncx = (
