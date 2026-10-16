@@ -54,6 +54,7 @@ const mockUserFindUnique = vi.fn()
 const mockUserUpdate = vi.fn()
 const mockGlossaryTermFindMany = vi.fn()
 const mockSegmentFindMany = vi.fn()
+const mockBibleFindUnique = vi.fn()
 const mockTransaction = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
@@ -80,6 +81,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     segment: {
       findMany: (...args: unknown[]) => mockSegmentFindMany(...args),
+    },
+    bookBible: {
+      findUnique: (...args: unknown[]) => mockBibleFindUnique(...args),
     },
     $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
@@ -127,6 +131,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     mockChapterFindMany.mockResolvedValue([])
     mockGlossaryTermFindMany.mockResolvedValue([])
     mockSegmentFindMany.mockResolvedValue([])
+    mockBibleFindUnique.mockResolvedValue(null)
   })
 
   // -------------------------------------------------------------------------
@@ -266,14 +271,14 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
         translation: '赫敏',
         category: 'person',
         approved: true,
-        aliases: ['Granger'],
+        aliasOf: null,
       },
       {
-        english: 'wand',
-        translation: '魔杖',
-        category: 'technical',
+        english: 'Granger',
+        translation: '格兰杰',
+        category: 'person',
         approved: false,
-        aliases: [],
+        aliasOf: { english: 'Hermione', translation: '赫敏' },
       },
     ])
 
@@ -307,8 +312,13 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       translation: '赫敏',
       category: 'person',
       approved: true,
-      aliases: ['Granger'],
     })
+    expect(parsed.glossary[0].alias_of).toBeUndefined()
+    expect(parsed.glossary[1]).toMatchObject({
+      english: 'Granger',
+      alias_of: { english: 'Hermione', translation: '赫敏' },
+    })
+    expect(parsed.bible).toBeUndefined() // no scan yet
   })
 
   it('omits glossary field when the project has no terms (not an empty array)', async () => {
@@ -492,6 +502,73 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       { source: 'Before last.', translation: null },
       { source: 'Last.', translation: '最后。' },
     ])
+  })
+
+  it.each(['DRAFT', 'CONFIRMED'])(
+    'sends the %s bible: style guide plus person cards, most-mentioned first',
+    async (status) => {
+      vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+      mockProjectFindUnique.mockResolvedValueOnce({
+        id: PROJECT_ID,
+        ownerId: USER_ID,
+        targetLang: TARGET_LANG,
+      })
+      mockChapterFindUnique.mockResolvedValueOnce({
+        id: CHAPTER_ID,
+        segments: [{ index: 0, source: SOURCE_TEXT }],
+        projectId: PROJECT_ID,
+        number: 1,
+      })
+      mockBibleFindUnique.mockResolvedValueOnce({ status, styleGuide: '- 简洁' })
+      mockGlossaryTermFindMany.mockResolvedValueOnce([
+        { english: 'Ron', translation: '罗恩', category: 'person', approved: false,
+          gender: 'male', voice: null, notes: null, mentions: 3, aliasOf: null },
+        { english: 'Hermione', translation: '赫敏', category: 'person', approved: true,
+          gender: 'female', voice: 'Precise.', notes: null, mentions: 9, aliasOf: null },
+        { english: 'Granger', translation: '格兰杰', category: 'person', approved: false,
+          gender: null, voice: null, notes: null, mentions: 0,
+          aliasOf: { english: 'Hermione', translation: '赫敏' } },
+        { english: 'Hogwarts', translation: '霍格沃茨', category: 'place', approved: false,
+          gender: null, voice: null, notes: null, mentions: 20, aliasOf: null },
+      ])
+      mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+      mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+      const { POST } = await import('@/app/api/jobs/route')
+      await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+      const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+      expect(body.bible).toEqual({
+        style_guide: '- 简洁',
+        characters: [
+          { name: 'Hermione', translation: '赫敏', gender: 'female', voice: 'Precise.', notes: null },
+          { name: 'Ron', translation: '罗恩', gender: 'male', voice: null, notes: null },
+        ],
+      })
+    }
+  )
+
+  it.each(['SCANNING', 'FAILED'])('omits a %s bible', async (status) => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockBibleFindUnique.mockResolvedValueOnce({ status, styleGuide: '- 简洁' })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body.bible).toBeUndefined()
   })
 
   it('returns 400 when the chapter has no segments', async () => {
