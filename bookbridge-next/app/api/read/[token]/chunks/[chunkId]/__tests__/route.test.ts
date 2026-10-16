@@ -65,8 +65,10 @@ const fakeChapter = {
   projectId: PROJECT_ID,
   number: 1,
   title: 'Chapter One',
-  segments: [{ source: 'It was the best of times,' }, { source: 'it was the worst of times.' }],
-  translation: '这是最好的时代，这是最坏的时代。',
+  segments: [
+    { source: 'It was the best of times,', translation: '这是最好的时代，' },
+    { source: 'it was the worst of times.', translation: '这是最坏的时代。' },
+  ],
 }
 
 // A chapter that belongs to a DIFFERENT project (cross-project IDOR scenario)
@@ -114,7 +116,7 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
     expect(body.data).toBeDefined()
     // Response must expose reading-view field names (not raw DB column names)
     expect(body.data.originalText).toBe(SOURCE_TEXT)
-    expect(body.data.translatedText).toBe(fakeChapter.translation)
+    expect(body.data.translatedText).toBe('这是最好的时代，\n\n这是最坏的时代。')
     // Must NOT expose internal fields
     expect(body.data.projectId).toBeUndefined()
   })
@@ -202,7 +204,10 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
   // Edge case — chunk with null translatedText must still return 200 (translation in progress)
   // originalText is always present; translatedText may be null for untranslated chapters.
   it('returns 200 with translatedText as null when chapter has no translation yet', async () => {
-    const untranslatedChapter = { ...fakeChapter, translation: null }
+    const untranslatedChapter = {
+      ...fakeChapter,
+      segments: fakeChapter.segments.map((seg) => ({ ...seg, translation: null })),
+    }
     mockProjectFindFirst.mockResolvedValueOnce(publishedProject)
     mockChapterFindUnique.mockResolvedValueOnce(untranslatedChapter)
     const { GET } = await import('@/app/api/read/[token]/chunks/[chunkId]/route')

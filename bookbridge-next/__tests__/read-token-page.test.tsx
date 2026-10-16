@@ -76,15 +76,17 @@ function makeProject(overrides: Record<string, unknown> = {}) {
         id: 'ch_1',
         number: 1,
         title: 'The Windmills',
-        segments: [{ source: 'In a village of La Mancha...' }],
-        translation: 'En un lugar de la Mancha...',
+        segments: [
+          { source: 'In a village of La Mancha...', translation: 'En un lugar de la Mancha...' },
+        ],
       },
       {
         id: 'ch_2',
         number: 2,
         title: 'Sancho Panza',
-        segments: [{ source: 'Sancho rode behind him...' }],
-        translation: 'Sancho cabalgaba detrás...',
+        segments: [
+          { source: 'Sancho rode behind him...', translation: 'Sancho cabalgaba detrás...' },
+        ],
       },
     ],
     ...overrides,
