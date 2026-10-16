@@ -1,4 +1,4 @@
-"""Deterministic glossary retrieval: which terms (or aliases) occur in a text.
+"""Deterministic glossary retrieval: which terms occur in a text.
 
 Exact matching beats embeddings for proper nouns — if "Frodo" is in the
 paragraph it is always found. Rules:
@@ -13,20 +13,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
 from functools import lru_cache
 
 from bookbridge.harness.models import GlossaryEntry
 
 _SUFFIX = r"(?:['’][sS]|[eE]?[sS])?"
-
-
-@dataclass(frozen=True)
-class GlossaryMatch:
-    """A matched entry plus the aliases (not the main name) that were seen."""
-
-    entry: GlossaryEntry
-    aliases: tuple[str, ...] = ()
 
 
 @lru_cache(maxsize=4096)
@@ -56,12 +47,10 @@ def occurs(form: str, text: str, lowered: str | None = None) -> bool:
     return _pattern(form).search(text) is not None
 
 
-def match_glossary(glossary: Iterable[GlossaryEntry], text: str) -> list[GlossaryMatch]:
-    """Return entries whose name or any alias occurs in `text`, in input order."""
+def match_glossary(glossary: Iterable[GlossaryEntry], text: str) -> list[GlossaryEntry]:
+    """Return entries whose name occurs in `text`, in input order.
+
+    Aliases are entries of their own, so they match by their own name.
+    """
     lowered = text.lower()
-    matches: list[GlossaryMatch] = []
-    for entry in glossary:
-        hit_aliases = tuple(a for a in entry.aliases if occurs(a, text, lowered))
-        if hit_aliases or occurs(entry.english, text, lowered):
-            matches.append(GlossaryMatch(entry=entry, aliases=hit_aliases))
-    return matches
+    return [entry for entry in glossary if occurs(entry.english, text, lowered)]

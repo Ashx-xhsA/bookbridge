@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from bookbridge.harness.config import TranslationConfig
-from bookbridge.harness.matching import GlossaryMatch, match_glossary
-from bookbridge.harness.models import ContextSegment, GlossaryEntry
+from bookbridge.harness.matching import match_glossary, occurs
+from bookbridge.harness.models import BookBible, CharacterCard, ContextSegment, GlossaryEntry
 from bookbridge.harness.parsing import format_segments, marker
 
 # Same budget as v1 (~2000 tokens); only the "full" baseline can reach it.
 MAX_GLOSSARY_TERMS = 200
 
+BIBLE_HEADING = "## Book bible (highest priority)"
 GLOSSARY_HEADING = "## Glossary"
 CONTEXT_HEADING = "## Preceding text (context only — do not translate)"
 SEGMENTS_HEADING = "## Segments to translate"
@@ -24,38 +25,80 @@ SEGMENTS_HEADING = "## Segments to translate"
 
 def select_glossary(
     glossary: Sequence[GlossaryEntry], batch_text: str, config: TranslationConfig
-) -> list[GlossaryMatch]:
+) -> list[GlossaryEntry]:
     """Pick the terms to inject for one batch, approved first, then longest first."""
     if config.glossary_mode == "matched":
         picked = match_glossary(glossary, batch_text)
     else:
-        picked = [GlossaryMatch(entry=g) for g in glossary]
-    picked.sort(key=lambda m: (not m.entry.approved, -len(m.entry.english)))
+        picked = list(glossary)
+    picked.sort(key=lambda g: (not g.approved, -len(g.english)))
     return picked[:MAX_GLOSSARY_TERMS]
 
 
-def _term_line(m: GlossaryMatch) -> str:
-    line = f"- {m.entry.english} → {m.entry.translation} ({m.entry.category})"
-    if m.aliases:
-        line += f"; in this text also called: {', '.join(m.aliases)}"
+def _term_line(g: GlossaryEntry) -> str:
+    line = f"- {g.english} → {g.translation} ({g.category})"
+    if g.alias_of:
+        line += f"; refers to {g.alias_of.english} / {g.alias_of.translation}"
     return line
 
 
-def render_glossary(matches: Sequence[GlossaryMatch]) -> str:
-    if not matches:
+def render_glossary(entries: Sequence[GlossaryEntry]) -> str:
+    if not entries:
         return ""
     lines = [GLOSSARY_HEADING]
-    approved = [_term_line(m) for m in matches if m.entry.approved]
-    suggested = [_term_line(m) for m in matches if not m.entry.approved]
+    approved = [_term_line(g) for g in entries if g.approved]
+    suggested = [_term_line(g) for g in entries if not g.approved]
     if approved:
         lines += ["", "Approved — use these translations verbatim:", *approved]
     if suggested:
         lines += ["", "Suggested — follow unless context clearly overrides:", *suggested]
-    lines += [
-        "",
-        "An alias refers to the listed entity: use it to know who/what is meant, "
-        "but translate the alias itself — never replace it with the main name.",
-    ]
+    if any(g.alias_of for g in entries):
+        lines += [
+            "",
+            'A term that "refers to" someone is another name for that entity: use it '
+            "to know who is meant, but translate the name as listed — never replace "
+            "it with the main name.",
+        ]
+    return "\n".join(lines)
+
+
+def _present_characters(
+    bible: BookBible, batch_text: str, glossary: Sequence[GlossaryEntry]
+) -> list[CharacterCard]:
+    """Characters named in the batch directly or through one of their aliases."""
+    lowered = batch_text.lower()
+    via_alias = {
+        g.alias_of.english
+        for g in glossary
+        if g.alias_of and occurs(g.english, batch_text, lowered)
+    }
+    return [
+        c for c in bible.characters
+        if c.name in via_alias or occurs(c.name, batch_text, lowered)
+    ]  # fmt: skip
+
+
+def _card_line(c: CharacterCard) -> str:
+    details = [d for d in (c.gender, c.voice, c.notes) if d]
+    suffix = f" — {'; '.join(details)}" if details else ""
+    return f"- {c.name} ({c.translation}){suffix}"
+
+
+def render_bible(
+    bible: BookBible | None,
+    batch_text: str,
+    glossary: Sequence[GlossaryEntry],
+    config: TranslationConfig,
+) -> str:
+    if not config.book_bible or bible is None or bible.empty:
+        return ""
+    lines = [BIBLE_HEADING]
+    if bible.style_guide.strip():
+        lines += ["", "Style guide:", bible.style_guide.strip()]
+    cards = _present_characters(bible, batch_text, glossary)
+    if cards:
+        lines += ["", "Characters in this passage (pronouns, address, voice):"]
+        lines += [_card_line(c) for c in cards]
     return "\n".join(lines)
 
 
@@ -70,7 +113,7 @@ def render_context(preceding: Sequence[ContextSegment], window: int) -> str:
     return "\n".join(lines)
 
 
-def _system_prompt(source_lang: str, target_lang: str, count: int, glossary: str) -> str:
+def _system_prompt(source_lang: str, target_lang: str, count: int, sections: Sequence[str]) -> str:
     parts = [
         f"You are a literary translator. Translate from {source_lang} to {target_lang}.",
         f"Target language: {target_lang}",
@@ -80,8 +123,9 @@ def _system_prompt(source_lang: str, target_lang: str, count: int, glossary: str
         "the translation of that segment. Keep the markers and their order; never "
         "merge, split, skip or add segments. Output nothing else.",
     ]
-    if glossary:
-        parts += ["", glossary]
+    for section in sections:
+        if section:
+            parts += ["", section]
     return "\n".join(parts)
 
 
@@ -93,10 +137,15 @@ def build_translation_prompt(
     glossary: Sequence[GlossaryEntry],
     preceding: Sequence[ContextSegment],
     config: TranslationConfig,
+    bible: BookBible | None = None,
 ) -> tuple[str, str]:
     """Return (system, user) messages for translating one batch."""
-    matches = select_glossary(glossary, "\n".join(batch), config)
-    system = _system_prompt(source_lang, target_lang, len(batch), render_glossary(matches))
+    batch_text = "\n".join(batch)
+    sections = [
+        render_bible(bible, batch_text, glossary, config),
+        render_glossary(select_glossary(glossary, batch_text, config)),
+    ]
+    system = _system_prompt(source_lang, target_lang, len(batch), sections)
     context = render_context(preceding, config.context_window)
     user_parts = [context, ""] if context else []
     user_parts += [SEGMENTS_HEADING, format_segments(batch)]

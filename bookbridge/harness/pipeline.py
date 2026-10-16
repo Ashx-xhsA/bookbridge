@@ -17,6 +17,7 @@ from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.matching import match_glossary
 from bookbridge.harness.models import (
+    BookBible,
     ContextSegment,
     ExtractedTerm,
     GlossaryEntry,
@@ -42,6 +43,7 @@ class _Run:
     target_lang: str
     glossary: Sequence[GlossaryEntry]
     config: TranslationConfig
+    bible: BookBible | None
     history: list[ContextSegment]
     out: list[str | None]
 
@@ -55,12 +57,13 @@ def translate_segments(
     glossary: Sequence[GlossaryEntry] = (),
     preceding: Sequence[ContextSegment] = (),
     config: TranslationConfig | None = None,
+    bible: BookBible | None = None,
 ) -> SegmentsResult:
     """Translate `segments` in order; failed segments come back as None."""
     validate_langs(source_lang, target_lang)
     cfg = config or TranslationConfig()
     run = _Run(
-        client, segments, source_lang, target_lang, glossary, cfg,
+        client, segments, source_lang, target_lang, glossary, cfg, bible,
         history=list(preceding), out=[None] * len(segments),
     )  # fmt: skip
     for batch in plan_batches(segments, cfg.max_batch_chars):
@@ -90,6 +93,7 @@ def _attempt(run: _Run, idx: range, attempts: int) -> list[str] | None:
         glossary=run.glossary,
         preceding=run.history,
         config=run.config,
+        bible=run.bible,
     )
     for attempt in range(1, attempts + 1):
         try:
@@ -115,12 +119,12 @@ def extract_terms(
     Only glossary entries that occur in a chunk are listed as "known" in its
     prompt (keeps the prompt small); dedup still runs against the whole glossary.
     """
-    seen = [g.english for g in glossary] + [a for g in glossary for a in g.aliases]
+    seen = [g.english for g in glossary]
     found: list[ExtractedTerm] = []
     for chunk in plan_batches([src + tgt for src, tgt in pairs], max_chars):
         chunk_pairs = [pairs[i] for i in chunk]
         source_text = "\n".join(src for src, _ in chunk_pairs)
-        known = [m.entry.english for m in match_glossary(glossary, source_text)]
+        known = [g.english for g in match_glossary(glossary, source_text)]
         system, user = build_extraction_prompt(
             chunk_pairs, target_lang=target_lang, known_terms=known
         )

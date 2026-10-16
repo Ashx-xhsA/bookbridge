@@ -15,20 +15,52 @@ TERM_CATEGORIES: frozenset[str] = frozenset(
 
 
 @dataclass(frozen=True)
+class AliasTarget:
+    """The main entry an alias refers to (e.g. Gandalf / 甘道夫)."""
+
+    english: str
+    translation: str
+
+
+@dataclass(frozen=True)
 class GlossaryEntry:
     """A term the BFF passes in before translation.
 
     `approved` terms MUST be followed verbatim; unapproved ones are strong
-    suggestions. `aliases` are other surface forms of the same entity (e.g.
-    "Mithrandir" for Gandalf) — matching one injects the term so the model
-    knows who is meant, but the alias itself is never replaced in the output.
+    suggestions. An alias ("Mithrandir") is its own entry with its own fixed
+    translation plus `alias_of` pointing at the main entity: the model learns
+    who is meant, but the alias is translated as written — never swapped for
+    the main name.
     """
 
     english: str
     translation: str
     category: str
     approved: bool = False
-    aliases: tuple[str, ...] = ()
+    alias_of: AliasTarget | None = None
+
+
+@dataclass(frozen=True)
+class CharacterCard:
+    """Book-bible entry for one character: how to refer to them and how they talk."""
+
+    name: str
+    translation: str
+    gender: str | None = None
+    voice: str | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class BookBible:
+    """Whole-book context from the pre-scan, reviewed by the user."""
+
+    style_guide: str = ""
+    characters: tuple[CharacterCard, ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        return not self.style_guide.strip() and not self.characters
 
 
 @dataclass(frozen=True)

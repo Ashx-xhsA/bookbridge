@@ -22,11 +22,14 @@ class TranslationConfig:
       whose name or alias appears in the batch being translated.
     - context_window: how many preceding segments (source + translation) to
       show the model; 0 disables the window.
+    - book_bible: inject the style guide and the cards of characters that
+      appear in the batch (when a bible is supplied).
     - max_batch_chars: source-character budget per LLM call.
     """
 
     glossary_mode: GlossaryMode = "matched"
     context_window: int = 3
+    book_bible: bool = True
     max_batch_chars: int = 6000
 
     def __post_init__(self) -> None:
