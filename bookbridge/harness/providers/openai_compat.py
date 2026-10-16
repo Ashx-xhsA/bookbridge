@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import urllib.error
 import urllib.request
 
-from bookbridge.harness.models import TranslatorError, Usage
+from bookbridge.harness.models import ProviderError, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,9 @@ class OpenAICompatClient:
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise TranslatorError("Translation provider failed") from exc
+            raise ProviderError("Translation provider failed", retryable=True) from exc
         if not isinstance(content, str) or not content.strip():
-            raise TranslatorError("Translation provider failed")
+            raise ProviderError("Translation provider failed", retryable=True)
         self._record_usage(body)
         return content
 
@@ -81,9 +82,14 @@ class OpenAICompatClient:
         try:
             with urllib.request.urlopen(req, timeout=request_timeout()) as resp:
                 return json.loads(resp.read())
-        except (OSError, ValueError) as exc:  # HTTPError/URLError/timeouts, bad JSON
+        except urllib.error.HTTPError as exc:
+            # 429 and 5xx are transient; 401/403/400 will fail the same way again.
+            retryable = exc.code == 429 or exc.code >= 500
+            logger.warning("openai_compat HTTP %d (retryable=%s)", exc.code, retryable)
+            raise ProviderError("Translation provider failed", retryable=retryable) from exc
+        except (OSError, ValueError) as exc:  # URLError, timeouts, bad JSON
             logger.warning("openai_compat request failed: %s", type(exc).__name__)
-            raise TranslatorError("Translation provider failed") from exc
+            raise ProviderError("Translation provider failed", retryable=True) from exc
 
     def _record_usage(self, body: dict) -> None:
         self.usage.calls += 1

@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -23,45 +25,20 @@ CALLBACK_PATH = "/api/internal/worker-callback"
 GLOSSARY_CALLBACK_PATH = "/api/internal/worker-callback/glossary"
 BIBLE_CALLBACK_PATH = "/api/internal/worker-callback/bible"
 REQUEST_TIMEOUT_SECONDS: float = 10.0
+# Transient failures (5xx, timeouts, connection errors) are retried after
+# these pauses; a 4xx (e.g. 409 for a superseded job) is final.
+RETRY_PAUSES_SECONDS: tuple[float, ...] = (1.0, 3.0)
 
 
 def post_glossary_callback(project_id: str, terms: list[dict]) -> None:
     """POST newly-extracted glossary terms to the Next.js glossary callback.
 
-    No-op if env vars are missing (dev) or terms list is empty. Same
-    non-raising contract as `post_worker_callback` — a failed glossary
-    callback must not crash the background translation flow.
+    No-op if the terms list is empty. Same non-raising contract as
+    `post_worker_callback` — a failed glossary callback must not crash the
+    background translation flow.
     """
-    if not terms:
-        return
-
-    base = os.environ.get("CALLBACK_BASE_URL", "").rstrip("/")
-    secret = os.environ.get("WORKER_CALLBACK_SECRET", "")
-    if not base or not secret:
-        logger.error(
-            "glossary callback not configured (CALLBACK_BASE_URL / "
-            "WORKER_CALLBACK_SECRET missing); %d term(s) for project %s will be lost",
-            len(terms),
-            project_id,
-        )
-        return
-
-    url = f"{base}{GLOSSARY_CALLBACK_PATH}"
-    body = json.dumps({"projectId": project_id, "terms": terms}).encode("utf-8")
-    req = Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Worker-Secret": secret,
-        },
-    )
-    try:
-        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-            resp.read()
-    except Exception as exc:
-        logger.error("glossary callback to %s failed: %s", url, type(exc).__name__)
+    if terms:
+        _post(GLOSSARY_CALLBACK_PATH, {"projectId": project_id, "terms": terms})
 
 
 def post_worker_callback(payload: dict) -> None:
@@ -100,12 +77,22 @@ def _post(path: str, payload: dict) -> None:
             "X-Worker-Secret": secret,
         },
     )
-    try:
-        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-            resp.read()
-    except Exception as exc:
-        # Broad catch is deliberate: urlopen can raise URLError, SSLError,
-        # OSError (connect refused), ValueError (bad URL scheme), or
-        # RemoteDisconnected. Any exception escaping this function crashes
-        # FastAPI's BackgroundTasks runner and leaves the job stuck in PENDING.
-        logger.error("callback to %s failed: %s", url, type(exc).__name__)
+    for attempt, pause in enumerate((*RETRY_PAUSES_SECONDS, None), start=1):
+        try:
+            with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+                resp.read()
+            return
+        except HTTPError as exc:
+            if exc.code < 500 or pause is None:
+                logger.error("callback to %s failed: HTTP %d", url, exc.code)
+                return
+        except Exception as exc:
+            # Broad catch is deliberate: urlopen can raise URLError, SSLError,
+            # OSError (connect refused), ValueError (bad URL scheme), or
+            # RemoteDisconnected. Any exception escaping this function crashes
+            # FastAPI's BackgroundTasks runner and leaves the job stuck in PENDING.
+            if pause is None:
+                logger.error("callback to %s failed: %s", url, type(exc).__name__)
+                return
+        logger.warning("callback to %s attempt %d failed; retrying", url, attempt)
+        time.sleep(pause)

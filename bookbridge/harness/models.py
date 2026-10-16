@@ -93,6 +93,18 @@ class TranslatorError(Exception):
     """A provider call failed or returned unusable output."""
 
 
+class ProviderError(TranslatorError):
+    """The LLM API call itself failed (HTTP error, timeout, malformed body).
+
+    `retryable` is True for rate limits, 5xx and timeouts; False for auth and
+    other client errors, where retrying only burns the user's quota.
+    """
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
 class LLMClient(Protocol):
     """One chat-completion round trip. Implementations live in harness/providers/."""
 
@@ -106,6 +118,9 @@ class SegmentsResult:
     """Output of `translate_segments`: one slot per input segment, None = failed."""
 
     translations: list[str | None] = field(default_factory=list)
+    # True when a provider failure stopped the run early; the remaining
+    # segments were never attempted.
+    aborted: bool = False
 
     @property
     def failed(self) -> list[int]:

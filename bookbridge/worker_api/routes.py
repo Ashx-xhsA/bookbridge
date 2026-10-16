@@ -147,12 +147,17 @@ def _post_new_terms(
     glossary: list[GlossaryEntry],
     result: SegmentsResult,
 ) -> None:
+    """Best-effort: runs after the job result is stored, so it can't lose it."""
     pairs = [
         (seg.source, text)
         for seg, text in zip(body.segments, result.translations, strict=True)
         if text is not None
     ]
-    terms = extract_terms(llm, pairs, target_lang=body.target_lang, glossary=glossary)
+    try:
+        terms = extract_terms(llm, pairs, target_lang=body.target_lang, glossary=glossary)
+    except Exception as exc:
+        logger.warning("term extraction for job %s failed: %s", body.job_id, type(exc).__name__)
+        return
     rows = [
         {"english": t.english, "translation": t.translation, "category": t.category} for t in terms
     ]
@@ -163,26 +168,40 @@ def _post_new_terms(
         )
 
 
+def _segment_rows(body: TranslateSegmentsAsyncRequest, done: list[tuple[int, str]]) -> list[dict]:
+    return [{"index": body.segments[i].index, "translation": text} for i, text in done]
+
+
 def _result_payload(body: TranslateSegmentsAsyncRequest, result: SegmentsResult) -> dict:
-    done = [
-        {"index": seg.index, "translation": text}
-        for seg, text in zip(body.segments, result.translations, strict=True)
-        if text is not None
-    ]
-    failed = [body.segments[i].index for i in result.failed]
+    done = [(i, t) for i, t in enumerate(result.translations) if t is not None]
+    # After a provider abort the rest was never attempted — not "failed" segments.
+    failed = [] if result.aborted else [body.segments[i].index for i in result.failed]
     payload: dict = {
         "job_id": body.job_id,
-        "status": "FAILED" if failed else "SUCCEEDED",
-        "segments": done,
+        "status": "FAILED" if failed or result.aborted else "SUCCEEDED",
+        "segments": _segment_rows(body, done),
         "failed_indices": failed,
     }
-    if failed:
+    if result.aborted:
+        payload["error"] = "Translation provider failed; finished segments were kept"
+    elif failed:
         payload["error"] = f"{len(failed)} of {len(body.segments)} segments failed to translate"
     return payload
 
 
+def _progress(body: TranslateSegmentsAsyncRequest):  # noqa: ANN202
+    """Post each finished batch as RUNNING: saves it early and is the job heartbeat."""
+
+    def report(done: list[tuple[int, str]]) -> None:
+        post_worker_callback(
+            {"job_id": body.job_id, "status": "RUNNING", "segments": _segment_rows(body, done)}
+        )
+
+    return report
+
+
 def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
-    """Background task: translate segments, extract terms, POST results to the BFF.
+    """Background task: translate, report each batch, post the result, then extract terms.
 
     Never raises — anything unexpected becomes a FAILED callback with a
     generic error so no provider detail reaches the client (A09).
@@ -198,9 +217,8 @@ def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
             preceding=[ContextSegment(p.source, p.translation) for p in body.preceding],
             config=TranslationConfig(**body.config.model_dump()),
             bible=_bible(body),
+            on_progress=_progress(body),
         )
-        if body.project_id:
-            _post_new_terms(llm, body, glossary, result)
         payload = _result_payload(body, result)
     except Exception as exc:
         logger.warning("translation job %s failed: %s", body.job_id, type(exc).__name__)
@@ -208,10 +226,13 @@ def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
             {"job_id": body.job_id, "status": "FAILED", "error": "Translation failed"}
         )
         return
-    summary = _summarize(llm, "\n\n".join(s.source for s in body.segments))
-    if summary:
-        payload["summary"] = summary
+    if not result.aborted:
+        summary = _summarize(llm, "\n\n".join(s.source for s in body.segments))
+        if summary:
+            payload["summary"] = summary
     post_worker_callback(payload)
+    if body.project_id:
+        _post_new_terms(llm, body, glossary, result)
 
 
 @router.post("/translate/segments/async", status_code=202)
@@ -226,16 +247,39 @@ def translate_segments_async(
     return {"job_id": body.job_id, "status": "accepted"}
 
 
-def _entity_payload(e: ScannedEntity) -> dict:
+# Must match the BFF bible callback schema, or the whole scan is rejected.
+MAX_NAME, MAX_TRANSLATION, MAX_NOTE, MAX_ALIASES, MAX_STYLE_GUIDE = 200, 500, 1000, 50, 5000
+_GENDERS = {"male": "male", "m": "male", "female": "female", "f": "female", "unknown": "unknown"}
+
+
+def normalise_gender(raw: str | None) -> str | None:
+    """Map an LLM's free-form gender to male / female / unknown, else None."""
+    if not raw:
+        return None
+    word = raw.strip().lower().split(" ")[0].strip("(),.")
+    return _GENDERS.get(word)
+
+
+def _clip(text: str | None, limit: int) -> str | None:
+    return text[:limit] if text else text
+
+
+def _entity_payload(e: ScannedEntity) -> dict | None:
+    if len(e.english) > MAX_NAME:  # a truncated name would never match the text
+        return None
+    aliases = [a for a in e.aliases if len(a.english) <= MAX_NAME][:MAX_ALIASES]
     return {
         "english": e.english,
-        "translation": e.translation,
+        "translation": _clip(e.translation, MAX_TRANSLATION),
         "category": e.category,
-        "gender": e.gender,
-        "notes": e.notes,
-        "voice": e.voice,
+        "gender": normalise_gender(e.gender),
+        "notes": _clip(e.notes, MAX_NOTE),
+        "voice": _clip(e.voice, MAX_NOTE),
         "mentions": e.mentions,
-        "aliases": [{"english": a.english, "translation": a.translation} for a in e.aliases],
+        "aliases": [
+            {"english": a.english, "translation": _clip(a.translation, MAX_TRANSLATION)}
+            for a in aliases
+        ],
     }
 
 
@@ -255,8 +299,12 @@ def run_bible_scan(body: BibleScanAsyncRequest) -> None:
         {
             **base,
             "status": "SUCCEEDED",
-            "style_guide": result.style_guide,
-            "entities": [_entity_payload(e) for e in result.entities[:MAX_BIBLE_ENTITIES]],
+            "style_guide": result.style_guide[:MAX_STYLE_GUIDE],
+            "entities": [
+                row
+                for e in result.entities[:MAX_BIBLE_ENTITIES]
+                if (row := _entity_payload(e)) is not None
+            ],
         }
     )
 

@@ -17,8 +17,10 @@
    samples; one call writes a style guide from passages at the start, middle
    and end of the book.
 
-Any single failed call is skipped — a partial bible is still useful and the
-user reviews it before it matters.
+A single failed passage, voice or style call is skipped — a partial bible
+is still useful and the user reviews it. But a non-retryable provider error
+(bad key) stops the scan at once, and a scan where every passage failed
+raises: an empty "successful" bible would hide the problem.
 """
 
 from __future__ import annotations
@@ -29,13 +31,14 @@ from dataclasses import dataclass, field, replace
 
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.matching import occurs
-from bookbridge.harness.models import AliasTarget, LLMClient, TranslatorError
+from bookbridge.harness.models import AliasTarget, LLMClient, ProviderError, TranslatorError
 from bookbridge.harness.parsing import parse_entities, parse_voices
 from bookbridge.harness.prompts import (
     build_scan_prompt,
     build_style_prompt,
     build_voice_prompt,
 )
+from bookbridge.harness.retry import complete_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -82,21 +85,33 @@ def scan_book(
     if not paragraphs:
         return ScanResult()
     raw: list[dict] = []
-    for chunk in plan_batches(paragraphs, max_chunk_chars):
-        raw += _scan_passage(client, "\n\n".join(paragraphs[i] for i in chunk), target_lang)
+    chunks = plan_batches(paragraphs, max_chunk_chars)
+    failures = 0
+    for chunk in chunks:
+        found = _scan_passage(client, "\n\n".join(paragraphs[i] for i in chunk), target_lang)
+        failures += found is None
+        raw += found or []
+    if failures == len(chunks):
+        raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
     entities = _count_mentions(_merge(raw), text)
     entities = _add_voices(client, entities, text, target_lang, max_voice_cards)
     return ScanResult(style_guide=_style_guide(client, paragraphs, target_lang), entities=entities)
 
 
-def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dict]:
+def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dict] | None:
+    """Entities in one passage; None when the call failed (and may be skipped)."""
     system, user = build_scan_prompt(passage, target_lang=target_lang)
     try:
-        return parse_entities(client.complete(system, user, json_mode=True))
+        return parse_entities(complete_with_retry(client, system, user, json_mode=True))
+    except ProviderError as exc:
+        if not exc.retryable:
+            raise  # e.g. a bad key: every other passage would fail the same way
+        logger.warning("pre-scan passage failed after retries")
+        return None
     except TranslatorError as exc:
         logger.warning("pre-scan passage failed: %s", type(exc).__name__)
-        return []
+        return None
 
 
 def _capitalised(name: str) -> bool:
@@ -220,7 +235,7 @@ def _add_voices(
     batch = [(e.english, e.translation, _voice_samples(e, text)) for e in people]
     system, user = build_voice_prompt(batch, target_lang=target_lang)
     try:
-        voices = parse_voices(client.complete(system, user, json_mode=True))
+        voices = parse_voices(complete_with_retry(client, system, user, json_mode=True))
     except TranslatorError as exc:
         logger.warning("voice cards failed: %s", type(exc).__name__)
         return entities
@@ -243,7 +258,7 @@ def _style_guide(client: LLMClient, paragraphs: Sequence[str], target_lang: str)
     chosen = sorted({i for s in starts for i in _window(paragraphs, s)})
     system, user = build_style_prompt([paragraphs[i] for i in chosen], target_lang=target_lang)
     try:
-        return client.complete(system, user).strip()
+        return complete_with_retry(client, system, user).strip()
     except TranslatorError as exc:
         logger.warning("style guide failed: %s", type(exc).__name__)
         return ""

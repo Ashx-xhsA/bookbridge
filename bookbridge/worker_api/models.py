@@ -12,7 +12,7 @@ from bookbridge.harness.models import ALLOWED_TARGET_LANGS
 MAX_SEGMENT_CHARS = 100_000
 MAX_SEGMENTS = 5_000
 MAX_TOTAL_SOURCE_CHARS = 1_000_000
-MAX_GLOSSARY = 5_000
+MAX_GLOSSARY = 20_000
 MAX_BOOK_CHARS = 5_000_000
 
 
@@ -65,6 +65,7 @@ class TranslationConfigInput(BaseModel):
     glossary_mode: Literal["full", "matched"] = "matched"
     context_window: int = Field(3, ge=0, le=MAX_CONTEXT_WINDOW)
     book_bible: StrictBool = True
+    max_batch_chars: int = Field(6000, ge=1, le=50_000)
 
 
 class CharacterInput(BaseModel):

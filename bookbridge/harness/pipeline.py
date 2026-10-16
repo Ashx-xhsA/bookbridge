@@ -2,15 +2,19 @@
 
 translate_segments: batches paragraphs under a char budget, translates each
 batch with the marker protocol, and keeps a rolling window of what was just
-translated. A batch whose output doesn't line up is split in half and
-retried; a single segment gets one retry and is then marked failed (None)
-instead of failing the whole chapter.
+translated. Two kinds of failure are handled differently:
+- output that doesn't line up (SegmentAlignmentError): the batch is split in
+  half and retried; a single segment gets one retry, then is marked failed
+  (None) instead of failing the whole chapter;
+- the API call itself failing: retried only if transient (see retry.py),
+  otherwise the run stops at once and returns what was finished, marked
+  `aborted` — splitting would multiply the failing requests.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from bookbridge.harness.batching import plan_batches
@@ -26,8 +30,9 @@ from bookbridge.harness.models import (
     TranslatorError,
     validate_langs,
 )
-from bookbridge.harness.parsing import parse_segments, parse_terms
+from bookbridge.harness.parsing import SegmentAlignmentError, parse_segments, parse_terms
 from bookbridge.harness.prompts import build_extraction_prompt, build_translation_prompt
+from bookbridge.harness.retry import complete_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +63,13 @@ def translate_segments(
     preceding: Sequence[ContextSegment] = (),
     config: TranslationConfig | None = None,
     bible: BookBible | None = None,
+    on_progress: Callable[[list[tuple[int, str]]], None] | None = None,
 ) -> SegmentsResult:
-    """Translate `segments` in order; failed segments come back as None."""
+    """Translate `segments` in order; failed segments come back as None.
+
+    `on_progress` receives the (position, translation) pairs finished by each
+    top-level batch, so callers can persist results as they arrive.
+    """
     validate_langs(source_lang, target_lang)
     cfg = config or TranslationConfig()
     run = _Run(
@@ -67,7 +77,15 @@ def translate_segments(
         history=list(preceding), out=[None] * len(segments),
     )  # fmt: skip
     for batch in plan_batches(segments, cfg.max_batch_chars):
-        _translate_range(run, batch)
+        try:
+            _translate_range(run, batch)
+        except TranslatorError as exc:  # provider failure: stop, keep what is done
+            logger.warning("translation stopped at segment %d: %s", batch.start, type(exc).__name__)
+            return SegmentsResult(translations=run.out, aborted=True)
+        if on_progress:
+            done = [(i, t) for i in batch if (t := run.out[i]) is not None]
+            if done:
+                on_progress(done)
     return SegmentsResult(translations=run.out)
 
 
@@ -96,13 +114,13 @@ def _attempt(run: _Run, idx: range, attempts: int) -> list[str] | None:
         bible=run.bible,
     )
     for attempt in range(1, attempts + 1):
+        content = complete_with_retry(run.client, system, user)  # provider errors propagate
         try:
-            return parse_segments(run.client.complete(system, user), expected=len(batch))
-        except TranslatorError as exc:
+            return parse_segments(content, expected=len(batch))
+        except SegmentAlignmentError:
             logger.warning(
-                "segments %d-%d attempt %d failed: %s",
-                idx.start, idx.stop - 1, attempt, type(exc).__name__,
-            )  # fmt: skip
+                "segments %d-%d misaligned (attempt %d)", idx.start, idx.stop - 1, attempt
+            )
     return None
 
 
@@ -129,7 +147,7 @@ def extract_terms(
             chunk_pairs, target_lang=target_lang, known_terms=known
         )
         try:
-            content = client.complete(system, user, json_mode=True)
+            content = complete_with_retry(client, system, user, json_mode=True)
         except TranslatorError as exc:
             logger.warning("term extraction chunk failed: %s", type(exc).__name__)
             continue

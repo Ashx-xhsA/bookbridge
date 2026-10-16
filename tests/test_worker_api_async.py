@@ -140,7 +140,7 @@ def test_progress_callbacks_after_each_batch_then_final() -> None:
 def test_partial_failure_reports_successes_and_failed_indices() -> None:
     def respond(system: str, user: str, json_mode: bool) -> str:
         if not json_mode and "<<<" in user and "Sam." in _segments_in(user):
-            return "garbled"  # cannot be aligned
+            return ""  # cannot be aligned
         return _translate_or_extract(system, user, json_mode)
 
     jobs, _ = _run(ScriptedClient(respond))
@@ -298,7 +298,7 @@ def test_post_worker_callback_swallows_non_urlerror_exceptions(
 
         raise ssl.SSLError("fake SSL handshake failure")
 
-    with patch.object(callback, "urlopen", raise_ssl_error):
+    with patch.object(callback, "urlopen", raise_ssl_error), patch.object(callback.time, "sleep"):
         callback.post_worker_callback({"job_id": "x" * 10, "status": "FAILED", "error": "test"})
 
 

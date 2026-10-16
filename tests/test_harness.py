@@ -13,12 +13,12 @@ import pytest
 from bookbridge.harness import get_llm_client
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
-    ProviderError,
     AliasTarget,
     BookBible,
     CharacterCard,
     ContextSegment,
     GlossaryEntry,
+    ProviderError,
     TranslatorError,
     Usage,
 )
