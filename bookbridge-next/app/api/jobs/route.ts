@@ -14,38 +14,12 @@ const bodySchema = z.object({
 // window. The Worker trims to its configured window (max 10).
 const PRECEDING_SEGMENTS = 10
 
-// Worker cap on character cards per request; most-mentioned win.
-const MAX_BIBLE_CHARACTERS = 500
-
 // A drafted or confirmed bible is injected (translating before review is
-// allowed; the UI nudges the user to review first). Character cards are the
-// project's people — aliases excluded, they are glossary rows of their own.
-function bibleForWorker(
-  row: { status: string; styleGuide: string } | null,
-  terms: {
-    english: string
-    translation: string
-    category: string
-    gender: string | null
-    voice: string | null
-    notes: string | null
-    mentions: number
-    aliasOf: unknown
-  }[]
-) {
+// allowed; the UI nudges the user to review first). The bible is the book
+// overview, stored in BookBible.styleGuide.
+function bibleForWorker(row: { status: string; styleGuide: string } | null) {
   if (!row || (row.status !== 'DRAFT' && row.status !== 'CONFIRMED')) return undefined
-  const characters = terms
-    .filter((t) => t.category === 'person' && !t.aliasOf)
-    .sort((a, b) => b.mentions - a.mentions)
-    .slice(0, MAX_BIBLE_CHARACTERS)
-    .map((t) => ({
-      name: t.english,
-      translation: t.translation,
-      gender: t.gender,
-      voice: t.voice,
-      notes: t.notes,
-    }))
-  return { style_guide: row.styleGuide, characters }
+  return { style_guide: row.styleGuide }
 }
 
 // The check intentionally does not include SUCCEEDED — users may want to
@@ -145,10 +119,6 @@ export async function POST(req: NextRequest) {
         translation: true,
         category: true,
         approved: true,
-        gender: true,
-        voice: true,
-        notes: true,
-        mentions: true,
         aliasOf: { select: { english: true, translation: true } },
       },
     }),
@@ -171,7 +141,7 @@ export async function POST(req: NextRequest) {
       ? { alias_of: { english: t.aliasOf.english, translation: t.aliasOf.translation } }
       : {}),
   }))
-  const bible = bibleForWorker(bibleRow, terms)
+  const bible = bibleForWorker(bibleRow)
 
   const llmCreds = await getUserLLMCredentials(userId)
   if (!llmCreds) {

@@ -16,9 +16,7 @@ const entitySchema = z.object({
   english: name,
   translation,
   category: z.string().min(1).max(50),
-  gender: z.string().max(50).nullable(),
   notes: z.string().max(1000).nullable(),
-  voice: z.string().max(1000).nullable(),
   mentions: z.number().int().min(0),
   aliases: z.array(z.object({ english: name, translation })).max(50),
 })
@@ -82,7 +80,7 @@ export async function POST(req: NextRequest) {
         where: { projectId },
         select: {
           id: true, english: true, translation: true, approved: true, userEdited: true,
-          gender: true, voice: true, notes: true, aliasOfId: true,
+          notes: true, aliasOfId: true,
           _count: { select: { aliases: true } },
         },
       })
