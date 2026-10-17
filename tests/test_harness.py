@@ -278,14 +278,14 @@ class TestExtractTerms:
                 "Mithrandir", "米斯兰达", "person", alias_of=AliasTarget("Gandalf", "甘道夫")
             ),
         ]
-        pairs = [("Gandalf spoke.", "甘道夫说。")]
+        pairs = [("Gandalf spoke to Sam.", "甘道夫对山姆说。")]
         terms = extract_terms(client, pairs, target_lang="zh-Hans", glossary=glossary)
         assert [t.english for t in terms] == ["Sam"]
         assert "Gandalf" in client.calls[0][1]  # known terms are listed in the prompt
 
     def test_chunks_long_input_and_dedupes_across_chunks(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json("Frodo"))
-        pairs = [("a" * 10, "x"), ("b" * 10, "y")]
+        pairs = [("Frodo ran.", "x"), ("Frodo hid.", "y")]
         terms = extract_terms(client, pairs, target_lang="zh-Hans", max_chars=10)
         assert len(client.calls) == 2
         assert [t.english for t in terms] == ["Frodo"]
@@ -297,9 +297,28 @@ class TestExtractTerms:
             return _terms_json("Sam")
 
         client = ScriptedClient(respond)
-        pairs = [("aaa", "x"), ("bbb", "y")]
+        pairs = [("aaa", "x"), ("Sam", "y")]
         terms = extract_terms(client, pairs, target_lang="zh-Hans", max_chars=3)
         assert [t.english for t in terms] == ["Sam"]
+
+    def test_keeps_only_proper_nouns_written_in_the_source(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            terms = [
+                {"english": n, "translation": "译", "category": c}
+                for n, c in [("firm", "organization"), ("office", "general"),
+                             ("Mother", "person"), ("Frodo", "person"), ("Gondor", "place"),
+                             ("mithril", "technical")]
+            ]  # fmt: skip
+            return json.dumps({"terms": terms})
+
+        pairs = [("Mother told Frodo the firm's office used mithril.", "x")]
+        terms = extract_terms(ScriptedClient(respond), pairs, target_lang="zh-Hans")
+        assert [t.english for t in terms] == ["Frodo"]  # Gondor is not in the source
+
+    def test_extraction_prompt_asks_for_proper_nouns_only(self) -> None:
+        client = ScriptedClient(lambda s, u, j: _terms_json())
+        extract_terms(client, [("Frodo ran.", "x")], target_lang="zh-Hans")
+        assert "proper nouns only" in client.calls[0][0].lower()
 
     def test_no_pairs_makes_no_calls(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json("X"))

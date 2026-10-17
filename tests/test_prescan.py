@@ -185,15 +185,13 @@ class TestScanBook:
                 "friend": [
                     {"name": "", "translation": "空"},
                     {"name": "NoTranslation"},
-                    _entity("Petersburg Bank", "彼得堡银行", "bank"),
+                    _entity("St. Petersburg", "圣彼得堡", "bank"),
                     "not a dict",  # type: ignore[list-item]
                 ]
             }
         )
         result = scan_book(router.client, BOOK, target_lang="zh-Hans")
-        assert [(e.english, e.category) for e in result.entities] == [
-            ("Petersburg Bank", "general")
-        ]
+        assert [(e.english, e.category) for e in result.entities] == [("St. Petersburg", "general")]
 
     def test_empty_book_makes_no_calls(self) -> None:
         router = Router({})
@@ -208,12 +206,22 @@ def test_mock_client_runs_the_whole_scan() -> None:
     assert result.style_guide
 
 
+SAFETY_BOOK = [
+    [
+        "Gregor told his friend that Mr. Samsa was home.",
+        "Hermann, his father, sat with Grete in the office of the firm.",
+        "Georg Bendemann wrote; Georg sealed it. The head clerk left for St. Petersburg.",
+        "Mother called the Chief.",
+    ]
+]
+
+
 class TestMergeSafety:
     """Found in the DeepSeek smoke run: shared or generic aliases fused people."""
 
     def _scan(self, entities: list[dict]) -> dict:
         router = Router({"friend": entities})
-        return _by_name(scan_book(router.client, BOOK, target_lang="zh-Hans"))
+        return _by_name(scan_book(router.client, SAFETY_BOOK, target_lang="zh-Hans"))
 
     def test_alias_claimed_by_two_entities_is_dropped_and_does_not_merge(self) -> None:
         entities = self._scan(
@@ -224,22 +232,24 @@ class TestMergeSafety:
                     aliases=[{"name": "Mr. Samsa", "translation": "萨姆沙先生"}],
                 ),
                 _entity(
-                    "Father", "父亲", aliases=[{"name": "Mr. Samsa", "translation": "萨姆沙先生"}]
+                    "Hermann",
+                    "赫尔曼",
+                    aliases=[{"name": "Mr. Samsa", "translation": "萨姆沙先生"}],
                 ),
             ]
         )
-        assert set(entities) == {"Gregor", "Father"}
+        assert set(entities) == {"Gregor", "Hermann"}
         assert entities["Gregor"].aliases == ()
-        assert entities["Father"].aliases == ()
+        assert entities["Hermann"].aliases == ()
 
     def test_lowercase_alias_naming_another_entity_is_dropped_not_merged(self) -> None:
         entities = self._scan(
             [
                 _entity("Gregor", "格里高尔", aliases=[{"name": "father", "translation": "父亲"}]),
-                _entity("Father", "父亲"),
+                _entity("Hermann", "赫尔曼"),
             ]
         )
-        assert set(entities) == {"Gregor", "Father"}
+        assert set(entities) == {"Gregor", "Hermann"}
         assert entities["Gregor"].aliases == ()
 
     def test_capitalised_alias_naming_another_entity_still_merges(self) -> None:
@@ -256,24 +266,54 @@ class TestMergeSafety:
         assert list(entities) == ["Georg"]
         assert [a.english for a in entities["Georg"].aliases] == ["Georg Bendemann"]
 
-    def test_lowercase_epithet_alias_of_one_entity_is_kept(self) -> None:
-        entities = self._scan(
-            [_entity("Grete", "格蕾特", aliases=[{"name": "the sister", "translation": "妹妹"}])]
-        )
-        assert [a.english for a in entities["Grete"].aliases] == ["the sister"]
 
-    def test_lowercase_common_nouns_dropped_unless_person_or_technical(self) -> None:
+class TestProperNounsOnly:
+    """The bible holds proper nouns only — never firm, office, head clerk, Mother."""
+
+    def _scan(self, entities: list[dict]) -> dict:
+        return TestMergeSafety._scan(None, entities)  # type: ignore[arg-type]
+
+    def test_common_nouns_are_dropped_whatever_their_category(self) -> None:
         entities = self._scan(
             [
                 _entity("the sofa", "沙发", "general"),
-                _entity("living room", "起居室", "place"),
                 _entity("office", "办公室", "organization"),
+                _entity("firm", "公司", "organization"),
                 _entity("head clerk", "首席秘书", "person"),
                 _entity("mithril", "秘银", "technical"),
                 _entity("St. Petersburg", "圣彼得堡", "place"),
             ]
         )
-        assert set(entities) == {"head clerk", "mithril", "St. Petersburg"}
+        assert set(entities) == {"St. Petersburg"}
+
+    def test_titles_and_kinship_words_are_dropped(self) -> None:
+        entities = self._scan(
+            [_entity("Mother", "母亲"), _entity("Chief", "主任"), _entity("Grete", "格蕾特")]
+        )
+        assert set(entities) == {"Grete"}
+
+    def test_common_noun_aliases_are_dropped(self) -> None:
+        entities = self._scan(
+            [_entity("Grete", "格蕾特", aliases=[{"name": "the sister", "translation": "妹妹"}])]
+        )
+        assert entities["Grete"].aliases == ()
+
+    def test_proper_alias_replaces_a_common_noun_main_name(self) -> None:
+        entities = self._scan(
+            [_entity("the sister", "妹妹", aliases=[{"name": "Grete", "translation": "格蕾特"}])]
+        )
+        assert set(entities) == {"Grete"}
+        assert entities["Grete"].translation == "格蕾特"
+
+    def test_names_not_written_that_way_in_the_book_are_dropped(self) -> None:
+        entities = self._scan(
+            [
+                _entity("Head Clerk", "首席秘书"),
+                _entity("Frodo", "弗罗多"),
+                _entity("Grete", "格蕾特"),
+            ]
+        )
+        assert set(entities) == {"Grete"}
 
 
 def test_scan_prompt_asks_to_skip_ordinary_nouns_and_shared_names() -> None:
@@ -281,4 +321,6 @@ def test_scan_prompt_asks_to_skip_ordinary_nouns_and_shared_names() -> None:
 
     system, _ = build_scan_prompt("x", target_lang="zh-Hans")
     assert "ordinary" in system
+    assert "proper nouns only" in system.lower()
+    assert "the old wizard" not in system
     assert "only if it refers to that one entity" in system
