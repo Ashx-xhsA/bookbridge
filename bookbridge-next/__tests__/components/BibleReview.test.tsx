@@ -1,5 +1,6 @@
 /**
- * Phase 3b — book-bible review page (client) and the project-page nudge.
+ * Book-bible review page (client) and the project-page nudge. The bible is
+ * one book overview; names live in the glossary, not here.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -18,43 +19,10 @@ vi.mock('@/lib/jobPoll', () => ({ pollJob: (...a: unknown[]) => mockPollJob(...a
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
-import BibleReview, { type BibleEntry } from '@/app/dashboard/projects/[id]/bible/BibleReview'
+import BibleReview from '@/app/dashboard/projects/[id]/bible/BibleReview'
 import BibleNudge from '@/app/dashboard/projects/[id]/BibleNudge'
 
 const PROJECT_ID = 'proj1'
-
-const gandalf: BibleEntry = {
-  id: 'g1',
-  english: 'Gandalf',
-  translation: '甘道夫',
-  category: 'person',
-  gender: 'male',
-  voice: 'Grave.',
-  mentions: 40,
-  approved: false,
-  userEdited: false,
-  aliases: [{ id: 'a1', english: 'Mithrandir', translation: '米斯兰达' }],
-}
-const shire: BibleEntry = {
-  ...gandalf,
-  id: 's1',
-  english: 'Shire',
-  translation: '夏尔',
-  category: 'place',
-  gender: null,
-  voice: null,
-  mentions: 12,
-  aliases: [],
-}
-
-// Split entries into the two paged groups the page passes in.
-function pages(...entries: BibleEntry[]) {
-  const group = (list: BibleEntry[]) => ({ entries: list, total: list.length, nextCursor: null })
-  return {
-    people: group(entries.filter((e) => e.category === 'person')),
-    others: group(entries.filter((e) => e.category !== 'person')),
-  }
-}
 
 const ok = (body: unknown, status = 200) =>
   Promise.resolve(new Response(JSON.stringify(body), { status }))
@@ -75,15 +43,15 @@ const SCAN_URL = `/api/projects/${PROJECT_ID}/bible/scan`
 
 describe('BibleReview', () => {
   it('offers a scan before any bible exists and hides the editor', () => {
-    render(<BibleReview projectId={PROJECT_ID} bible={null} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} />)
     expect(screen.getByText('Not scanned yet')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /scan book/i })).toBeEnabled()
-    expect(screen.queryByLabelText('Style guide')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Book overview')).not.toBeInTheDocument()
   })
 
   it('starts a scan, polls the job and refreshes', async () => {
     mockFetch.mockReturnValueOnce(ok({ id: 'job1', status: 'PENDING' }, 202))
-    render(<BibleReview projectId={PROJECT_ID} bible={null} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} />)
     fireEvent.click(screen.getByRole('button', { name: /scan book/i }))
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
     expect(mockFetch).toHaveBeenCalledWith(SCAN_URL, expect.objectContaining({ method: 'POST' }))
@@ -92,7 +60,7 @@ describe('BibleReview', () => {
 
   it('shows the API error when a scan cannot start', async () => {
     mockFetch.mockReturnValueOnce(ok({ error: 'An API key is required to scan the book.' }, 402))
-    render(<BibleReview projectId={PROJECT_ID} bible={null} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} />)
     fireEvent.click(screen.getByRole('button', { name: /scan book/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent('API key is required')
   })
@@ -102,7 +70,6 @@ describe('BibleReview', () => {
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ status: 'NONE', scanStatus: 'SCANNING', styleGuide: '', jobId: 'job9' }}
-        {...pages()}
       />
     )
     expect(screen.getByRole('button', { name: /scanning/i })).toBeDisabled()
@@ -115,11 +82,10 @@ describe('BibleReview', () => {
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ status: 'CONFIRMED', scanStatus: 'SCANNING', styleGuide: '- 简洁', jobId: 'job9' }}
-        {...pages(gandalf)}
       />
     )
     expect(screen.getByRole('button', { name: /scanning/i })).toBeDisabled()
-    expect(screen.getByLabelText('Style guide')).toBeInTheDocument()
+    expect(screen.getByLabelText('Book overview')).toBeInTheDocument()
     expect(screen.getByText('Confirmed')).toBeInTheDocument()
   })
 
@@ -128,27 +94,29 @@ describe('BibleReview', () => {
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ status: 'DRAFT', scanStatus: 'FAILED', styleGuide: '', jobId: null }}
-        {...pages(gandalf)}
       />
     )
     expect(screen.getByText(/last scan failed/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /re-scan/i })).toBeEnabled()
-    expect(screen.getByLabelText('Voice of Gandalf')).toBeInTheDocument()
+    expect(screen.getByLabelText('Book overview')).toBeInTheDocument()
   })
 
-  it('splits characters from places and shows aliases', () => {
+  it('shows only the book overview: no character, place or term sections', () => {
     render(
       <BibleReview
         projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
-        {...pages(gandalf, shire)}
+        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: 'A quest to destroy a ring.', jobId: null }}
       />
     )
-    expect(screen.getByText('Characters (1)')).toBeInTheDocument()
-    expect(screen.getByText('Places and terms (1)')).toBeInTheDocument()
-    expect(screen.getByText('Mithrandir')).toBeInTheDocument()
-    expect(screen.getByLabelText('Voice of Gandalf')).toHaveValue('Grave.')
-    expect(screen.queryByLabelText('Voice of Shire')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Book overview')).toHaveValue('A quest to destroy a ring.')
+    expect(screen.queryByText(/characters \(/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/places and terms/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/search names/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/voice of/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /glossary/i })).toHaveAttribute(
+      'href',
+      `/dashboard/projects/${PROJECT_ID}/glossary`
+    )
   })
 
   it('confirms a draft bible', async () => {
@@ -157,7 +125,6 @@ describe('BibleReview', () => {
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
-        {...pages()}
       />
     )
     fireEvent.click(screen.getByRole('button', { name: /confirm bible/i }))
@@ -165,16 +132,15 @@ describe('BibleReview', () => {
     expect(lastCall()).toMatchObject({ method: 'PATCH', body: { status: 'CONFIRMED' } })
   })
 
-  it('saves the style guide on blur only when changed', async () => {
+  it('saves the overview on blur only when changed', async () => {
     mockFetch.mockReturnValueOnce(ok({ bible: { status: 'DRAFT', styleGuide: '- 克制' } }))
     render(
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
-        {...pages()}
       />
     )
-    const box = screen.getByLabelText('Style guide')
+    const box = screen.getByLabelText('Book overview')
     fireEvent.blur(box)
     expect(mockFetch).not.toHaveBeenCalled()
     fireEvent.change(box, { target: { value: '- 克制' } })
@@ -182,116 +148,13 @@ describe('BibleReview', () => {
     await waitFor(() => expect(lastCall().body).toEqual({ styleGuide: '- 克制' }))
   })
 
-  it('edits voice, gender and an alias translation', async () => {
-    mockFetch.mockImplementation(() => ok({ data: {} }))
-    render(
-      <BibleReview
-        projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
-        {...pages(gandalf)}
-      />
-    )
-    const voice = screen.getByLabelText('Voice of Gandalf')
-    fireEvent.change(voice, { target: { value: '庄重。' } })
-    fireEvent.blur(voice)
-    await waitFor(() =>
-      expect(lastCall()).toMatchObject({ url: `/api/projects/${PROJECT_ID}/glossary/g1`, body: { voice: '庄重。' } })
-    )
-
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'unknown' } })
-    await waitFor(() => expect(lastCall().body).toEqual({ gender: 'unknown' }))
-
-    const alias = screen.getByLabelText('Translation of alias Mithrandir')
-    fireEvent.change(alias, { target: { value: '米斯兰迪尔' } })
-    fireEvent.blur(alias)
-    await waitFor(() =>
-      expect(lastCall()).toMatchObject({ url: `/api/projects/${PROJECT_ID}/glossary/a1`, body: { translation: '米斯兰迪尔' } })
-    )
-  })
-
-  it('adds an alias with its own translation linked to the entry', async () => {
-    mockFetch.mockReturnValueOnce(
-      ok({ data: { id: 'a2', english: 'the Grey Pilgrim', translation: '灰袍圣徒' } }, 201)
-    )
-    render(
-      <BibleReview
-        projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
-        {...pages(gandalf)}
-      />
-    )
-    fireEvent.change(screen.getByLabelText('New alias for Gandalf'), { target: { value: 'the Grey Pilgrim' } })
-    fireEvent.change(screen.getByLabelText('Translation of new alias for Gandalf'), {
-      target: { value: '灰袍圣徒' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Add alias for Gandalf' }))
-    expect(await screen.findByText('the Grey Pilgrim')).toBeInTheDocument()
-    expect(lastCall()).toMatchObject({
-      method: 'POST',
-      body: { english: 'the Grey Pilgrim', translation: '灰袍圣徒', category: 'person', aliasOfId: 'g1' },
-    })
-  })
-
-  it('deletes an alias', async () => {
-    mockFetch.mockReturnValueOnce(Promise.resolve(new Response(null, { status: 204 })))
-    render(
-      <BibleReview
-        projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
-        {...pages(gandalf)}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Delete alias Mithrandir' }))
-    await waitFor(() => expect(screen.queryByText('Mithrandir')).not.toBeInTheDocument())
-    expect(lastCall()).toMatchObject({ url: `/api/projects/${PROJECT_ID}/glossary/a1`, method: 'DELETE' })
-  })
-
-  it('searches names and aliases on the server', async () => {
-    mockFetch
-      .mockReturnValueOnce(ok({ data: [gandalf], total: 1, nextCursor: null }))
-      .mockReturnValueOnce(ok({ data: [], total: 0, nextCursor: null }))
-    render(
-      <BibleReview
-        projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
-        {...pages(gandalf, shire)}
-      />
-    )
-    const input = screen.getByLabelText('Search names or aliases')
-    fireEvent.change(input, { target: { value: 'mithr' } })
-    fireEvent.submit(input.closest('form')!)
-    await waitFor(() => expect(screen.getByText('Places and terms (0)')).toBeInTheDocument())
-    expect(screen.getByText('Characters (1)')).toBeInTheDocument()
-    const urls = mockFetch.mock.calls.map(([url]) => url as string)
-    expect(urls).toContain(`/api/projects/${PROJECT_ID}/bible/entries?group=person&q=mithr`)
-    expect(urls).toContain(`/api/projects/${PROJECT_ID}/bible/entries?group=other&q=mithr`)
-  })
-
-  it('shows the total and loads more entries of a group on demand', async () => {
-    const frodo: BibleEntry = { ...gandalf, id: 'f1', english: 'Frodo', translation: '弗罗多', aliases: [] }
-    mockFetch.mockReturnValueOnce(ok({ data: [frodo], total: 2, nextCursor: null }))
-    render(
-      <BibleReview
-        projectId={PROJECT_ID}
-        bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '', jobId: null }}
-        people={{ entries: [gandalf], total: 2, nextCursor: 'g1' }}
-        others={{ entries: [], total: 0, nextCursor: null }}
-      />
-    )
-    expect(screen.getByText('Characters (2)')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /show more characters/i }))
-    await waitFor(() => expect(screen.getByLabelText('Voice of Frodo')).toBeInTheDocument())
-    expect(lastCall().url).toBe(`/api/projects/${PROJECT_ID}/bible/entries?group=person&cursor=g1`)
-    expect(screen.getByLabelText('Voice of Gandalf')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /show more characters/i })).not.toBeInTheDocument()
-  })
 })
 
 describe('BibleReview — scan time, progress and stop', () => {
   const scanning = { status: 'NONE', scanStatus: 'SCANNING', styleGuide: '', jobId: 'job9' }
 
   it('warns how long a scan takes and what it costs, sized to this book', () => {
-    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} />)
     const note = screen.getByRole('note')
     expect(note).toHaveTextContent('69 model calls')
     expect(note).toHaveTextContent('12–29 minutes')
@@ -300,7 +163,7 @@ describe('BibleReview — scan time, progress and stop', () => {
 
   it('asks before scanning and does nothing when the user cancels', () => {
     vi.mocked(window.confirm).mockReturnValueOnce(false)
-    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} />)
     fireEvent.click(screen.getByRole('button', { name: /scan book/i }))
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('12–29 minutes'))
     expect(mockFetch).not.toHaveBeenCalled()
@@ -314,7 +177,6 @@ describe('BibleReview — scan time, progress and stop', () => {
       <BibleReview
         projectId={PROJECT_ID}
         bible={{ ...scanning, scanDone: 23, scanTotal: 69, scanLost: false }}
-        {...pages()}
       />
     )
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '23')
@@ -329,7 +191,7 @@ describe('BibleReview — scan time, progress and stop', () => {
         ? ok({ bible: { scanStatus: 'IDLE' } })
         : ok({ bible: { ...scanning, scanDone: 1, scanTotal: 69, scanLost: false } })
     )
-    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanDone: 1, scanTotal: 69 }} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanDone: 1, scanTotal: 69 }} />)
     fireEvent.click(screen.getByRole('button', { name: /stop scan/i }))
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(SCAN_URL, expect.objectContaining({ method: 'DELETE' }))
@@ -340,7 +202,7 @@ describe('BibleReview — scan time, progress and stop', () => {
   })
 
   it('shows a scan that stopped responding and lets the user start again', () => {
-    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanLost: true }} {...pages()} />)
+    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanLost: true }} />)
     expect(screen.getByText(/stopped responding/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /scan book/i })).toBeEnabled()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
