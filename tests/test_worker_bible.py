@@ -270,3 +270,78 @@ def test_callback_gives_up_after_three_attempts(callback_env: None) -> None:
     with patch.object(callback, "urlopen", fake_urlopen), patch.object(callback.time, "sleep"):
         callback.post_worker_callback({"job_id": JOB_ID, "status": "FAILED"})
     assert len(calls) == 3
+
+
+# --- scan progress and stop (Phase 5 follow-up) ------------------------------
+
+
+def test_scan_posts_progress_for_this_job() -> None:
+    router = Router({"Georg": [_entity("Georg", "格奥尔格")]})
+    progress: list[dict] = []
+
+    def record(payload: dict) -> bool:
+        progress.append(payload)
+        return True
+
+    with patch.object(routes, "post_scan_progress", side_effect=record):
+        [payload] = _run(router.client)
+    assert payload["status"] == "SUCCEEDED"
+    assert progress, "progress is reported while scanning"
+    assert {(p["job_id"], p["project_id"]) for p in progress} == {(JOB_ID, PROJECT_ID)}
+    last = progress[-1]
+    assert last["done"] == last["total"]
+
+
+def test_stopped_scan_posts_no_result() -> None:
+    router = Router({"Georg": [_entity("Georg", "格奥尔格")]})
+    with patch.object(routes, "post_scan_progress", return_value=False):
+        assert _run(router.client) == []
+    assert [c for c in router.client.calls if "voice" in c[0].lower()] == []
+
+
+class _JsonResp(_Resp):
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        (_JsonResp(b'{"continue": false}'), False),
+        (_JsonResp(b'{"continue": true}'), True),
+        (_JsonResp(b"not json"), True),
+        (TimeoutError(), True),
+    ],
+)
+def test_progress_tells_the_scan_whether_to_continue(
+    callback_env: None, outcome: object, expected: bool
+) -> None:
+    from bookbridge.worker_api import callback
+
+    urls: list[str] = []
+
+    def fake_urlopen(req, timeout):  # noqa: ANN001, ARG001
+        urls.append(req.full_url)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    with (
+        patch.object(callback, "urlopen", fake_urlopen),
+        patch.object(callback.time, "sleep") as sleep,
+    ):
+        assert callback.post_scan_progress({"job_id": JOB_ID, "done": 1, "total": 3}) is expected
+    assert urls == ["https://bookbridge.example.test/api/internal/worker-callback/bible/progress"]
+    sleep.assert_not_called()  # progress is best-effort: one attempt, no retries
+
+
+def test_progress_without_callback_config_keeps_scanning(monkeypatch: pytest.MonkeyPatch) -> None:
+    from bookbridge.worker_api import callback
+
+    monkeypatch.delenv("CALLBACK_BASE_URL", raising=False)
+    with patch.object(callback, "urlopen") as urlopen:
+        assert callback.post_scan_progress({"job_id": JOB_ID, "done": 1, "total": 3}) is True
+    urlopen.assert_not_called()

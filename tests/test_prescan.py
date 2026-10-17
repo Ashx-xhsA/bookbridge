@@ -324,3 +324,35 @@ def test_scan_prompt_asks_to_skip_ordinary_nouns_and_shared_names() -> None:
     assert "proper nouns only" in system.lower()
     assert "the old wizard" not in system
     assert "only if it refers to that one entity" in system
+
+
+# --- progress and stop (Phase 5 follow-up) -----------------------------------
+
+
+def test_reports_progress_after_every_passage_then_voices_and_style() -> None:
+    router = Router({"Georg": [_entity("Georg", "格奥尔格")]})
+    seen: list[tuple[int, int]] = []
+
+    def progress(done: int, total: int) -> bool:
+        seen.append((done, total))
+        return True
+
+    scan_book(router.client, BOOK, target_lang="zh-Hans", max_chunk_chars=60, progress=progress)
+
+    passages = sum(1 for c in router.client.calls if _task(c[0]) == "scan_entities")
+    total = passages + 2  # + voice cards + style guide
+    assert passages > 1
+    assert seen == [(i, total) for i in range(1, total + 1)]
+
+
+def test_stops_when_progress_says_so() -> None:
+    from bookbridge.harness.prescan import ScanStopped
+
+    router = Router({"Georg": [_entity("Georg", "格奥尔格")]})
+
+    def progress(done: int, total: int) -> bool:
+        return done < 1  # stop right after the first passage
+
+    with pytest.raises(ScanStopped):
+        scan_book(router.client, BOOK, target_lang="zh-Hans", max_chunk_chars=60, progress=progress)
+    assert [_task(c[0]) for c in router.client.calls] == ["scan_entities"]
