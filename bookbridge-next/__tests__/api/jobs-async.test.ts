@@ -543,13 +543,8 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
 
       const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
-      expect(body.bible).toEqual({
-        style_guide: '- 简洁',
-        characters: [
-          { name: 'Hermione', translation: '赫敏', gender: 'female', voice: 'Precise.', notes: null },
-          { name: 'Ron', translation: '罗恩', gender: 'male', voice: null, notes: null },
-        ],
-      })
+      // Only the book overview (stored as styleGuide); no character cards.
+      expect(body.bible).toEqual({ style_guide: '- 简洁' })
     }
   )
 
