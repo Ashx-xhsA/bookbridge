@@ -118,11 +118,14 @@ export default function TranslateButton({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    // The note below the running button is absolutely placed so it adds no
+    // height: the surrounding row centres its items, and a taller column
+    // would push the button up while translating.
+    <div className="relative flex flex-col items-end gap-1">
       <button
         onClick={handleTranslate}
         disabled={loading}
-        className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        className="flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent px-3 py-1.5 text-xs font-medium tabular-nums text-white hover:bg-accent-hover disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -132,7 +135,7 @@ export default function TranslateButton({
         {label}
       </button>
       {loading && (
-        <p className="max-w-[160px] text-center text-[10px] leading-snug text-amber-600">
+        <p className="absolute right-0 top-full mt-1 w-40 text-right text-[10px] leading-snug text-amber-600">
           Do not leave this page while translating.
         </p>
       )}
