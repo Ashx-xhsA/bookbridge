@@ -12,6 +12,9 @@ HW-rubic/
 # Smoke runs contain full book text; only eval summaries get committed
 evals/results/smoke-*.json
 evals/results/smoke-*.html
+# Eval books are copyrighted: books, reference glossaries, cached scans and
+# per-run translations stay local. Only number-only summaries are committed.
+evals/books/
 
 # Planning docs, progress log and chat logs stay local (personal notes, not part of the repo)
 docs/PROGRESS.md
