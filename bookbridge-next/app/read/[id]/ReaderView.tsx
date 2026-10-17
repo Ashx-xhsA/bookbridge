@@ -300,7 +300,7 @@ export default function ReaderView({
                       className="w-full rounded-md px-2 py-1 text-left text-xs hover:bg-parchment/50"
                     >
                       <span className="font-medium text-ink">
-                        Chapter {hit.chapterNumber} · {hit.chapterTitle}
+                        {hit.chapterTitle}
                       </span>{' '}
                       <span className="text-ink-muted">{hit.snippet}</span>
                     </button>
@@ -330,7 +330,7 @@ export default function ReaderView({
                   <FileText className="h-3.5 w-3.5 shrink-0 text-ink-muted/40" />
                 )}
                 <span className="truncate">
-                  <span className="text-ink-muted">{ch.number}.</span> {ch.title}
+                  {ch.title}
                 </span>
               </a>
             ))}
@@ -421,12 +421,7 @@ function ChapterSection({
   return (
     <section ref={ref} id={`ch-${chapter.number}`} className="scroll-mt-16">
       <div className="mb-6 flex items-end justify-between gap-4 border-b border-parchment pb-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-accent">
-            Chapter {chapter.number}
-          </p>
-          <h2 className="mt-1 font-serif text-2xl font-bold text-ink">{chapter.title}</h2>
-        </div>
+        <h2 className="font-serif text-2xl font-bold text-ink">{chapter.title}</h2>
         {canTranslate && (
           <button
             onClick={onTranslate}
@@ -479,7 +474,7 @@ function ChapterSection({
       ) : (
         <button
           onClick={onLoad}
-          aria-label={`Load chapter ${chapter.number}`}
+          aria-label={`Load ${chapter.title}`}
           className="rounded-md border border-parchment px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
         >
           {loadFailed ? 'Could not load this chapter — try again' : 'Load chapter'}

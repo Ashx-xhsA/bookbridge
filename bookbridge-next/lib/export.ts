@@ -21,7 +21,7 @@ const UNTRANSLATED_MD = '*[Not yet translated]*'
 export function buildMarkdown(book: ExportBook, layout: MarkdownLayout): string {
   const parts = [`# ${book.title}`, `${book.sourceLang} → ${book.targetLang}`, '---']
   for (const ch of book.chapters) {
-    parts.push(`## Chapter ${ch.number}: ${ch.title}`)
+    parts.push(`## ${ch.title}`)
     if (layout === 'translation' && !ch.rows.some((r) => r.translation)) {
       parts.push('*Not yet translated*')
     } else {
@@ -60,7 +60,8 @@ function para(text: string): string {
 
 const chapterFile = (i: number) => `ch${String(i + 1).padStart(3, '0')}.xhtml`
 const chapterId = (i: number) => `ch${String(i + 1).padStart(3, '0')}`
-const chapterHeading = (ch: ExportBook['chapters'][number]) => `Chapter ${ch.number}: ${ch.title}`
+// Chapters keep their own titles; the book's numbering is in them already.
+const chapterHeading = (ch: ExportBook['chapters'][number]) => ch.title
 
 const CONTAINER = `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">

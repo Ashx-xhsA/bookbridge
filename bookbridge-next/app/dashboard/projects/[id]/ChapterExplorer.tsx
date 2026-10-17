@@ -282,7 +282,7 @@ export default function ChapterExplorer({
                   checked={isChecked}
                   onChange={() => toggleChapter(chapter.id)}
                   disabled={batchTranslating}
-                  aria-label={`Select chapter ${chapter.number}`}
+                  aria-label={`Select ${chapter.title}`}
                   className="h-3.5 w-3.5 shrink-0 accent-accent"
                   onClick={(e) => e.stopPropagation()}
                 />
@@ -305,7 +305,7 @@ export default function ChapterExplorer({
                   )}
                   <div className="min-w-0 flex-1">
                     <p className={`truncate font-medium ${isSelected ? 'text-accent' : ''}`}>
-                      {chapter.number}. {chapter.title}
+                      {chapter.title}
                     </p>
                     <p className="text-xs text-ink-muted">
                       {chapter.paragraphCount} paragraphs
@@ -330,10 +330,7 @@ export default function ChapterExplorer({
           <>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium uppercase tracking-widest text-accent">
-                  Chapter {selected.number}
-                </p>
-                <h3 className="mt-1 font-serif text-xl font-bold text-ink">
+                <h3 className="font-serif text-xl font-bold text-ink">
                   {selected.title}
                 </h3>
                 <p className="mt-1 text-xs text-ink-muted">
