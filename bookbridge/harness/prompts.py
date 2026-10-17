@@ -298,12 +298,16 @@ def build_extraction_prompt(
             "Task: extract_terms",
             "You build a translation glossary from source/translation pairs.",
             f"Target language: {target_lang}",
-            "Proper nouns only: list the names of people, places, organizations and "
-            "other named things that appear in the source, with the translation actually "
+            "Proper nouns only, and of those people and places only: list the names of "
+            "people and places that appear in the source, with the translation actually "
             "used in the translation text. Never list common nouns, job titles, kinship "
-            "words or forms of address. Skip anything in the known-terms list.",
+            "words or forms of address. "
+            "Skip well-known real-world names that already have a standard translation — "
+            "countries, continents, major cities, rivers and mountain ranges (America, the "
+            "Amazon, the Andes) — and nationality or group words (Americans, Europeans). "
+            "Skip anything in the known-terms list.",
             'Return only JSON: {"terms": [{"english": str, "translation": str, '
-            '"category": "person"|"place"|"organization"|"technical"|"general"}]}. '
+            '"category": "person"|"place"}]}. '
             'Return {"terms": []} if there are none.',
         ]
     )
@@ -322,9 +326,13 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             "Task: scan_entities",
             "You prepare a translation bible for a novel, one passage at a time.",
             f"Target language: {target_lang}",
-            "Proper nouns only: list the named characters, places, organizations and "
-            "other named things (ships, books, events) in the passage. For each give the "
-            "translation to use throughout the book. Under `aliases`, list other proper "
+            "Proper nouns only, and of those people and places only: list the named "
+            "characters and the named places in the passage, with the translation to "
+            "use throughout the book. Leave out companies, groups, objects and events. "
+            "Skip well-known real-world names that already have a standard translation — "
+            "countries, continents, major cities, rivers and mountain ranges (America, the "
+            "Amazon, the Andes) — and nationality or group words (Americans, Europeans). "
+            "Under `aliases`, list other proper "
             'names the passage uses for the same entity (nicknames, "Mr. Samsa"), each '
             "with its own translation — an alias is translated as written, never as "
             "the main name. Add an alias only if it refers to that one entity in this "
@@ -336,7 +344,7 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             "Also summarise what happens in the passage in two or three plain "
             "English sentences (who does what, where), for a later overview of the book.",
             'Return only JSON: {"entities": [{"name": str, "translation": str, '
-            '"category": "person"|"place"|"organization"|"technical"|"general", '
+            '"category": "person"|"place", '
             '"note": str|null, "aliases": [{"name": str, "translation": str}]}], '
             '"summary": str}',
         ]

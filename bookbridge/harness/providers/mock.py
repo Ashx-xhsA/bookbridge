@@ -63,6 +63,6 @@ class MockLLMClient:
         for line in _SOURCE_LINE_RE.findall(user):
             words += [w for w in _TERM_PATTERN.findall(line) if w not in words]
         terms = [
-            {"english": w, "translation": f"[{lang}] {w}", "category": "general"} for w in words
+            {"english": w, "translation": f"[{lang}] {w}", "category": "person"} for w in words
         ]
         return json.dumps({"terms": terms}, ensure_ascii=False)

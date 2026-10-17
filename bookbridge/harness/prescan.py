@@ -42,7 +42,7 @@ from bookbridge.harness.prompts import (
     build_overview_prompt,
     build_scan_prompt,
 )
-from bookbridge.harness.proper_nouns import is_proper_noun
+from bookbridge.harness.proper_nouns import GLOSSARY_CATEGORIES, is_proper_noun
 from bookbridge.harness.retry import complete_with_retry
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,10 @@ def _scan_passage(
 
 
 def _proper_only(item: dict) -> dict | None:
-    """Keep the proper names of one scanned entity; the first becomes its main name."""
+    """Keep the proper names of one scanned person or place; the first becomes its
+    main name."""
+    if item["category"] not in GLOSSARY_CATEGORIES:
+        return None
     names = [(item["name"], item["translation"]), *item["aliases"]]
     kept = [(n, t) for n, t in names if is_proper_noun(n)]
     if not kept:
