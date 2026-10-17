@@ -35,7 +35,8 @@ describe('buildMarkdown', () => {
   it('translation layout: translated paragraphs, a marker for untranslated ones', () => {
     const md = buildMarkdown(book, 'translation')
     expect(md).toContain('# Tom & Jerry <1>')
-    expect(md).toContain('## Chapter 1: Cats & Mice')
+    expect(md).toContain('## Cats & Mice')
+    expect(md).not.toMatch(/Chapter \d/)
     expect(md).toContain('汤姆追着“杰瑞”。')
     expect(md).not.toContain('Tom chased')
     expect(md).toContain('*[Not yet translated]*')
@@ -43,7 +44,7 @@ describe('buildMarkdown', () => {
 
   it('translation layout: one marker for a chapter with nothing translated', () => {
     const md = buildMarkdown(book, 'translation')
-    const ch2 = md.slice(md.indexOf('## Chapter 2'))
+    const ch2 = md.slice(md.indexOf('## Untouched'))
     expect(ch2.match(/Not yet translated/g)).toHaveLength(1)
   })
 
@@ -96,6 +97,9 @@ describe('buildEpub — container', () => {
     expect(nav).toContain('epub:type="toc"')
     expect(nav).toContain('href="ch001.xhtml"')
     expect(nav).toContain('Cats &amp; Mice')
+    expect(nav).not.toMatch(/Chapter \d/)
+    const ch1 = strFromU8(entries['OEBPS/ch001.xhtml'])
+    expect(ch1).toContain('<h2>Cats &amp; Mice</h2>')
   })
 })
 
