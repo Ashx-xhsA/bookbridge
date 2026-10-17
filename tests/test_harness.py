@@ -23,10 +23,13 @@ from bookbridge.harness.models import (
     Usage,
 )
 from bookbridge.harness.parsing import format_segments
-from bookbridge.harness.pipeline import extract_terms, translate_segments
+from bookbridge.harness.pipeline import SegmentOutcome, extract_terms, translate_segments
 from bookbridge.harness.prompts import BIBLE_HEADING, CONTEXT_HEADING, SEGMENTS_HEADING
 from bookbridge.harness.providers.mock import MockLLMClient
 from bookbridge.harness.providers.openai_compat import OpenAICompatClient
+
+# These tests are about translation itself; the review loop has its own file.
+NO_REVIEW = TranslationConfig(review_max_retries=0)
 
 URLOPEN = "bookbridge.harness.providers.openai_compat.urllib.request.urlopen"
 
@@ -65,19 +68,24 @@ def _echo(system: str, user: str, json_mode: bool) -> str:
 class TestTranslateSegments:
     def test_translates_every_segment_in_order(self) -> None:
         client = ScriptedClient(_echo)
-        result = translate_segments(client, ["a", "b", "c"], target_lang="zh-Hans")
+        result = translate_segments(
+            client, ["a", "b", "c"], target_lang="zh-Hans", config=NO_REVIEW
+        )
         assert result.translations == ["T:a", "T:b", "T:c"]
         assert result.failed == []
 
     def test_one_call_per_batch(self) -> None:
         client = ScriptedClient(_echo)
-        cfg = TranslationConfig(max_batch_chars=4)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=4)
         translate_segments(client, ["aaa", "bbb", "c"], target_lang="zh-Hans", config=cfg)
         assert len(client.calls) == 2
 
     def test_empty_input_makes_no_calls(self) -> None:
         client = ScriptedClient(_echo)
-        assert translate_segments(client, [], target_lang="zh-Hans").translations == []
+        assert (
+            translate_segments(client, [], target_lang="zh-Hans", config=NO_REVIEW).translations
+            == []
+        )
         assert client.calls == []
 
     def test_rejects_unknown_language_before_calling(self) -> None:
@@ -88,7 +96,7 @@ class TestTranslateSegments:
 
     def test_rolling_window_carries_previous_batch_translation(self) -> None:
         client = ScriptedClient(_echo)
-        cfg = TranslationConfig(max_batch_chars=1, context_window=1)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, context_window=1)
         translate_segments(client, ["a", "b"], target_lang="zh-Hans", config=cfg)
         second_user = client.calls[1][1]
         assert CONTEXT_HEADING in second_user
@@ -97,12 +105,14 @@ class TestTranslateSegments:
     def test_preceding_segments_seed_the_window(self) -> None:
         client = ScriptedClient(_echo)
         preceding = [ContextSegment(source="Before.", translation="之前。")]
-        translate_segments(client, ["a"], target_lang="zh-Hans", preceding=preceding)
+        translate_segments(
+            client, ["a"], target_lang="zh-Hans", preceding=preceding, config=NO_REVIEW
+        )
         assert "之前。" in client.calls[0][1]
 
     def test_context_window_zero_sends_no_context(self) -> None:
         client = ScriptedClient(_echo)
-        cfg = TranslationConfig(max_batch_chars=1, context_window=0)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, context_window=0)
         preceding = [ContextSegment(source="Before.", translation="之前。")]
         translate_segments(
             client, ["a", "b"], target_lang="zh-Hans", preceding=preceding, config=cfg
@@ -115,7 +125,7 @@ class TestTranslateSegments:
             GlossaryEntry("Frodo", "弗罗多", "person"),
             GlossaryEntry("Sam", "山姆", "person"),
         ]
-        cfg = TranslationConfig(max_batch_chars=1)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1)
         translate_segments(
             client, ["Frodo.", "Sam."], target_lang="zh-Hans", glossary=glossary, config=cfg
         )
@@ -129,12 +139,12 @@ class TestTranslateSegments:
             characters=(CharacterCard(name="Frodo", translation="弗罗多", voice="Earnest."),),
         )
         client = ScriptedClient(_echo)
-        cfg = TranslationConfig(max_batch_chars=1)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1)
         translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
         assert all("Keep it terse." in system for system, _, _ in client.calls)
 
         client = ScriptedClient(_echo)
-        cfg = TranslationConfig(max_batch_chars=1, book_bible=False)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, book_bible=False)
         translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
         assert all(BIBLE_HEADING not in system for system, _, _ in client.calls)
 
@@ -144,7 +154,7 @@ class TestTranslateSegments:
             return "merged" if len(segs) > 1 else format_segments([f"T:{segs[0]}"])
 
         client = ScriptedClient(respond)
-        result = translate_segments(client, ["a", "b"], target_lang="zh-Hans")
+        result = translate_segments(client, ["a", "b"], target_lang="zh-Hans", config=NO_REVIEW)
         assert result.translations == ["T:a", "T:b"]
         assert len(client.calls) == 3  # 1 failed pair + 2 singles
 
@@ -156,7 +166,7 @@ class TestTranslateSegments:
             return format_segments([f"T:{s}" for s in segs])
 
         client = ScriptedClient(respond)
-        cfg = TranslationConfig(max_batch_chars=1, context_window=0)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, context_window=0)
         result = translate_segments(client, ["a", "bad", "c"], target_lang="zh-Hans", config=cfg)
         assert result.translations == ["T:a", None, "T:c"]
         assert result.failed == [1]
@@ -170,7 +180,7 @@ class TestTranslateSegments:
             return format_segments([f"T:{s}" for s in segs])
 
         client = ScriptedClient(respond)
-        cfg = TranslationConfig(max_batch_chars=1, context_window=1)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, context_window=1)
         translate_segments(client, ["bad", "next"], target_lang="zh-Hans", config=cfg)
         last_user = client.calls[-1][1]
         assert "[source] bad" in last_user
@@ -189,7 +199,7 @@ class TestTranslateSegments:
 
         client = ScriptedClient(respond)
         with patch("bookbridge.harness.retry.time.sleep") as sleep:
-            result = translate_segments(client, ["a"], target_lang="zh-Hans")
+            result = translate_segments(client, ["a"], target_lang="zh-Hans", config=NO_REVIEW)
         assert result.translations == ["T:a"]
         assert len(client.calls) == 3
         assert [c.args[0] for c in sleep.call_args_list] == [1.0, 4.0]
@@ -201,7 +211,7 @@ class TestTranslateSegments:
             return _echo(system, user, json_mode)
 
         client = ScriptedClient(respond)
-        cfg = TranslationConfig(max_batch_chars=1, context_window=0)
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1, context_window=0)
         result = translate_segments(client, ["a", "b", "c", "d"], target_lang="zh-Hans", config=cfg)
         assert result.translations == ["T:a", None, None, None]
         assert result.aborted is True
@@ -213,26 +223,33 @@ class TestTranslateSegments:
 
         client = ScriptedClient(respond)
         with patch("bookbridge.harness.retry.time.sleep"):
-            result = translate_segments(client, ["a", "b", "c"], target_lang="zh-Hans")
+            result = translate_segments(
+                client, ["a", "b", "c"], target_lang="zh-Hans", config=NO_REVIEW
+            )
         assert result.aborted is True
         assert result.translations == [None, None, None]
         assert len(client.calls) == 3
 
     def test_progress_reported_after_each_batch(self) -> None:
-        seen: list[list[tuple[int, str]]] = []
-        cfg = TranslationConfig(max_batch_chars=1)
+        seen: list[list[SegmentOutcome]] = []
+        cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1)
         translate_segments(
             ScriptedClient(_echo), ["a", "b"], target_lang="zh-Hans", config=cfg,
             on_progress=seen.append,
         )  # fmt: skip
-        assert seen == [[(0, "T:a")], [(1, "T:b")]]
+        assert [[(o.index, o.translation) for o in batch] for batch in seen] == [
+            [(0, "T:a")],
+            [(1, "T:b")],
+        ]
 
     def test_configuration_errors_propagate(self) -> None:
         def respond(system: str, user: str, json_mode: bool) -> str:
             raise ValueError("LLM provider not configured")
 
         with pytest.raises(ValueError, match="not configured"):
-            translate_segments(ScriptedClient(respond), ["a"], target_lang="zh-Hans")
+            translate_segments(
+                ScriptedClient(respond), ["a"], target_lang="zh-Hans", config=NO_REVIEW
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +326,7 @@ class TestMockLLMClient:
 
     def test_counts_calls(self) -> None:
         client = MockLLMClient()
-        translate_segments(client, ["a"], target_lang="ja")
+        translate_segments(client, ["a"], target_lang="ja", config=NO_REVIEW)
         assert client.usage.calls == 1
 
 

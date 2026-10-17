@@ -9,13 +9,16 @@ translated. Two kinds of failure are handled differently:
 - the API call itself failing: retried only if transient (see retry.py),
   otherwise the run stops at once and returns what was finished, marked
   `aborted` — splitting would multiply the failing requests.
+When `config.review_max_retries` > 0 each batch is then reviewed and its
+flagged segments revised (see review.py) before progress is reported, so the
+rolling window and the caller only ever see the final text.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.config import TranslationConfig
@@ -26,6 +29,7 @@ from bookbridge.harness.models import (
     ExtractedTerm,
     GlossaryEntry,
     LLMClient,
+    ReviewStats,
     SegmentsResult,
     TranslatorError,
     validate_langs,
@@ -33,11 +37,23 @@ from bookbridge.harness.models import (
 from bookbridge.harness.parsing import SegmentAlignmentError, parse_segments, parse_terms
 from bookbridge.harness.prompts import build_extraction_prompt, build_translation_prompt
 from bookbridge.harness.retry import complete_with_retry
+from bookbridge.harness.review import ReviewContext, review_batch
+from bookbridge.quality import Issue
 
 logger = logging.getLogger(__name__)
 
 SINGLE_SEGMENT_ATTEMPTS = 2
 EXTRACTION_MAX_CHARS = 12000
+
+
+@dataclass(frozen=True)
+class SegmentOutcome:
+    """One finished segment as reported to `on_progress`."""
+
+    index: int
+    translation: str
+    reviewed: bool = False
+    issues: list[Issue] = field(default_factory=list)
 
 
 @dataclass
@@ -51,6 +67,9 @@ class _Run:
     bible: BookBible | None
     history: list[ContextSegment]
     out: list[str | None]
+    issues: dict[int, list[Issue]] = field(default_factory=dict)
+    reviewed: set[int] = field(default_factory=set)
+    stats: ReviewStats = field(default_factory=ReviewStats)
 
 
 def translate_segments(
@@ -63,11 +82,11 @@ def translate_segments(
     preceding: Sequence[ContextSegment] = (),
     config: TranslationConfig | None = None,
     bible: BookBible | None = None,
-    on_progress: Callable[[list[tuple[int, str]]], None] | None = None,
+    on_progress: Callable[[list[SegmentOutcome]], None] | None = None,
 ) -> SegmentsResult:
     """Translate `segments` in order; failed segments come back as None.
 
-    `on_progress` receives the (position, translation) pairs finished by each
+    `on_progress` receives the segments finished (and reviewed) by each
     top-level batch, so callers can persist results as they arrive.
     """
     validate_langs(source_lang, target_lang)
@@ -77,16 +96,54 @@ def translate_segments(
         history=list(preceding), out=[None] * len(segments),
     )  # fmt: skip
     for batch in plan_batches(segments, cfg.max_batch_chars):
+        window_start = len(run.history)
         try:
             _translate_range(run, batch)
         except TranslatorError as exc:  # provider failure: stop, keep what is done
             logger.warning("translation stopped at segment %d: %s", batch.start, type(exc).__name__)
-            return SegmentsResult(translations=run.out, aborted=True)
+            return _result(run, aborted=True)
+        if cfg.review_max_retries:
+            _review(run, batch, window_start)
         if on_progress:
-            done = [(i, t) for i in batch if (t := run.out[i]) is not None]
+            done = [_outcome(run, i) for i in batch if run.out[i] is not None]
             if done:
                 on_progress(done)
-    return SegmentsResult(translations=run.out)
+    return _result(run)
+
+
+def _result(run: _Run, *, aborted: bool = False) -> SegmentsResult:
+    return SegmentsResult(
+        translations=run.out, aborted=aborted,
+        issues=run.issues, reviewed=run.reviewed, review=run.stats,
+    )  # fmt: skip
+
+
+def _outcome(run: _Run, i: int) -> SegmentOutcome:
+    text = run.out[i]
+    assert text is not None
+    return SegmentOutcome(i, text, i in run.reviewed, run.issues.get(i, []))
+
+
+def _review(run: _Run, batch: range, window_start: int) -> None:
+    """Review the batch's translated segments; write back revisions and issues."""
+    done = [i for i in batch if run.out[i] is not None]
+    if not done:
+        return
+    ctx = ReviewContext(
+        run.client, run.source_lang, run.target_lang, run.glossary, run.config,
+        run.bible, preceding=run.history[:window_start],
+    )  # fmt: skip
+    rv = review_batch(ctx, [run.segments[i] for i in done], [run.out[i] or "" for i in done])
+    for i, text, issues in zip(done, rv.translations, rv.issues, strict=True):
+        run.out[i] = text
+        run.history[window_start + i - batch.start] = ContextSegment(run.segments[i], text)
+        if issues:
+            run.issues[i] = issues
+        if rv.reviewed:
+            run.reviewed.add(i)
+    run.stats.flagged += rv.flagged
+    run.stats.fixed += rv.fixed
+    run.stats.revisions += rv.revisions
 
 
 def _translate_range(run: _Run, idx: range) -> None:

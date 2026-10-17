@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from bookbridge.quality.models import Issue
 
 ALLOWED_SOURCE_LANGS: frozenset[str] = frozenset({"en"})
 ALLOWED_TARGET_LANGS: frozenset[str] = frozenset(
@@ -114,6 +117,15 @@ class LLMClient(Protocol):
 
 
 @dataclass
+class ReviewStats:
+    """Review-loop counters for a run, read by evals ("审校效果")."""
+
+    flagged: int = 0  # segments with an error on first review
+    fixed: int = 0  # of those, how many passed after revision
+    revisions: int = 0  # revise calls made
+
+
+@dataclass
 class SegmentsResult:
     """Output of `translate_segments`: one slot per input segment, None = failed."""
 
@@ -121,6 +133,11 @@ class SegmentsResult:
     # True when a provider failure stopped the run early; the remaining
     # segments were never attempted.
     aborted: bool = False
+    # Issues still open after review, by segment position (empty when review is off).
+    issues: dict[int, list[Issue]] = field(default_factory=dict)
+    # Positions the LLM reviewer actually looked at.
+    reviewed: set[int] = field(default_factory=set)
+    review: ReviewStats = field(default_factory=ReviewStats)
 
     @property
     def failed(self) -> list[int]:

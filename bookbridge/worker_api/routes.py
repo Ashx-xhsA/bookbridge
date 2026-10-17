@@ -16,7 +16,7 @@ from bookbridge.harness.models import (
     LLMClient,
     SegmentsResult,
 )
-from bookbridge.harness.pipeline import extract_terms, translate_segments
+from bookbridge.harness.pipeline import SegmentOutcome, extract_terms, translate_segments
 from bookbridge.harness.prescan import ScannedEntity, scan_book
 from bookbridge.ingestion.epub_reader import read_epub
 from bookbridge.ingestion.models import Book, IngestionError
@@ -192,10 +192,9 @@ def _result_payload(body: TranslateSegmentsAsyncRequest, result: SegmentsResult)
 def _progress(body: TranslateSegmentsAsyncRequest):  # noqa: ANN202
     """Post each finished batch as RUNNING: saves it early and is the job heartbeat."""
 
-    def report(done: list[tuple[int, str]]) -> None:
-        post_worker_callback(
-            {"job_id": body.job_id, "status": "RUNNING", "segments": _segment_rows(body, done)}
-        )
+    def report(done: list[SegmentOutcome]) -> None:
+        rows = _segment_rows(body, [(o.index, o.translation) for o in done])
+        post_worker_callback({"job_id": body.job_id, "status": "RUNNING", "segments": rows})
 
     return report
 

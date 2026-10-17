@@ -52,7 +52,13 @@ def _run(scripted: ScriptedClient, **overrides: object) -> tuple[list[dict], lis
     return jobs, terms
 
 
+def _is_review(system: str) -> bool:
+    return "Task: review" in system
+
+
 def _translate_or_extract(system: str, user: str, json_mode: bool) -> str:
+    if _is_review(system):
+        return '{"issues": []}'
     if json_mode:
         return _terms_json("Frodo")
     if "<<<" not in user:  # summary call
@@ -167,7 +173,7 @@ def test_provider_failure_stops_and_keeps_finished_segments() -> None:
 
 def test_term_extraction_failure_does_not_change_the_job() -> None:
     def respond(system: str, user: str, json_mode: bool) -> str:
-        if json_mode:
+        if json_mode and not _is_review(system):
             raise RuntimeError("extraction exploded")
         return _translate_or_extract(system, user, json_mode)
 
@@ -212,7 +218,7 @@ def test_no_extraction_without_project_id() -> None:
     scripted = ScriptedClient(_translate_or_extract)
     _, terms = _run(scripted)
     assert terms == []
-    assert not any(json_mode for _, _, json_mode in scripted.calls)
+    assert not any("Task: extract_terms" in system for system, _, _ in scripted.calls)
 
 
 def test_config_and_preceding_reach_the_prompt() -> None:
