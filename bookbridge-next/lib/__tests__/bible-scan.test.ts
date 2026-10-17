@@ -2,19 +2,19 @@ import { describe, it, expect } from 'vitest'
 import { SCAN_LOST_AFTER_MS, isScanLost, scanEstimate } from '@/lib/bible-scan'
 
 describe('scanEstimate', () => {
-  it('counts one call per 12k-char passage plus voice cards and style guide', () => {
-    expect(scanEstimate(796_213).calls).toBe(67 + 2)
-    expect(scanEstimate(131_000).calls).toBe(11 + 2)
+  it('counts one call per 12k-char passage plus the overview', () => {
+    expect(scanEstimate(796_213).calls).toBe(67 + 1)
+    expect(scanEstimate(131_000).calls).toBe(11 + 1)
   })
 
   it('gives a minute range from 10–25 s per call', () => {
     const { minMinutes, maxMinutes } = scanEstimate(796_213)
-    expect(minMinutes).toBe(12) // 69 × 10 s
-    expect(maxMinutes).toBe(29) // 69 × 25 s
+    expect(minMinutes).toBe(12) // 68 × 10 s
+    expect(maxMinutes).toBe(29) // 68 × 25 s
   })
 
   it('never estimates less than a minute', () => {
-    expect(scanEstimate(500)).toEqual({ calls: 3, minMinutes: 1, maxMinutes: 2 })
+    expect(scanEstimate(500)).toEqual({ calls: 2, minMinutes: 1, maxMinutes: 1 })
   })
 })
 

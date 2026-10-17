@@ -156,7 +156,7 @@ describe('BibleReview — scan time, progress and stop', () => {
   it('warns how long a scan takes and what it costs, sized to this book', () => {
     render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} />)
     const note = screen.getByRole('note')
-    expect(note).toHaveTextContent('69 model calls')
+    expect(note).toHaveTextContent('68 model calls')
     expect(note).toHaveTextContent('12–29 minutes')
     expect(note).toHaveTextContent(/translating works without/i)
   })

@@ -2,10 +2,10 @@
 // review page (no server-only imports here).
 
 // Mirrors SCAN_CHUNK_CHARS in bookbridge/harness/prescan.py: one model call
-// per passage of about this many characters, then voice cards and a style
-// guide (one call each).
+// per passage of about this many characters, then one call that writes the
+// book overview.
 export const SCAN_PASSAGE_CHARS = 12_000
-const EXTRA_CALLS = 2
+const EXTRA_CALLS = 1
 // Observed DeepSeek latency for one ~12k-char passage.
 const SECONDS_PER_CALL = { min: 10, max: 25 }
 

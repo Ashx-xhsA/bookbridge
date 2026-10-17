@@ -3,7 +3,6 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import prisma from '@/lib/prisma'
-import { loadBibleEntries } from '@/lib/bible-entries'
 import { BIBLE_STATE, toBibleState } from '@/lib/bible-state'
 import { ensureSourceChars } from '@/lib/book-size'
 import BibleReview from './BibleReview'
@@ -25,12 +24,7 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
   })
   if (!project || project.ownerId !== userId) notFound()
 
-  // First page of each group; the rest loads from the entries API.
-  const [people, others, sourceChars] = await Promise.all([
-    loadBibleEntries(id, { group: 'person' }),
-    loadBibleEntries(id, { group: 'other' }),
-    ensureSourceChars(id, project.sourceChars),
-  ])
+  const sourceChars = await ensureSourceChars(id, project.sourceChars)
   const bible = project.bible && toBibleState(project.bible)
   return (
     <div>
@@ -44,7 +38,7 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       <div className="mt-4">
         <h1 className="font-serif text-2xl font-bold text-ink">Book bible</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          {project.title} &mdash; names, aliases, voices and style used for every chapter.
+          {project.title} &mdash; an overview of the book that the translator reads before every passage.
         </p>
       </div>
       <div className="mt-6">
@@ -54,8 +48,6 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
           projectId={id}
           bible={bible}
           sourceChars={sourceChars}
-          people={people}
-          others={others}
         />
       </div>
     </div>
