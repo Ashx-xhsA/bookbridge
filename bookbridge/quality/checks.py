@@ -65,11 +65,16 @@ def _check_terms(source: str, translation: str, glossary: Sequence[GlossaryEntry
     return issues
 
 
+def min_ratio(target_lang: str) -> float:
+    """Translation/source length ratio under which a segment looks cut short."""
+    return _MIN_RATIO.get(target_lang, DEFAULT_MIN_RATIO)
+
+
 def _check_length(source: str, translation: str, target_lang: str) -> list[Issue]:
     src = len(source.strip())
     if src < MIN_RATIO_SOURCE_CHARS:
         return []
     ratio = len(translation.strip()) / src
-    if ratio >= _MIN_RATIO.get(target_lang, DEFAULT_MIN_RATIO):
+    if ratio >= min_ratio(target_lang):
         return []
     return [Issue("truncation", f"Translation looks cut short (length ratio {ratio:.2f})", "error")]
