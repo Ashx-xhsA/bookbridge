@@ -29,7 +29,7 @@ raises: an empty "successful" bible would hide the problem.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 
 from bookbridge.harness.batching import plan_batches
@@ -76,6 +76,14 @@ class ScanResult:
     entities: list[ScannedEntity] = field(default_factory=list)
 
 
+# Called after each step with (done, total); returning False stops the scan.
+ScanProgress = Callable[[int, int], bool]
+
+
+class ScanStopped(Exception):
+    """The scan was stopped on request (the user pressed Stop)."""
+
+
 def scan_book(
     client: LLMClient,
     chapters: Sequence[Sequence[str]],
@@ -83,24 +91,48 @@ def scan_book(
     target_lang: str,
     max_chunk_chars: int = SCAN_CHUNK_CHARS,
     max_voice_cards: int = MAX_VOICE_CARDS,
+    progress: ScanProgress | None = None,
 ) -> ScanResult:
-    """Scan `chapters` (lists of paragraphs) and return a draft bible."""
+    """Scan `chapters` (lists of paragraphs) and return a draft bible.
+
+    Steps are one call per passage, then voice cards, then the style guide;
+    `progress` hears about each finished step and may stop the scan.
+    """
     paragraphs = [p for chapter in chapters for p in chapter if p.strip()]
     if not paragraphs:
         return ScanResult()
-    raw: list[dict] = []
     chunks = plan_batches(paragraphs, max_chunk_chars)
+    step = _Steps(len(chunks) + 2, progress)
+    raw: list[dict] = []
     failures = 0
     for chunk in chunks:
         found = _scan_passage(client, "\n\n".join(paragraphs[i] for i in chunk), target_lang)
         failures += found is None
         raw += [e for item in found or [] if (e := _proper_only(item))]
+        step.done()
     if failures == len(chunks):
         raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
     entities = _count_mentions(_merge(raw), text)
     entities = _add_voices(client, entities, text, target_lang, max_voice_cards)
-    return ScanResult(style_guide=_style_guide(client, paragraphs, target_lang), entities=entities)
+    step.done()
+    style_guide = _style_guide(client, paragraphs, target_lang)
+    step.done()
+    return ScanResult(style_guide=style_guide, entities=entities)
+
+
+class _Steps:
+    """Counts finished scan steps and reports them; raises ScanStopped on request."""
+
+    def __init__(self, total: int, progress: ScanProgress | None) -> None:
+        self.total = total
+        self.count = 0
+        self.progress = progress
+
+    def done(self) -> None:
+        self.count += 1
+        if self.progress is not None and not self.progress(self.count, self.total):
+            raise ScanStopped
 
 
 def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dict] | None:

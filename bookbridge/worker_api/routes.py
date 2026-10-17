@@ -17,13 +17,14 @@ from bookbridge.harness.models import (
     SegmentsResult,
 )
 from bookbridge.harness.pipeline import SegmentOutcome, extract_terms, translate_segments
-from bookbridge.harness.prescan import ScannedEntity, scan_book
+from bookbridge.harness.prescan import ScannedEntity, ScanStopped, scan_book
 from bookbridge.ingestion.epub_reader import read_epub
 from bookbridge.ingestion.models import Book, IngestionError
 from bookbridge.ingestion.txt_reader import read_txt
 from bookbridge.worker_api.callback import (
     post_bible_callback,
     post_glossary_callback,
+    post_scan_progress,
     post_worker_callback,
 )
 from bookbridge.worker_api.llm import client_for
@@ -310,8 +311,18 @@ def run_bible_scan(body: BibleScanAsyncRequest) -> None:
     Never raises; unexpected errors become a generic FAILED callback (A09).
     """
     base = {"job_id": body.job_id, "project_id": body.project_id}
+
+    def progress(done: int, total: int) -> bool:
+        return post_scan_progress({**base, "done": done, "total": total})
+
     try:
-        result = scan_book(client_for(body.llm), body.chapters, target_lang=body.target_lang)
+        result = scan_book(
+            client_for(body.llm), body.chapters, target_lang=body.target_lang, progress=progress
+        )
+    except ScanStopped:
+        # Stopped by the user: the BFF already reset the scan; nothing to post.
+        logger.info("bible scan %s stopped on request", body.job_id)
+        return
     except Exception as exc:
         logger.warning("bible scan %s failed: %s", body.job_id, type(exc).__name__)
         post_bible_callback({**base, "status": "FAILED", "error": "Bible scan failed"})
