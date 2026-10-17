@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import BookBible, CharacterCard, ContextSegment, GlossaryEntry
 from bookbridge.harness.parsing import count_markers, parse_review
@@ -9,6 +11,7 @@ from bookbridge.harness.prompts import (
     BIBLE_HEADING,
     CONTEXT_HEADING,
     GLOSSARY_HEADING,
+    build_recheck_prompt,
     build_review_prompt,
     build_revision_prompt,
 )
@@ -43,7 +46,12 @@ class TestReviewPrompt:
         text = _review()
         assert "Task: review" in text
         assert "Target language: zh-Hans" in text
-        assert '"issues"' in text and '"segment"' in text
+        assert '"issues"' in text and '"segment"' in text and '"fix"' in text
+
+    def test_defines_error_as_meaning_only(self) -> None:
+        text = _review()
+        assert "change the meaning" in text
+        assert "Do not list anything you conclude is fine" in text
 
     def test_lists_every_pair_under_a_marker(self) -> None:
         text = _review()
@@ -109,9 +117,12 @@ def _issues_json(*items: dict) -> str:
 class TestParseReview:
     def test_maps_one_based_segments_to_batch_positions(self) -> None:
         content = _issues_json(
-            {"segment": 2, "category": "pronoun", "severity": "error", "message": "她 → 他"}
-        )
-        assert parse_review(content, expected=2) == {1: [Issue("pronoun", "她 → 他", "error")]}
+            {"segment": 2, "category": "pronoun", "severity": "error", "message": "她 → 他",
+             "fix": "他说"}
+        )  # fmt: skip
+        assert parse_review(content, expected=2) == {
+            1: [Issue("pronoun", "她 → 他 (fix: 他说)", "error")]
+        }
 
     def test_drops_out_of_range_and_malformed_items(self) -> None:
         content = _issues_json(
@@ -134,12 +145,61 @@ class TestParseReview:
         )
         assert len(parse_review(content, expected=1)[0][0].message) == 300
 
+    @pytest.mark.parametrize("category", ["style", "fluency", "voice", "other"])
+    def test_style_level_categories_are_never_errors(self, category: str) -> None:
+        content = _issues_json({"segment": 1, "category": category, "severity": "error",
+                                "message": "stiff", "fix": "x"})  # fmt: skip
+        assert parse_review(content, expected=1)[0][0].severity == "warning"
+
+    def test_an_error_without_a_concrete_fix_is_only_a_warning(self) -> None:
+        for fix in (None, "", "   "):
+            content = _issues_json(
+                {
+                    "segment": 1,
+                    "category": "mistranslation",
+                    "severity": "error",
+                    "message": "此条不成立",
+                    "fix": fix,
+                }
+            )
+            assert parse_review(content, expected=1)[0][0].severity == "warning"  # fmt: skip
+
     def test_unparseable_reply_means_no_issues(self) -> None:
         assert parse_review("looks fine to me", expected=2) == {}
         assert parse_review('{"issues": "none"}', expected=2) == {}
 
     def test_accepts_code_fenced_json(self) -> None:
         content = "```json\n" + _issues_json(
-            {"segment": 1, "category": "omission", "severity": "error", "message": "dropped"}
+            {"segment": 1, "category": "omission", "severity": "error", "message": "dropped",
+             "fix": "星期日"}
         ) + "\n```"  # fmt: skip
         assert parse_review(content, expected=1)[0][0].category == "omission"
+
+
+class TestRecheckPrompt:
+    def _prompt(self, config: TranslationConfig = TranslationConfig()) -> tuple[str, str]:
+        return build_recheck_prompt(
+            [("Frodo ran.", "佛罗多跑了。", "弗罗多跑了。", [TERM_ISSUE])],
+            source_lang="en",
+            target_lang="zh-Hans",
+            glossary=[FRODO, SAM],
+            preceding=[ContextSegment("Before.", "之前。")],
+            config=config,
+            bible=BIBLE,
+        )
+
+    def test_verifies_listed_problems_only(self) -> None:
+        system, user = self._prompt()
+        assert "Task: recheck" in system
+        assert "Do not look for new style" in system
+        assert '"issues"' in system and '"fix"' in system
+        assert count_markers(user) == 1
+        assert "[previous translation] 佛罗多跑了。" in user
+        assert "[revised translation] 弗罗多跑了。" in user
+        assert "[problem to verify]" in user and "should be translated as" in user
+
+    def test_same_context_and_switches(self) -> None:
+        system, user = self._prompt()
+        assert BIBLE_HEADING in system and GLOSSARY_HEADING in system and CONTEXT_HEADING in user
+        system, user = self._prompt(TranslationConfig(book_bible=False, context_window=0))
+        assert BIBLE_HEADING not in system and CONTEXT_HEADING not in user

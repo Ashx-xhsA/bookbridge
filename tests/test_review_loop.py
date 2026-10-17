@@ -36,8 +36,10 @@ class Router:
         translate: Callable[[str], str] = lambda s: f"T:{s}",
         review: Callable[[str], str] = _no_issues,
         revise: Callable[[str], str] = lambda s: f"R:{s}",
+        recheck: Callable[[str], str] = _no_issues,
     ) -> None:
         self.translate, self.review, self.revise = translate, review, revise
+        self.recheck = recheck
         self.calls: list[tuple[str, str, bool]] = []
         self.usage = Usage()
 
@@ -50,6 +52,9 @@ class Router:
         if task == "review":
             assert json_mode
             return self.review(user)
+        if task == "recheck":
+            assert json_mode
+            return self.recheck(user)
         sources = _SOURCE_RE.findall(user.split("## Segments to revise", 1)[-1])
         if task == "revise":
             return format_segments([self.revise(s) for s in sources])
@@ -94,7 +99,7 @@ class TestReview:
     def test_rule_error_is_revised_and_rechecked(self) -> None:
         client = Router(translate=lambda s: "佛罗多跑了。", revise=lambda s: "弗罗多跑了。")
         result = _run(client, ["Frodo ran."])
-        assert client.tasks() == ["translate", "review", "revise", "review"]
+        assert client.tasks() == ["translate", "review", "revise", "recheck"]
         assert result.translations == ["弗罗多跑了。"]
         assert result.issues == {}
         assert result.reviewed == {0}
@@ -104,8 +109,7 @@ class TestReview:
         verdicts = iter(
             [
                 json.dumps({"issues": [{"segment": 1, "category": "pronoun",
-                                        "severity": "error", "message": "她 → 他"}]}),
-                json.dumps({"issues": []}),
+                                        "severity": "error", "message": "她 → 他", "fix": "他"}]}),
             ]
         )  # fmt: skip
         client = Router(
@@ -135,7 +139,7 @@ class TestReview:
     def test_stops_after_max_retries_and_keeps_the_issue(self) -> None:
         client = Router(translate=lambda s: "佛罗多。", revise=lambda s: "佛罗多！")
         result = _run(client, ["Frodo."])
-        assert client.tasks() == ["translate", "review", "revise", "review"]
+        assert client.tasks() == ["translate", "review", "revise", "recheck"]
         assert result.translations == ["佛罗多！"]
         assert [i.category for i in result.issues[0]] == ["term"]
         assert (result.review.flagged, result.review.fixed) == (1, 0)
@@ -144,7 +148,7 @@ class TestReview:
         attempts = iter(["佛罗多！", "弗罗多！"])
         client = Router(translate=lambda s: "佛罗多。", revise=lambda s: next(attempts))
         result = _run(client, ["Frodo."], review_max_retries=2)
-        assert client.tasks() == ["translate", "review", "revise", "review", "revise", "review"]
+        assert client.tasks() == ["translate", "review", "revise", "recheck", "revise", "recheck"]
         assert result.translations == ["弗罗多！"]
         assert result.review.fixed == 1
 
@@ -211,7 +215,7 @@ class TestMock:
         )  # fmt: skip
         assert result.translations[0] is not None
         assert result.reviewed == {0}
-        assert client.usage.calls == 4  # translate, review, revise, review
+        assert client.usage.calls == 4  # translate, review, revise, recheck
 
 
 class TestBatchReviewTrace:
@@ -224,3 +228,23 @@ class TestBatchReviewTrace:
         assert rv.first_translations == ["佛罗多跑了。"]
         assert [i.category for i in rv.first_issues[0]] == ["term"]
         assert rv.issues == [[]]
+
+
+class TestRecheck:
+    def test_recheck_sees_old_and_new_text_and_the_problems(self) -> None:
+        client = Router(translate=lambda s: "佛罗多。", revise=lambda s: "弗罗多。")
+        _run(client, ["Frodo."])
+        system, user, _ = client.calls[3]
+        assert "[previous translation] 佛罗多。" in user
+        assert "[revised translation] 弗罗多。" in user
+        assert "should be translated as" in user
+
+    def test_recheck_error_keeps_the_segment_flagged(self) -> None:
+        still = json.dumps({"issues": [{"segment": 1, "category": "mistranslation",
+                                        "severity": "error", "message": "still wrong",
+                                        "fix": "y"}]})  # fmt: skip
+        client = Router(translate=lambda s: "佛罗多。", revise=lambda s: "弗罗多。",
+                        recheck=lambda u: still)  # fmt: skip
+        result = _run(client, ["Frodo."])
+        assert [i.message for i in result.issues[0]] == ["still wrong (fix: y)"]
+        assert result.review.fixed == 0
