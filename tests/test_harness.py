@@ -15,7 +15,6 @@ from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
     AliasTarget,
     BookBible,
-    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     ProviderError,
@@ -134,10 +133,7 @@ class TestTranslateSegments:
         assert "山姆" in second_system and "弗罗多" not in second_system
 
     def test_bible_reaches_every_call_and_switch_removes_it(self) -> None:
-        bible = BookBible(
-            style_guide="Keep it terse.",
-            characters=(CharacterCard(name="Frodo", translation="弗罗多", voice="Earnest."),),
-        )
+        bible = BookBible(overview="Keep it terse.")
         client = ScriptedClient(_echo)
         cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1)
         translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
@@ -314,6 +310,27 @@ class TestExtractTerms:
         pairs = [("Mother told Frodo the firm's office used mithril.", "x")]
         terms = extract_terms(ScriptedClient(respond), pairs, target_lang="zh-Hans")
         assert [t.english for t in terms] == ["Frodo"]  # Gondor is not in the source
+
+    def test_keeps_only_people_and_places(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            terms = [
+                {"english": n, "translation": "译", "category": c}
+                for n, c in [("Frodo", "person"), ("Hobbiton", "place"),
+                             ("Fellowship", "organization"), ("Sting", "technical"),
+                             ("Yule", "general")]
+            ]  # fmt: skip
+            return json.dumps({"terms": terms})
+
+        pairs = [("Frodo of Hobbiton joined the Fellowship with Sting at Yule.", "x")]
+        terms = extract_terms(ScriptedClient(respond), pairs, target_lang="zh-Hans")
+        assert [t.english for t in terms] == ["Frodo", "Hobbiton"]
+
+    def test_extraction_prompt_skips_well_known_names(self) -> None:
+        client = ScriptedClient(lambda s, u, j: _terms_json())
+        extract_terms(client, [("Frodo ran.", "x")], target_lang="zh-Hans")
+        system = client.calls[0][0]
+        assert "people and places only" in system.lower()
+        assert "well-known" in system and "Andes" in system and "Americans" in system
 
     def test_extraction_prompt_asks_for_proper_nouns_only(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json())

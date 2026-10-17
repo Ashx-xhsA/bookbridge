@@ -2,10 +2,10 @@ import Link from 'next/link'
 import { Sparkles } from 'lucide-react'
 
 const MESSAGES = {
-  scan: 'Scan the book first to build a book bible — consistent names, aliases and character voices across chapters.',
+  scan: 'Scan the book first to build a book bible — an overview of the story, characters and tone, and consistent names across chapters.',
   scanning: 'The book is being scanned. The bible will be ready for review in a few minutes.',
   failed: 'The last book scan failed. Scan again to build the book bible.',
-  draft: 'Your book bible is a draft. Review names and aliases before translating.',
+  draft: 'Your book bible is a draft. Review the overview before translating.',
 }
 
 function messageFor(status: string | null, scanStatus: string | null): string | null {

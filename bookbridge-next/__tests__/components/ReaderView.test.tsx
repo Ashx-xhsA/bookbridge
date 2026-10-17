@@ -53,8 +53,11 @@ describe('ReaderView', () => {
     )
     expect(screen.getByText('He woke.')).toBeInTheDocument()
     expect(screen.queryByText('Night fell.')).not.toBeInTheDocument()
+    // Chapters show their own titles only; no running number of ours.
+    expect(screen.queryByText(/chapter \d/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^\s*\d+\.\s*$/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /load chapter 2/i }))
+    fireEvent.click(screen.getByRole('button', { name: /load evening/i }))
     await waitFor(() => expect(screen.getByText('Night fell.')).toBeInTheDocument())
     expect(mockFetch).toHaveBeenCalledWith('/api/projects/p1/chapters/c2')
     expect(screen.getAllByText(/not yet translated/i).length).toBeGreaterThan(0)
@@ -106,7 +109,7 @@ describe('ReaderView', () => {
     fireEvent.submit(input.closest('form')!)
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/read/tok/search?q=night'))
-    fireEvent.click(await screen.findByRole('button', { name: /chapter 2.*night fell/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^evening.*night fell/i }))
     await waitFor(() => expect(screen.getByText('夜幕降临。')).toBeInTheDocument())
     expect(mockFetch).toHaveBeenCalledWith('/api/read/tok/chunks/c2')
   })
@@ -124,7 +127,7 @@ describe('ReaderView', () => {
     const input = screen.getByPlaceholderText(/search/i)
     fireEvent.change(input, { target: { value: 'boa' } })
     fireEvent.submit(input.closest('form')!)
-    expect(await screen.findByRole('button', { name: /chapter 1.*boa/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^the drawing.*boa/i })).toBeInTheDocument()
     expect(mockFetch).not.toHaveBeenCalled()
   })
 

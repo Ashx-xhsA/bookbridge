@@ -37,6 +37,8 @@ model Project {
   status      ProjectStatus    @default(DRAFT)
   isPublic    Boolean          @default(false)
   publicToken String?          @unique
+  // Characters of source text, recorded at upload; sizes the bible-scan estimate.
+  sourceChars Int              @default(0)
   ownerId     String
   owner       User             @relation(fields: [ownerId], references: [clerkId])
   chapters    Chapter[]
@@ -146,6 +148,11 @@ model BookBible {
   status           BibleStatus @default(NONE)
   scanStatus       ScanStatus  @default(IDLE)
   scanStartedAt    DateTime?
+  // Live progress reported by the Worker after each scan step, and when it
+  // last reported; a scan silent for too long is treated as lost.
+  scanDone         Int         @default(0)
+  scanTotal        Int         @default(0)
+  scanHeartbeatAt  DateTime?
   // TranslationJob row used to poll the latest scan (chapterId is null).
   jobId            String?
   updatedAt        DateTime    @updatedAt

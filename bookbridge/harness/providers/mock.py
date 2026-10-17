@@ -20,7 +20,6 @@ _TERM_PATTERN = re.compile(r"\b[A-Z][a-z]{2,}\b")
 _TARGET_RE = re.compile(r"^Target language: (\S+)$", re.MULTILINE)
 _SOURCE_LINE_RE = re.compile(r"^\[source\] (.*)$", re.MULTILINE)
 _TASK_RE = re.compile(r"^Task: (\w+)$", re.MULTILINE)
-_VOICE_NAME_RE = re.compile(r"^### (.+)$", re.MULTILINE)
 
 
 class MockLLMClient:
@@ -40,9 +39,6 @@ class MockLLMClient:
             return format_segments([f"[{lang}] {s}" for s in sources])
         if json_mode and task == "scan_entities":
             return self._scan(user, lang)
-        if json_mode and task == "voice_cards":
-            voices = [{"name": n, "voice": f"[{lang}] voice"} for n in _VOICE_NAME_RE.findall(user)]
-            return json.dumps({"voices": voices}, ensure_ascii=False)
         if json_mode:
             return self._extract(user, lang)
         block = user.split(SEGMENTS_HEADING, 1)[-1]
@@ -58,7 +54,8 @@ class MockLLMClient:
             {"name": n, "translation": f"[{lang}] {n}", "category": "person", "aliases": []}
             for n in names
         ]
-        return json.dumps({"entities": entities}, ensure_ascii=False)
+        summary = f"[{lang}] {passage[:120]}"
+        return json.dumps({"entities": entities, "summary": summary}, ensure_ascii=False)
 
     @staticmethod
     def _extract(user: str, lang: str) -> str:
@@ -66,6 +63,6 @@ class MockLLMClient:
         for line in _SOURCE_LINE_RE.findall(user):
             words += [w for w in _TERM_PATTERN.findall(line) if w not in words]
         terms = [
-            {"english": w, "translation": f"[{lang}] {w}", "category": "general"} for w in words
+            {"english": w, "translation": f"[{lang}] {w}", "category": "person"} for w in words
         ]
         return json.dumps({"terms": terms}, ensure_ascii=False)

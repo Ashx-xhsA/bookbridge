@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { requireProjectOwner } from '@/lib/project-auth'
+import { BIBLE_STATE, toBibleState } from '@/lib/bible-state'
 
-// Bible scan status and style guide. Characters, places and aliases are
+// Bible scan status (with live progress) and style guide. Characters, places and aliases are
 // glossary terms, served by /api/projects/[id]/glossary.
 export async function GET(
   _req: NextRequest,
@@ -19,9 +20,12 @@ export async function GET(
 
   const bible = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { status: true, scanStatus: true, styleGuide: true, jobId: true, updatedAt: true },
+    select: BIBLE_STATE,
   })
-  return NextResponse.json({ bible }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json(
+    { bible: bible && toBibleState(bible) },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
 }
 
 const patchSchema = z

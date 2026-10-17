@@ -1,7 +1,8 @@
 """Book pre-scan: build a draft book bible before any chapter is translated.
 
 1. Split the whole book into passages and ask, per passage, for the named
-   entities (with aliases, each alias carrying its own translation).
+   entities (with aliases, each alias carrying its own translation) and a
+   two- or three-sentence summary of what happens.
 2. Merge deterministically (rules found in the first real-model run, where a
    shared surname fused Gregor Samsa with his father):
    - entries with the same main name are one entity; the first seen wins;
@@ -16,11 +17,12 @@
 4. Count mentions (paragraphs naming the entity or an alias) with the same
    matcher the translator uses, sort by it, and drop entities never written
    that way in the book.
-5. One call writes voice cards for the most-mentioned people, from dialogue
-   samples; one call writes a style guide from passages at the start, middle
-   and end of the book.
+5. One call writes the book overview the translator reads before every
+   passage: storyline (from the passage summaries, in order), the main
+   characters (most-mentioned people) and the tone (from passages at the
+   start, middle and end of the book).
 
-A single failed passage, voice or style call is skipped — a partial bible
+A single failed passage or overview call is skipped — a partial bible
 is still useful and the user reviews it. But a non-retryable provider error
 (bad key) stops the scan at once, and a scan where every passage failed
 raises: an empty "successful" bible would hide the problem.
@@ -29,29 +31,27 @@ raises: an empty "successful" bible would hide the problem.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.matching import occurs
 from bookbridge.harness.models import AliasTarget, LLMClient, ProviderError, TranslatorError
-from bookbridge.harness.parsing import parse_entities, parse_voices
+from bookbridge.harness.parsing import parse_entities, parse_summary
 from bookbridge.harness.prompts import (
+    build_overview_prompt,
     build_scan_prompt,
-    build_style_prompt,
-    build_voice_prompt,
 )
-from bookbridge.harness.proper_nouns import is_proper_noun
+from bookbridge.harness.proper_nouns import GLOSSARY_CATEGORIES, is_proper_noun
 from bookbridge.harness.retry import complete_with_retry
 
 logger = logging.getLogger(__name__)
 
 SCAN_CHUNK_CHARS = 12000
-MAX_VOICE_CARDS = 12
-VOICE_SAMPLES = 3
-SAMPLE_CHARS = 500
+# Most-mentioned people named in the overview.
+MAX_OVERVIEW_CHARACTERS = 12
+# Characters of text sampled at the start, middle and end for the tone.
 STYLE_WINDOW_CHARS = 1500
-_QUOTES = ('"', "“", "‘", "「")
 
 
 @dataclass(frozen=True)
@@ -59,11 +59,9 @@ class ScannedEntity:
     english: str
     translation: str
     category: str
-    gender: str | None = None
     notes: str | None = None
     aliases: tuple[AliasTarget, ...] = ()
     mentions: int = 0
-    voice: str | None = None
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -72,8 +70,16 @@ class ScannedEntity:
 
 @dataclass
 class ScanResult:
-    style_guide: str = ""
+    overview: str = ""
     entities: list[ScannedEntity] = field(default_factory=list)
+
+
+# Called after each step with (done, total); returning False stops the scan.
+ScanProgress = Callable[[int, int], bool]
+
+
+class ScanStopped(Exception):
+    """The scan was stopped on request (the user pressed Stop)."""
 
 
 def scan_book(
@@ -82,32 +88,59 @@ def scan_book(
     *,
     target_lang: str,
     max_chunk_chars: int = SCAN_CHUNK_CHARS,
-    max_voice_cards: int = MAX_VOICE_CARDS,
+    progress: ScanProgress | None = None,
 ) -> ScanResult:
-    """Scan `chapters` (lists of paragraphs) and return a draft bible."""
+    """Scan `chapters` (lists of paragraphs) and return a draft bible.
+
+    Steps are one call per passage, then the overview;
+    `progress` hears about each finished step and may stop the scan.
+    """
     paragraphs = [p for chapter in chapters for p in chapter if p.strip()]
     if not paragraphs:
         return ScanResult()
-    raw: list[dict] = []
     chunks = plan_batches(paragraphs, max_chunk_chars)
+    step = _Steps(len(chunks) + 1, progress)
+    raw: list[dict] = []
+    summaries: list[str] = []
     failures = 0
     for chunk in chunks:
         found = _scan_passage(client, "\n\n".join(paragraphs[i] for i in chunk), target_lang)
         failures += found is None
-        raw += [e for item in found or [] if (e := _proper_only(item))]
+        entities, summary = found or ([], "")
+        raw += [e for item in entities if (e := _proper_only(item))]
+        summaries += [summary] if summary else []
+        step.done()
     if failures == len(chunks):
         raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
     entities = _count_mentions(_merge(raw), text)
-    entities = _add_voices(client, entities, text, target_lang, max_voice_cards)
-    return ScanResult(style_guide=_style_guide(client, paragraphs, target_lang), entities=entities)
+    overview = _overview(client, summaries, entities, paragraphs, target_lang)
+    step.done()
+    return ScanResult(overview=overview, entities=entities)
 
 
-def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dict] | None:
-    """Entities in one passage; None when the call failed (and may be skipped)."""
+class _Steps:
+    """Counts finished scan steps and reports them; raises ScanStopped on request."""
+
+    def __init__(self, total: int, progress: ScanProgress | None) -> None:
+        self.total = total
+        self.count = 0
+        self.progress = progress
+
+    def done(self) -> None:
+        self.count += 1
+        if self.progress is not None and not self.progress(self.count, self.total):
+            raise ScanStopped
+
+
+def _scan_passage(
+    client: LLMClient, passage: str, target_lang: str
+) -> tuple[list[dict], str] | None:
+    """Entities and summary of one passage; None when the call failed (skippable)."""
     system, user = build_scan_prompt(passage, target_lang=target_lang)
     try:
-        return parse_entities(complete_with_retry(client, system, user, json_mode=True))
+        reply = complete_with_retry(client, system, user, json_mode=True)
+        return parse_entities(reply), parse_summary(reply)
     except ProviderError as exc:
         if not exc.retryable:
             raise  # e.g. a bad key: every other passage would fail the same way
@@ -119,7 +152,10 @@ def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dic
 
 
 def _proper_only(item: dict) -> dict | None:
-    """Keep the proper names of one scanned entity; the first becomes its main name."""
+    """Keep the proper names of one scanned person or place; the first becomes its
+    main name."""
+    if item["category"] not in GLOSSARY_CATEGORIES:
+        return None
     names = [(item["name"], item["translation"]), *item["aliases"]]
     kept = [(n, t) for n, t in names if is_proper_noun(n)]
     if not kept:
@@ -141,7 +177,7 @@ def _group_by_name(raw: list[dict]) -> list[ScannedEntity]:
     for item in raw:
         entity = ScannedEntity(
             english=item["name"], translation=item["translation"], category=item["category"],
-            gender=item["gender"], notes=item["notes"],
+            notes=item["notes"],
             aliases=tuple(AliasTarget(n, t) for n, t in item["aliases"]),
         )  # fmt: skip
         key = entity.english.lower()
@@ -162,7 +198,6 @@ def _fold(target: ScannedEntity, other: ScannedEntity, *, as_alias: bool) -> Sca
     return replace(
         target,
         aliases=target.aliases + tuple(extra),
-        gender=target.gender or other.gender,
         notes=target.notes or other.notes,
     )
 
@@ -230,32 +265,6 @@ def _count_mentions(entities: list[ScannedEntity], text: _Text) -> list[ScannedE
     return sorted(found, key=lambda e: -e.mentions)  # stable: ties keep scan order
 
 
-def _voice_samples(entity: ScannedEntity, text: _Text) -> list[str]:
-    hits = _mentioning(entity, text)
-    dialogue = [p for p in hits if any(q in p for q in _QUOTES)]
-    return [p[:SAMPLE_CHARS] for p in (dialogue or hits)[:VOICE_SAMPLES]]
-
-
-def _add_voices(
-    client: LLMClient,
-    entities: list[ScannedEntity],
-    text: _Text,
-    target_lang: str,
-    limit: int,
-) -> list[ScannedEntity]:
-    people = [e for e in entities if e.category == "person" and e.mentions][:limit]
-    if not people:
-        return entities
-    batch = [(e.english, e.translation, _voice_samples(e, text)) for e in people]
-    system, user = build_voice_prompt(batch, target_lang=target_lang)
-    try:
-        voices = parse_voices(complete_with_retry(client, system, user, json_mode=True))
-    except TranslatorError as exc:
-        logger.warning("voice cards failed: %s", type(exc).__name__)
-        return entities
-    return [replace(e, voice=voices.get(e.english, e.voice)) for e in entities]
-
-
 def _window(paragraphs: Sequence[str], start: int) -> list[int]:
     picked, size = [], 0
     for i in range(start, len(paragraphs)):
@@ -266,15 +275,27 @@ def _window(paragraphs: Sequence[str], start: int) -> list[int]:
     return picked
 
 
-def _style_guide(client: LLMClient, paragraphs: Sequence[str], target_lang: str) -> str:
+def _overview(
+    client: LLMClient,
+    summaries: Sequence[str],
+    entities: Sequence[ScannedEntity],
+    paragraphs: Sequence[str],
+    target_lang: str,
+) -> str:
+    people = [e for e in entities if e.category == "person"][:MAX_OVERVIEW_CHARACTERS]
     n = len(paragraphs)
     starts = [0, n // 2, max(0, n - _tail_count(paragraphs))]
     chosen = sorted({i for s in starts for i in _window(paragraphs, s)})
-    system, user = build_style_prompt([paragraphs[i] for i in chosen], target_lang=target_lang)
+    system, user = build_overview_prompt(
+        summaries,
+        [(e.english, e.translation) for e in people],
+        [paragraphs[i] for i in chosen],
+        target_lang=target_lang,
+    )
     try:
         return complete_with_retry(client, system, user).strip()
     except TranslatorError as exc:
-        logger.warning("style guide failed: %s", type(exc).__name__)
+        logger.warning("book overview failed: %s", type(exc).__name__)
         return ""
 
 

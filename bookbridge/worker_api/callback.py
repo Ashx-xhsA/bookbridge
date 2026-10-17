@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 CALLBACK_PATH = "/api/internal/worker-callback"
 GLOSSARY_CALLBACK_PATH = "/api/internal/worker-callback/glossary"
 BIBLE_CALLBACK_PATH = "/api/internal/worker-callback/bible"
+SCAN_PROGRESS_PATH = "/api/internal/worker-callback/bible/progress"
 REQUEST_TIMEOUT_SECONDS: float = 10.0
 # Transient failures (5xx, timeouts, connection errors) are retried after
 # these pauses; a 4xx (e.g. 409 for a superseded job) is final.
@@ -55,28 +56,56 @@ def post_bible_callback(payload: dict) -> None:
     _post(BIBLE_CALLBACK_PATH, payload)
 
 
-def _post(path: str, payload: dict) -> None:
+def post_scan_progress(payload: dict) -> bool:
+    """Report bible-scan progress; False means the BFF wants the scan stopped.
+
+    Best-effort: one attempt, no retries. Anything but an explicit
+    `{"continue": false}` (missing config, network error, bad reply) keeps
+    the scan going, so a flaky progress call never costs a finished scan.
+    """
+    target = _target(SCAN_PROGRESS_PATH)
+    if target is None:
+        return True
+    url, secret = target
+    req = _request(url, secret, payload)
+    try:
+        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+            reply = json.loads(resp.read() or b"{}")
+    except Exception as exc:  # see _post: nothing may escape a background task
+        logger.warning("scan progress to %s failed: %s", url, type(exc).__name__)
+        return True
+    return not (isinstance(reply, dict) and reply.get("continue") is False)
+
+
+def _target(path: str) -> tuple[str, str] | None:
+    """(url, secret) for a BFF callback path, or None when not configured."""
     base = os.environ.get("CALLBACK_BASE_URL", "").rstrip("/")
     secret = os.environ.get("WORKER_CALLBACK_SECRET", "")
     if not base or not secret:
+        return None
+    return f"{base}{path}", secret
+
+
+def _request(url: str, secret: str, payload: dict) -> Request:
+    return Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json", "X-Worker-Secret": secret},
+    )
+
+
+def _post(path: str, payload: dict) -> None:
+    target = _target(path)
+    if target is None:
         logger.error(
             "callback not configured (CALLBACK_BASE_URL / WORKER_CALLBACK_SECRET "
             "missing); job result for %s will be lost",
             payload.get("job_id"),
         )
         return
-
-    url = f"{base}{path}"
-    body = json.dumps(payload).encode("utf-8")
-    req = Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Worker-Secret": secret,
-        },
-    )
+    url, secret = target
+    req = _request(url, secret, payload)
     for attempt, pause in enumerate((*RETRY_PAUSES_SECONDS, None), start=1):
         try:
             with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:

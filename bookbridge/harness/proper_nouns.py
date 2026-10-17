@@ -52,6 +52,12 @@ def _core(word: str) -> str:
     return re.sub(r"(['’]s)?[.,]*$", "", word).lower()
 
 
+# Only names of people and places go into the bible and the extracted
+# glossary: they are what a translator renders inconsistently. Organizations,
+# objects and other named things are left to the translator.
+GLOSSARY_CATEGORIES = frozenset({"person", "place"})
+
+
 def is_proper_noun(name: str) -> bool:
     words = name.split()
     if words and words[0].lower() in _ARTICLES:

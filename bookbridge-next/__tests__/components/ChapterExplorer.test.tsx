@@ -62,9 +62,17 @@ describe('ChapterExplorer', () => {
         ok({ id: 'c2', segments: [{ index: 0, source: 'Night fell.', translation: null, status: 'pending', issues: [] }] })
       )
     render(<ChapterExplorer chapters={chapters} jobs={[]} projectId="p1" />)
-    fireEvent.click(screen.getByRole('button', { name: /2\. evening/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^evening/i }))
     await waitFor(() => expect(screen.getByText('Night fell.')).toBeInTheDocument())
     expect(mockFetch).toHaveBeenLastCalledWith('/api/projects/p1/chapters/c2')
+  })
+
+  it('lists chapters by their own titles, without our running numbers', () => {
+    mockFetch.mockReturnValue(ok({ id: 'c1', segments: [] }))
+    render(<ChapterExplorer chapters={chapters} jobs={[]} projectId="p1" />)
+    expect(screen.getByRole('button', { name: /^morning/i })).toBeInTheDocument()
+    expect(screen.queryByText(/^\s*1\.\s*morning/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/chapter 1\b/i)).not.toBeInTheDocument()
   })
 
   it('offers Translate All for untranslated chapters that have paragraphs', () => {

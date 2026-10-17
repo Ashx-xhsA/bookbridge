@@ -5,9 +5,8 @@ import { requireProjectOwner } from '@/lib/project-auth'
 import { getUserLLMCredentials } from '@/lib/llm-credentials'
 import { SEGMENT_SOURCES } from '@/lib/segments'
 import { workerFetch } from '@/lib/worker'
+import { isScanLost } from '@/lib/bible-scan'
 
-// A scan this old without a callback is assumed lost and may be restarted.
-const STALE_SCAN_MS = 30 * 60 * 1000
 
 // Starts the whole-book pre-scan that drafts the book bible. Returns a
 // TranslationJob id the client polls via /api/jobs/[id]; the Worker posts
@@ -25,13 +24,11 @@ export async function POST(
 
   const existing = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { scanStatus: true, scanStartedAt: true },
+    select: { scanStatus: true, scanStartedAt: true, scanHeartbeatAt: true },
   })
-  if (
-    existing?.scanStatus === 'SCANNING' &&
-    existing.scanStartedAt &&
-    Date.now() - new Date(existing.scanStartedAt).getTime() < STALE_SCAN_MS
-  ) {
+  // A running scan keeps reporting progress; one that went silent is lost
+  // (e.g. the Worker restarted) and may be replaced.
+  if (existing?.scanStatus === 'SCANNING' && !isScanLost(existing)) {
     return NextResponse.json({ error: 'A scan is already running' }, { status: 409 })
   }
 
@@ -64,11 +61,19 @@ export async function POST(
   })
   // Only the scan state changes: an existing bible stays in use (and keeps
   // its review status) until the new scan succeeds.
-  const scanStartedAt = new Date()
+  const now = new Date()
+  const running = {
+    scanStatus: 'SCANNING' as const,
+    scanStartedAt: now,
+    scanHeartbeatAt: now,
+    scanDone: 0,
+    scanTotal: 0,
+    jobId: job.id,
+  }
   await prisma.bookBible.upsert({
     where: { projectId },
-    create: { projectId, scanStatus: 'SCANNING', scanStartedAt, jobId: job.id },
-    update: { scanStatus: 'SCANNING', scanStartedAt, jobId: job.id },
+    create: { projectId, ...running },
+    update: running,
   })
 
   // See api/jobs: after() keeps the dispatch inside the request lifecycle.
@@ -102,4 +107,43 @@ export async function POST(
   })
 
   return NextResponse.json({ id: job.id, status: 'PENDING' }, { status: 202 })
+}
+
+// Stops a running scan. The Worker learns on its next progress report (at
+// most one passage later) and quits; any late result for the old job is
+// refused because jobId no longer matches. The current bible stays as it is.
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: projectId } = await params
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const guard = await requireProjectOwner(projectId, userId)
+  if (!guard.ok) return guard.response
+
+  const bible = await prisma.bookBible.findUnique({
+    where: { projectId },
+    select: { scanStatus: true, jobId: true },
+  })
+  if (bible?.scanStatus !== 'SCANNING') {
+    return NextResponse.json({ error: 'No scan is running' }, { status: 409 })
+  }
+
+  await prisma.$transaction([
+    prisma.bookBible.update({
+      where: { projectId },
+      data: { scanStatus: 'IDLE', jobId: null, scanDone: 0, scanTotal: 0, scanHeartbeatAt: null },
+    }),
+    ...(bible.jobId
+      ? [
+          prisma.translationJob.update({
+            where: { id: bible.jobId },
+            data: { status: 'FAILED', error: 'Stopped by user' },
+          }),
+        ]
+      : []),
+  ])
+  return NextResponse.json({ bible: { scanStatus: 'IDLE' } })
 }

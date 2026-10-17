@@ -8,7 +8,6 @@ from bookbridge.harness.matching import match_glossary
 from bookbridge.harness.models import (
     AliasTarget,
     BookBible,
-    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     TranslatorError,
@@ -313,42 +312,35 @@ class TestTranslationPrompt:
 
 
 BIBLE = BookBible(
-    style_guide="Plain, restrained modern Chinese; keep long sentences.",
-    characters=(
-        CharacterCard(
-            name="Gandalf",
-            translation="甘道夫",
-            gender="male",
-            voice="Grave, archaic, fond of riddles.",
-        ),
-        CharacterCard(name="Frodo", translation="弗罗多", gender="male", voice="Earnest."),
+    overview=(
+        "A quest to destroy a ring. Gandalf (甘道夫), a wizard, guides Frodo (弗罗多). "
+        "Plain, restrained modern Chinese; keep long sentences."
     ),
 )
 
 
 class TestBiblePrompt:
-    def test_style_guide_and_matched_character_cards_are_injected(self) -> None:
+    def test_overview_is_injected_as_a_whole(self) -> None:
         text = _prompt(TranslationConfig(), ["Gandalf frowned."], [], BIBLE)
         assert BIBLE_HEADING in text
-        assert "Plain, restrained modern Chinese" in text
-        assert "Grave, archaic" in text
-        assert "Earnest." not in text  # Frodo is not in this passage
+        section = text.split(BIBLE_HEADING, 1)[1]
+        assert "Book overview:" in section
+        assert "A quest to destroy a ring." in section
+        assert "Plain, restrained modern Chinese" in section
 
-    def test_character_card_injected_via_alias_entry(self) -> None:
-        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
-        text = _prompt(TranslationConfig(), ["Mithrandir frowned."], [alias], BIBLE)
-        assert "Grave, archaic" in text
-
-    def test_alias_still_brings_card_in_full_glossary_mode(self) -> None:
-        alias = _term("Mithrandir", "米斯兰达", alias_of=GANDALF)
-        text = _prompt(TranslationConfig(glossary_mode="full"), ["Mithrandir."], [alias], BIBLE)
-        assert "Grave, archaic" in text
+    def test_no_character_cards(self) -> None:
+        text = _prompt(TranslationConfig(), ["Gandalf frowned."], [], BIBLE)
+        assert "Characters in this passage" not in text
+        assert "voice" not in text.split(BIBLE_HEADING, 1)[1].lower()
 
     def test_book_bible_off_removes_the_whole_section(self) -> None:
         text = _prompt(TranslationConfig(book_bible=False), ["Gandalf frowned."], [], BIBLE)
         assert BIBLE_HEADING not in text
-        assert "Plain, restrained" not in text
-        assert "Grave, archaic" not in text
+        assert "A quest to destroy" not in text
+
+    def test_empty_overview_means_no_section(self) -> None:
+        text = _prompt(TranslationConfig(), ["Gandalf."], [], BookBible(overview="  "))
+        assert BIBLE_HEADING not in text
 
     def test_no_bible_means_no_section(self) -> None:
         assert BIBLE_HEADING not in _prompt(TranslationConfig(), ["Gandalf."], [], None)
@@ -356,10 +348,6 @@ class TestBiblePrompt:
     def test_bible_comes_before_glossary(self) -> None:
         text = _prompt(TranslationConfig(), ["Gandalf."], [_term("Gandalf", "甘道夫")], BIBLE)
         assert text.index(BIBLE_HEADING) < text.index(GLOSSARY_HEADING)
-
-    def test_gender_is_shown_on_cards(self) -> None:
-        text = _prompt(TranslationConfig(), ["Gandalf frowned."], [], BIBLE)
-        assert "male" in text.split(BIBLE_HEADING, 1)[1]
 
 
 class TestExtractionPrompt:

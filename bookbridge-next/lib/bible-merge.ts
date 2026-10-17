@@ -3,8 +3,7 @@
 // Rules:
 // - Terms are matched case-insensitively on `english`.
 // - A term the user owns (edited or approved) keeps its translation and
-//   category; the scan only fills blank gender / voice / notes and refreshes
-//   the mention count.
+//   category; the scan only fills blank notes and refreshes the mention count.
 // - Other existing terms take the scan's values.
 // - Each alias is its own term (own translation) linked to its main term.
 //   An existing alias that already points somewhere is not relinked, and a
@@ -16,9 +15,7 @@ export type ScannedEntity = {
   english: string
   translation: string
   category: string
-  gender: string | null
   notes: string | null
-  voice: string | null
   mentions: number
   aliases: { english: string; translation: string }[]
 }
@@ -29,8 +26,6 @@ export type ExistingTerm = {
   translation: string | null
   approved: boolean
   userEdited: boolean
-  gender: string | null
-  voice: string | null
   notes: string | null
   aliasOfId: string | null
   // How many terms already point at this one.
@@ -41,8 +36,6 @@ export type TermCreate = {
   english: string
   translation: string
   category: string
-  gender: string | null
-  voice: string | null
   notes: string | null
   mentions: number
 }
@@ -65,8 +58,6 @@ const owned = (t: ExistingTerm) => t.userEdited || t.approved
 
 function blanks(t: ExistingTerm, e: ScannedEntity): TermUpdate['data'] {
   const data: TermUpdate['data'] = {}
-  if (!t.gender && e.gender) data.gender = e.gender
-  if (!t.voice && e.voice) data.voice = e.voice
   if (!t.notes && e.notes) data.notes = e.notes
   return data
 }
@@ -74,15 +65,13 @@ function blanks(t: ExistingTerm, e: ScannedEntity): TermUpdate['data'] {
 function mainUpdate(t: ExistingTerm, e: ScannedEntity): TermUpdate {
   if (owned(t)) return { id: t.id, data: { ...blanks(t, e), mentions: e.mentions } }
   const data: TermUpdate['data'] = { translation: e.translation, category: e.category }
-  if (e.gender) data.gender = e.gender
-  if (e.voice) data.voice = e.voice
   if (!t.notes && e.notes) data.notes = e.notes
   return { id: t.id, data: { ...data, mentions: e.mentions } }
 }
 
 function mainCreate(e: ScannedEntity): TermCreate {
-  const { english, translation, category, gender, voice, notes, mentions } = e
-  return { english, translation, category, gender, voice, notes, mentions }
+  const { english, translation, category, notes, mentions } = e
+  return { english, translation, category, notes, mentions }
 }
 
 export function planBibleMerge(existing: ExistingTerm[], entities: ScannedEntity[]): MergePlan {
@@ -126,8 +115,6 @@ function planAlias(
       english: alias.english,
       translation: alias.translation,
       category,
-      gender: null,
-      voice: null,
       notes: null,
       mentions: 0,
     })

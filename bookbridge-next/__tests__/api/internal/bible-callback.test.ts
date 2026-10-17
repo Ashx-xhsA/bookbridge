@@ -46,9 +46,7 @@ const ENTITY = {
   english: 'Gandalf',
   translation: '甘道夫',
   category: 'person',
-  gender: 'male',
   notes: null,
-  voice: 'Grave.',
   mentions: 40,
   aliases: [{ english: 'Mithrandir', translation: '米斯兰达' }],
 }
@@ -124,6 +122,8 @@ describe('POST /api/internal/worker-callback/bible', () => {
     const created = mockTermCreateManyAndReturn.mock.calls[0][0] as { data: { english: string; projectId: string }[] }
     expect(created.data.map((d) => d.english)).toEqual(['Gandalf', 'Mithrandir'])
     expect(created.data.every((d) => d.projectId === PROJECT_ID)).toBe(true)
+    // Gender and voice are no longer part of the bible.
+    expect(JSON.stringify(created.data)).not.toMatch(/gender|voice/)
     expect(mockTermUpdateMany).toHaveBeenCalledWith({
       where: { id: { in: ['m1'] }, projectId: PROJECT_ID },
       data: { aliasOfId: 'g1' },

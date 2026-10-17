@@ -10,20 +10,20 @@ from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
     AliasTarget,
     BookBible,
-    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     LLMClient,
     SegmentsResult,
 )
 from bookbridge.harness.pipeline import SegmentOutcome, extract_terms, translate_segments
-from bookbridge.harness.prescan import ScannedEntity, scan_book
+from bookbridge.harness.prescan import ScannedEntity, ScanStopped, scan_book
 from bookbridge.ingestion.epub_reader import read_epub
 from bookbridge.ingestion.models import Book, IngestionError
 from bookbridge.ingestion.txt_reader import read_txt
 from bookbridge.worker_api.callback import (
     post_bible_callback,
     post_glossary_callback,
+    post_scan_progress,
     post_worker_callback,
 )
 from bookbridge.worker_api.llm import client_for
@@ -117,16 +117,7 @@ def _glossary(body: TranslateSegmentsAsyncRequest) -> list[GlossaryEntry]:
 def _bible(body: TranslateSegmentsAsyncRequest) -> BookBible | None:
     if body.bible is None:
         return None
-    return BookBible(
-        style_guide=body.bible.style_guide,
-        characters=tuple(
-            CharacterCard(
-                name=c.name, translation=c.translation,
-                gender=c.gender, voice=c.voice, notes=c.notes,
-            )
-            for c in body.bible.characters
-        ),
-    )  # fmt: skip
+    return BookBible(overview=body.bible.style_guide)
 
 
 def _summarize(llm: LLMClient, text: str, max_words: int = 100) -> str | None:
@@ -270,15 +261,6 @@ def translate_segments_async(
 
 # Must match the BFF bible callback schema, or the whole scan is rejected.
 MAX_NAME, MAX_TRANSLATION, MAX_NOTE, MAX_ALIASES, MAX_STYLE_GUIDE = 200, 500, 1000, 50, 5000
-_GENDERS = {"male": "male", "m": "male", "female": "female", "f": "female", "unknown": "unknown"}
-
-
-def normalise_gender(raw: str | None) -> str | None:
-    """Map an LLM's free-form gender to male / female / unknown, else None."""
-    if not raw:
-        return None
-    word = raw.strip().lower().split(" ")[0].strip("(),.")
-    return _GENDERS.get(word)
 
 
 def _clip(text: str | None, limit: int) -> str | None:
@@ -293,9 +275,7 @@ def _entity_payload(e: ScannedEntity) -> dict | None:
         "english": e.english,
         "translation": _clip(e.translation, MAX_TRANSLATION),
         "category": e.category,
-        "gender": normalise_gender(e.gender),
         "notes": _clip(e.notes, MAX_NOTE),
-        "voice": _clip(e.voice, MAX_NOTE),
         "mentions": e.mentions,
         "aliases": [
             {"english": a.english, "translation": _clip(a.translation, MAX_TRANSLATION)}
@@ -310,8 +290,18 @@ def run_bible_scan(body: BibleScanAsyncRequest) -> None:
     Never raises; unexpected errors become a generic FAILED callback (A09).
     """
     base = {"job_id": body.job_id, "project_id": body.project_id}
+
+    def progress(done: int, total: int) -> bool:
+        return post_scan_progress({**base, "done": done, "total": total})
+
     try:
-        result = scan_book(client_for(body.llm), body.chapters, target_lang=body.target_lang)
+        result = scan_book(
+            client_for(body.llm), body.chapters, target_lang=body.target_lang, progress=progress
+        )
+    except ScanStopped:
+        # Stopped by the user: the BFF already reset the scan; nothing to post.
+        logger.info("bible scan %s stopped on request", body.job_id)
+        return
     except Exception as exc:
         logger.warning("bible scan %s failed: %s", body.job_id, type(exc).__name__)
         post_bible_callback({**base, "status": "FAILED", "error": "Bible scan failed"})
@@ -320,7 +310,8 @@ def run_bible_scan(body: BibleScanAsyncRequest) -> None:
         {
             **base,
             "status": "SUCCEEDED",
-            "style_guide": result.style_guide[:MAX_STYLE_GUIDE],
+            # The overview goes in style_guide (same BookBible column).
+            "style_guide": result.overview[:MAX_STYLE_GUIDE],
             "entities": [
                 row
                 for e in result.entities[:MAX_BIBLE_ENTITIES]

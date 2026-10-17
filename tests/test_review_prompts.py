@@ -5,7 +5,7 @@ import json
 import pytest
 
 from bookbridge.harness.config import TranslationConfig
-from bookbridge.harness.models import BookBible, CharacterCard, ContextSegment, GlossaryEntry
+from bookbridge.harness.models import BookBible, ContextSegment, GlossaryEntry
 from bookbridge.harness.parsing import count_markers, parse_review
 from bookbridge.harness.prompts import (
     BIBLE_HEADING,
@@ -19,10 +19,7 @@ from bookbridge.quality import Issue
 
 FRODO = GlossaryEntry("Frodo", "弗罗多", "person")
 SAM = GlossaryEntry("Sam", "山姆", "person")
-BIBLE = BookBible(
-    style_guide="Keep it terse.",
-    characters=(CharacterCard(name="Frodo", translation="弗罗多", gender="male"),),
-)
+BIBLE = BookBible(overview="Keep it terse.")
 PAIRS = [("Frodo ran.", "弗罗多跑了。"), ("It rained.", "下雨了。")]
 TERM_ISSUE = Issue("term", "'Frodo' should be translated as '弗罗多'", "error")
 

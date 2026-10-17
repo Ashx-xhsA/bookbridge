@@ -2,68 +2,61 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Loader2, RefreshCw, Search } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, Loader2, RefreshCw, Square } from 'lucide-react'
 import { pollJob } from '@/lib/jobPoll'
-import EntryCard, { type AliasRow } from './EntryCard'
-
-export type BibleEntry = {
-  id: string
-  english: string
-  translation: string | null
-  category: string
-  gender: string | null
-  voice: string | null
-  mentions: number
-  approved: boolean
-  userEdited: boolean
-  aliases: AliasRow[]
-}
-
-// One page of a group (characters, or places and terms) plus where to resume.
-export type EntryPage = {
-  entries: BibleEntry[]
-  total: number
-  nextCursor: string | null
-}
-
-type Group = 'person' | 'other'
+import { scanEstimate } from '@/lib/bible-scan'
 
 type Bible = {
   status: string
   scanStatus: string
   styleGuide: string
   jobId: string | null
+  // Live scan progress (steps done / total) and whether the scan went silent.
+  scanDone?: number
+  scanTotal?: number
+  scanLost?: boolean
 } | null
-
-export type TermPatch = Partial<{
-  translation: string
-  gender: string | null
-  voice: string | null
-}>
 
 const REVIEW_LABEL: Record<string, string> = {
   DRAFT: 'Draft — review, then confirm',
   CONFIRMED: 'Confirmed',
 }
 
-function headline(status: string | null, scanStatus: string | null): string {
+function headline(status: string | null, scanStatus: string | null, lost: boolean): string {
+  if (lost) return 'Scan stopped responding'
   if (status && REVIEW_LABEL[status]) return REVIEW_LABEL[status]
   if (scanStatus === 'SCANNING') return 'Scanning…'
   if (scanStatus === 'FAILED') return 'Scan failed — try again'
   return 'Not scanned yet'
 }
 
-function detail(reviewable: boolean, scanStatus: string | null): string {
+function detail(reviewable: boolean, scanStatus: string | null, lost: boolean): string {
+  if (lost) return 'No progress for 10 minutes — the scan was probably interrupted. Start it again.'
   if (!reviewable) {
-    return 'Scan the whole book once to collect characters, aliases, voices and a style guide. Translating without it still works.'
+    return 'Scan the whole book once to draft an overview — storyline, main characters and tone — that the translator reads before every passage. Names it finds go into the glossary.'
   }
   if (scanStatus === 'SCANNING') return 'Re-scanning — the current bible stays in use until the scan finishes.'
   if (scanStatus === 'FAILED') return 'The last scan failed — the current bible is still in use.'
-  return 'Translation uses the bible as soon as a draft exists. Aliases are translated as written — the main name is only a hint.'
+  return 'Translation uses the overview as soon as a draft exists. Edit it freely; a re-scan keeps your edits.'
 }
 
-// Scans of long books can take several minutes.
-const SCAN_POLL_TIMEOUT_MS = 30 * 60 * 1000
+// Scans of long books can take half an hour or more.
+const SCAN_POLL_TIMEOUT_MS = 60 * 60 * 1000
+// How often the page refreshes the progress of a running scan.
+const PROGRESS_POLL_MS = 5000
+
+// How long and how costly a scan is, sized to the book when its length is known.
+function scanCostNote(sourceChars: number): string {
+  const size =
+    sourceChars > 0
+      ? (() => {
+          const { calls, minMinutes, maxMinutes } = scanEstimate(sourceChars)
+          return `for this book about ${calls} model calls, roughly ${minMinutes}–${maxMinutes} minutes`
+        })()
+      : 'a full novel takes dozens of model calls and 15–30 minutes or more'
+  return `Scanning reads the whole book with the model, one passage at a time — ${size}, billed to the API key in use. Translating works without a bible, so only scan if you plan to translate most of the book.`
+}
 
 const button =
   'inline-flex items-center gap-1 rounded px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
@@ -73,29 +66,22 @@ const secondary = `${button} border border-zinc-300 hover:bg-zinc-50 dark:border
 export default function BibleReview({
   projectId,
   bible,
-  people: initialPeople,
-  others: initialOthers,
+  sourceChars = 0,
 }: {
   projectId: string
   bible: Bible
-  people: EntryPage
-  others: EntryPage
+  sourceChars?: number
 }) {
   const router = useRouter()
   const [status, setStatus] = useState(bible?.status ?? null)
   const [scanStatus, setScanStatus] = useState(bible?.scanStatus ?? null)
-  const [styleGuide, setStyleGuide] = useState(bible?.styleGuide ?? '')
-  const [savedStyle, setSavedStyle] = useState(bible?.styleGuide ?? '')
-  const [groups, setGroups] = useState<Record<Group, EntryPage>>({
-    person: initialPeople,
-    other: initialOthers,
-  })
-  const [query, setQuery] = useState('')
-  // The filter the shown pages were loaded with ('' = none).
-  const [activeQuery, setActiveQuery] = useState('')
-  const [loadingGroup, setLoadingGroup] = useState<Group | 'all' | null>(null)
+  // The overview is stored in the bible's styleGuide field.
+  const [overview, setOverview] = useState(bible?.styleGuide ?? '')
+  const [savedOverview, setSavedOverview] = useState(bible?.styleGuide ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState({ done: bible?.scanDone ?? 0, total: bible?.scanTotal ?? 0 })
+  const [lost, setLost] = useState(bible?.scanLost ?? false)
 
   // Resume polling when the page is opened while a scan is running.
   useEffect(() => {
@@ -107,51 +93,36 @@ export default function BibleReview({
     return () => controller.abort()
   }, [bible?.scanStatus, bible?.jobId, router])
 
-  const scanning = scanStatus === 'SCANNING' || busy
+  const running = scanStatus === 'SCANNING' && !lost
+  const scanning = running || busy
   const reviewable = status === 'DRAFT' || status === 'CONFIRMED'
 
-  const people = groups.person
-  const others = groups.other
-
-  function entriesUrl(group: Group, q: string, cursor?: string) {
-    const params = new URLSearchParams({ group })
-    if (q) params.set('q', q)
-    if (cursor) params.set('cursor', cursor)
-    return `/api/projects/${projectId}/bible/entries?${params}`
-  }
-
-  async function fetchPage(group: Group, q: string, cursor?: string): Promise<EntryPage> {
-    const res = await fetch(entriesUrl(group, q, cursor))
-    if (!res.ok) throw new Error('Could not load the bible')
-    const body = (await res.json()) as { data: BibleEntry[]; total: number; nextCursor: string | null }
-    return { entries: body.data, total: body.total, nextCursor: body.nextCursor }
-  }
-
-  async function search(e: React.FormEvent) {
-    e.preventDefault()
-    const q = query.trim()
-    setLoadingGroup('all')
-    await run(async () => {
-      const [person, other] = await Promise.all([fetchPage('person', q), fetchPage('other', q)])
-      setGroups({ person, other })
-      setActiveQuery(q)
-    })
-    setLoadingGroup(null)
-  }
-
-  async function showMore(group: Group) {
-    const cursor = groups[group].nextCursor
-    if (!cursor) return
-    setLoadingGroup(group)
-    await run(async () => {
-      const page = await fetchPage(group, activeQuery, cursor)
-      setGroups((g) => ({
-        ...g,
-        [group]: { ...page, entries: [...g[group].entries, ...page.entries] },
-      }))
-    })
-    setLoadingGroup(null)
-  }
+  // While a scan runs, refresh its progress; when it ends, reload the page data.
+  useEffect(() => {
+    if (!running) return
+    let stopped = false
+    async function refresh() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/bible`, { cache: 'no-store' })
+        const body = (await res.json()) as { bible: NonNullable<Bible> | null }
+        if (stopped || !body.bible) return
+        setProgress({ done: body.bible.scanDone ?? 0, total: body.bible.scanTotal ?? 0 })
+        setLost(body.bible.scanLost ?? false)
+        if (body.bible.scanStatus !== 'SCANNING') {
+          setScanStatus(body.bible.scanStatus)
+          router.refresh()
+        }
+      } catch {
+        // a missed refresh is fine; the next one catches up
+      }
+    }
+    refresh()
+    const timer = setInterval(refresh, PROGRESS_POLL_MS)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [running, projectId, router])
 
   async function call(url: string, init: RequestInit, failure: string) {
     const res = await fetch(url, {
@@ -175,14 +146,13 @@ export default function BibleReview({
   }
 
   async function scan() {
-    if (
-      reviewable &&
-      !window.confirm(
-        'Re-scan the whole book? Names you have not edited or approved will be updated; your edits are kept.'
-      )
-    )
-      return
+    const keep = reviewable
+      ? ' Your edits to the overview and to glossary names are kept.'
+      : ''
+    if (!window.confirm(`${scanCostNote(sourceChars)}${keep}\n\nStart the scan?`)) return
     setBusy(true)
+    setLost(false)
+    setProgress({ done: 0, total: 0 })
     await run(async () => {
       const job = await call(
         `/api/projects/${projectId}/bible/scan`,
@@ -196,6 +166,18 @@ export default function BibleReview({
     setBusy(false)
   }
 
+  async function stopScan() {
+    if (!window.confirm('Stop the scan? Work done so far is discarded; the current bible stays as it is.')) {
+      return
+    }
+    await run(async () => {
+      await call(`/api/projects/${projectId}/bible/scan`, { method: 'DELETE' }, 'Could not stop the scan')
+      setScanStatus('IDLE')
+      setProgress({ done: 0, total: 0 })
+      router.refresh()
+    })
+  }
+
   async function saveBible(patch: { styleGuide?: string; status?: 'CONFIRMED' | 'DRAFT' }) {
     await run(async () => {
       const body = await call(
@@ -204,72 +186,9 @@ export default function BibleReview({
         'Could not save the bible'
       )
       setStatus(body.bible.status)
-      setSavedStyle(body.bible.styleGuide)
+      setSavedOverview(body.bible.styleGuide)
     })
   }
-
-  function updateEntry(id: string, change: (e: BibleEntry) => BibleEntry) {
-    const apply = (page: EntryPage) => ({
-      ...page,
-      entries: page.entries.map((e) => (e.id === id ? change(e) : e)),
-    })
-    setGroups((g) => ({ person: apply(g.person), other: apply(g.other) }))
-  }
-
-  async function patchTerm(entryId: string, termId: string, patch: TermPatch) {
-    await run(async () => {
-      await call(
-        `/api/projects/${projectId}/glossary/${termId}`,
-        { method: 'PATCH', body: JSON.stringify(patch) },
-        'Could not save the change'
-      )
-      updateEntry(entryId, (e) =>
-        termId === e.id
-          ? { ...e, ...patch, userEdited: true }
-          : {
-              ...e,
-              aliases: e.aliases.map((a) => (a.id === termId ? { ...a, ...patch } : a)),
-            }
-      )
-    })
-  }
-
-  async function deleteAlias(entryId: string, aliasId: string) {
-    await run(async () => {
-      await call(
-        `/api/projects/${projectId}/glossary/${aliasId}`,
-        { method: 'DELETE' },
-        'Could not delete the alias'
-      )
-      updateEntry(entryId, (e) => ({ ...e, aliases: e.aliases.filter((a) => a.id !== aliasId) }))
-    })
-  }
-
-  async function addAlias(entry: BibleEntry, english: string, translation: string) {
-    await run(async () => {
-      const body = await call(
-        `/api/projects/${projectId}/glossary`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ english, translation, category: entry.category, aliasOfId: entry.id }),
-        },
-        'Could not add the alias'
-      )
-      const { id, english: name, translation: tr } = body.data
-      updateEntry(entry.id, (e) => ({
-        ...e,
-        aliases: [...e.aliases, { id, english: name, translation: tr }],
-      }))
-    })
-  }
-
-  const cardProps = (e: BibleEntry) => ({
-    entry: e,
-    onPatch: (termId: string, patch: TermPatch) => patchTerm(e.id, termId, patch),
-    onDeleteAlias: (aliasId: string) => deleteAlias(e.id, aliasId),
-    onAddAlias: (english: string, translation: string) => addAlias(e, english, translation),
-  })
-
 
   return (
     <div className="space-y-6">
@@ -284,10 +203,16 @@ export default function BibleReview({
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
         <div>
-          <p className="text-sm font-semibold text-ink">{headline(status, scanStatus)}</p>
-          <p className="mt-0.5 text-xs text-ink-muted">{detail(reviewable, scanStatus)}</p>
+          <p className="text-sm font-semibold text-ink">{headline(status, scanStatus, lost)}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">{detail(reviewable, scanStatus, lost)}</p>
         </div>
         <div className="flex gap-2">
+          {running && (
+            <button type="button" onClick={stopScan} className={secondary}>
+              <Square className="h-4 w-4" />
+              Stop scan
+            </button>
+          )}
           <button type="button" onClick={scan} disabled={scanning} className={secondary}>
             {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {scanning ? 'Scanning…' : reviewable || scanStatus === 'FAILED' ? 'Re-scan' : 'Scan book'}
@@ -304,97 +229,57 @@ export default function BibleReview({
             </button>
           )}
         </div>
+        {running && <ScanProgress done={progress.done} total={progress.total} />}
+        {!scanning && (
+          <p role="note" className="basis-full rounded bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {scanCostNote(sourceChars)}
+          </p>
+        )}
       </div>
 
       {reviewable && (
-        <>
-          <section>
-            <h2 className="text-sm font-semibold text-ink">Style guide</h2>
-            <textarea
-              aria-label="Style guide"
-              value={styleGuide}
-              onChange={(e) => setStyleGuide(e.target.value)}
-              onBlur={() => styleGuide !== savedStyle && saveBible({ styleGuide })}
-              maxLength={5000}
-              rows={6}
-              className="mt-2 w-full rounded border border-zinc-300 bg-white p-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-            />
-          </section>
-
-          <form onSubmit={search} className="relative max-w-sm">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search names or aliases, then press Enter"
-              aria-label="Search names or aliases"
-              maxLength={100}
-              className="w-full rounded border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            />
-            {loadingGroup === 'all' && (
-              <Loader2 className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-zinc-400" />
-            )}
-          </form>
-
-          <section>
-            <h2 className="text-sm font-semibold text-ink">Characters ({people.total})</h2>
-            <div className="mt-2 grid gap-3 lg:grid-cols-2">
-              {people.entries.map((e) => (
-                <EntryCard key={e.id} {...cardProps(e)} person />
-              ))}
-            </div>
-            <ShowMore
-              page={people}
-              label="characters"
-              loading={loadingGroup === 'person'}
-              onClick={() => showMore('person')}
-            />
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold text-ink">Places and terms ({others.total})</h2>
-            <div className="mt-2 grid gap-3 lg:grid-cols-2">
-              {others.entries.map((e) => (
-                <EntryCard key={e.id} {...cardProps(e)} person={false} />
-              ))}
-            </div>
-            <ShowMore
-              page={others}
-              label="places and terms"
-              loading={loadingGroup === 'other'}
-              onClick={() => showMore('other')}
-            />
-          </section>
-        </>
+        <section>
+          <h2 className="text-sm font-semibold text-ink">Book overview</h2>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Storyline, main characters and tone, sent with every passage. Names and their
+            translations are in the{' '}
+            <Link href={`/dashboard/projects/${projectId}/glossary`} className="underline">
+              glossary
+            </Link>
+            .
+          </p>
+          <textarea
+            aria-label="Book overview"
+            value={overview}
+            onChange={(e) => setOverview(e.target.value)}
+            onBlur={() => overview !== savedOverview && saveBible({ styleGuide: overview })}
+            maxLength={5000}
+            rows={14}
+            className="mt-2 w-full rounded border border-zinc-300 bg-white p-2 text-sm leading-relaxed dark:border-zinc-700 dark:bg-zinc-950"
+          />
+        </section>
       )}
     </div>
   )
 }
 
-function ShowMore({
-  page,
-  label,
-  loading,
-  onClick,
-}: {
-  page: EntryPage
-  label: string
-  loading: boolean
-  onClick: () => void
-}) {
-  if (!page.nextCursor) return null
-  const left = page.total - page.entries.length
+function ScanProgress({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={loading}
-      aria-label={`Show more ${label}`}
-      className={`mt-3 ${secondary}`}
-    >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-      Show more{left > 0 ? ` (${left} left)` : ''}
-    </button>
+    <div className="basis-full">
+      <div
+        role="progressbar"
+        aria-label="Scan progress"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+        className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+      >
+        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-1 text-xs text-ink-muted">
+        {total > 0 ? `${done} / ${total} steps (${pct}%)` : 'Starting…'}
+      </p>
+    </div>
   )
 }

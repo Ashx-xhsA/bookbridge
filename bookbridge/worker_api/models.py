@@ -69,17 +69,10 @@ class TranslationConfigInput(BaseModel):
     max_batch_chars: int = Field(6000, ge=1, le=50_000)
 
 
-class CharacterInput(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    translation: str = Field(..., min_length=1, max_length=500)
-    gender: str | None = Field(None, max_length=50)
-    voice: str | None = Field(None, max_length=1000)
-    notes: str | None = Field(None, max_length=1000)
-
-
 class BibleInput(BaseModel):
+    # The book overview (storyline, main characters, tone). The field keeps its
+    # old name to match the BFF's BookBible.styleGuide column.
     style_guide: str = Field("", max_length=5000)
-    characters: list[CharacterInput] = Field(default_factory=list, max_length=500)
 
 
 class TranslateSegmentsAsyncRequest(BaseModel):

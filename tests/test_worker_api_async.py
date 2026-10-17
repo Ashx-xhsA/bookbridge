@@ -258,6 +258,8 @@ def test_alias_rows_reach_the_prompt_with_referent() -> None:
 
 
 def test_bible_reaches_the_prompt_and_switch_removes_it() -> None:
+    # The book overview travels in style_guide; character cards are gone, and
+    # a sender that still includes them is not rejected.
     bible = {
         "style_guide": "Keep it terse.",
         "characters": [{"name": "Frodo", "translation": "弗罗多", "voice": "Earnest."}],
@@ -265,7 +267,7 @@ def test_bible_reaches_the_prompt_and_switch_removes_it() -> None:
     scripted = ScriptedClient(_translate_or_extract)
     _run(scripted, bible=bible)
     assert "Keep it terse." in scripted.calls[0][0]
-    assert "Earnest." in scripted.calls[0][0]  # "Frodo ran." is in the batch
+    assert "Earnest." not in scripted.calls[0][0]
 
     scripted = ScriptedClient(_translate_or_extract)
     _run(scripted, bible=bible, config={"book_bible": False})

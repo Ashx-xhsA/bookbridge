@@ -6,9 +6,7 @@ function entity(overrides: Partial<ScannedEntity> = {}): ScannedEntity {
     english: 'Gandalf',
     translation: '甘道夫',
     category: 'person',
-    gender: 'male',
     notes: null,
-    voice: 'Grave.',
     mentions: 40,
     aliases: [],
     ...overrides,
@@ -22,8 +20,6 @@ function term(overrides: Partial<ExistingTerm> = {}): ExistingTerm {
     translation: '冈达夫',
     approved: false,
     userEdited: false,
-    gender: null,
-    voice: null,
     notes: null,
     aliasOfId: null,
     aliasCount: 0,
@@ -39,8 +35,6 @@ describe('planBibleMerge', () => {
         english: 'Gandalf',
         translation: '甘道夫',
         category: 'person',
-        gender: 'male',
-        voice: 'Grave.',
         notes: null,
         mentions: 40,
       },
@@ -69,8 +63,6 @@ describe('planBibleMerge', () => {
         data: {
           translation: '甘道夫',
           category: 'person',
-          gender: 'male',
-          voice: 'Grave.',
           mentions: 40,
         },
       },
@@ -80,8 +72,11 @@ describe('planBibleMerge', () => {
   it.each([{ userEdited: true }, { approved: true }])(
     'keeps the translation of a term the user owns (%o) and only fills blanks',
     (flags) => {
-      const plan = planBibleMerge([term({ ...flags, voice: 'Mine.' })], [entity()])
-      expect(plan.updates).toEqual([{ id: 't1', data: { gender: 'male', mentions: 40 } }])
+      const plan = planBibleMerge(
+        [term({ ...flags })],
+        [entity({ notes: 'A wizard.' })]
+      )
+      expect(plan.updates).toEqual([{ id: 't1', data: { notes: 'A wizard.', mentions: 40 } }])
     }
   )
 
@@ -126,7 +121,7 @@ describe('planBibleMerge', () => {
       [],
       [
         entity({ aliases: [{ english: 'Frodo', translation: '弗罗多' }] }),
-        entity({ english: 'Frodo', translation: '弗罗多', voice: null }),
+        entity({ english: 'Frodo', translation: '弗罗多' }),
       ]
     )
     expect(plan.links).toEqual([])
