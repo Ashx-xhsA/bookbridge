@@ -28,9 +28,15 @@ def _entity(name: str, translation: str, category: str = "person", **kw: object)
 class Router:
     """Replies per task; `scan` maps a word that must be in the passage to entities."""
 
-    def __init__(self, scan: dict[str, list[dict]], fail: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        scan: dict[str, list[dict]],
+        fail: set[str] | None = None,
+        keep: list[str] | None = None,
+    ) -> None:
         self.scan = scan
         self.fail = fail or set()
+        self.keep = keep  # names the prune call keeps
         self.client = ScriptedClient(self.respond)
 
     def respond(self, system: str, user: str, json_mode: bool) -> str:
@@ -42,6 +48,8 @@ class Router:
             return json.dumps({"entities": found, "summary": f"Summary: {user.split()[0]}"})
         if task == "book_overview":
             return "  OVERVIEW of the book.  "
+        if task == "prune_glossary":
+            return json.dumps({"keep": self.keep or []})
         raise AssertionError(task)
 
 
@@ -335,13 +343,14 @@ def test_scan_prompt_asks_for_a_passage_summary_and_no_gender() -> None:
     assert "gender" not in system
 
 
-def test_scan_prompt_asks_for_people_and_places_but_not_well_known_names() -> None:
+def test_scan_prompt_asks_for_people_places_other_and_a_standard_translation_flag() -> None:
     from bookbridge.harness.prompts import build_scan_prompt
 
     system, _ = build_scan_prompt("x", target_lang="zh-Hans")
-    assert "people and places only" in system.lower()
-    assert "well-known" in system and "Andes" in system and "Americans" in system
-    assert '"person"|"place"' in system and "organization" not in system
+    assert '"person"|"place"|"other"' in system
+    assert '"standard_translation": true|false' in system
+    for example in ("countries", "geological periods", "species"):
+        assert example in system
 
 
 def test_overview_prompt_asks_for_plot_characters_and_style_in_the_target_language() -> None:
@@ -391,3 +400,73 @@ def test_stops_when_progress_says_so() -> None:
     with pytest.raises(ScanStopped):
         scan_book(router.client, BOOK, target_lang="zh-Hans", max_chunk_chars=60, progress=progress)
     assert [_task(c[0]) for c in router.client.calls] == ["scan_entities"]
+
+
+# --- glossary size: no standard-translation names, at most MAX_GLOSSARY_TERMS --
+
+
+def test_names_with_a_standard_translation_are_dropped() -> None:
+    router = Router(
+        {
+            "friend": [
+                _entity("Georg", "格奥尔格"),
+                _entity("St. Petersburg", "圣彼得堡", "place", standard_translation=True),
+            ]
+        }
+    )
+    result = scan_book(router.client, BOOK, target_lang="zh-Hans")
+    assert [e.english for e in result.entities] == ["Georg"]
+
+
+def test_no_prune_call_while_under_the_cap() -> None:
+    router = Router({"friend": [_entity("Georg", "格奥尔格"), _entity("Frieda", "弗里达")]})
+    scan_book(router.client, BOOK, target_lang="zh-Hans", max_terms=2)
+    assert "prune_glossary" not in {_task(s) for s, _, _ in router.client.calls}
+
+
+def test_model_prunes_to_the_cap_counting_aliases() -> None:
+    router = Router(
+        {
+            "friend": [
+                _entity(
+                    "Georg",
+                    "格奥尔格",
+                    aliases=[{"name": "Mr. Bendemann", "translation": "本德曼先生"}],
+                ),
+                _entity("Frieda", "弗里达"),
+                _entity("St. Petersburg", "圣彼得堡", "place"),
+            ]
+        },
+        keep=["Frieda", "St. Petersburg", "Unknown Name"],
+    )
+    result = scan_book(router.client, BOOK, target_lang="zh-Hans", max_terms=3)
+    assert sorted(e.english for e in result.entities) == ["Frieda", "St. Petersburg"]
+    [(system, user, json_mode)] = [
+        c for c in router.client.calls if _task(c[0]) == "prune_glossary"
+    ]
+    assert json_mode and "3" in system
+    assert "Georg (格奥尔格)" in user and "Mr. Bendemann" in user
+
+
+def test_rows_over_the_cap_after_pruning_are_cut_by_mentions() -> None:
+    router = Router(
+        {"friend": [_entity("Georg", "格奥尔格"), _entity("Frieda", "弗里达")]},
+        keep=["Georg", "Frieda"],  # the model ignores the cap
+    )
+    result = scan_book(router.client, BOOK, target_lang="zh-Hans", max_terms=1)
+    assert [e.english for e in result.entities] == ["Georg"]  # most mentioned
+
+
+def test_failed_prune_call_keeps_the_most_mentioned() -> None:
+    router = Router(
+        {"friend": [_entity("Frieda", "弗里达"), _entity("Georg", "格奥尔格")]},
+        fail={"prune_glossary"},
+    )
+    result = scan_book(router.client, BOOK, target_lang="zh-Hans", max_terms=1)
+    assert [e.english for e in result.entities] == ["Georg"]
+
+
+def test_default_cap_is_200() -> None:
+    from bookbridge.harness.prescan import MAX_GLOSSARY_TERMS
+
+    assert MAX_GLOSSARY_TERMS == 200
