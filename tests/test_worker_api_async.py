@@ -368,7 +368,8 @@ def test_new_terms_are_posted_in_chunks_the_bff_accepts() -> None:
 
 def _flag_second(system: str, user: str, json_mode: bool) -> str:
     if _is_review(system):
-        issue = {"segment": 2, "category": "pronoun", "severity": "warning", "message": "他/她"}
+        issue = {"segment": 2, "category": "pronoun", "severity": "warning", "message": "他/她",
+                 "quote": "T:Sam."}  # fmt: skip
         return json.dumps({"issues": [issue] if "Sam." in user else []})
     return _translate_or_extract(system, user, json_mode)
 
@@ -398,7 +399,13 @@ def test_issue_list_per_segment_is_capped() -> None:
     def many(system: str, user: str, json_mode: bool) -> str:
         if _is_review(system):
             issues = [
-                {"segment": 1, "category": "style", "severity": "warning", "message": f"m{i}"}
+                {
+                    "segment": 1,
+                    "category": "style",
+                    "severity": "warning",
+                    "message": f"m{i}",
+                    "quote": "T:Frodo",
+                }  # fmt: skip
                 for i in range(50)
             ]
             return json.dumps({"issues": issues})

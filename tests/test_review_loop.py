@@ -109,7 +109,8 @@ class TestReview:
         verdicts = iter(
             [
                 json.dumps({"issues": [{"segment": 1, "category": "pronoun",
-                                        "severity": "error", "message": "她 → 他", "fix": "他"}]}),
+                                        "severity": "error", "message": "她 → 他", "quote": "她",
+                                        "fix": "他"}]}),
             ]
         )  # fmt: skip
         client = Router(
@@ -242,9 +243,9 @@ class TestRecheck:
     def test_recheck_error_keeps_the_segment_flagged(self) -> None:
         still = json.dumps({"issues": [{"segment": 1, "category": "mistranslation",
                                         "severity": "error", "message": "still wrong",
-                                        "fix": "y"}]})  # fmt: skip
+                                        "quote": "弗罗多", "fix": "y"}]})  # fmt: skip
         client = Router(translate=lambda s: "佛罗多。", revise=lambda s: "弗罗多。",
                         recheck=lambda u: still)  # fmt: skip
         result = _run(client, ["Frodo."])
-        assert [i.message for i in result.issues[0]] == ["still wrong (fix: y)"]
+        assert [i.message for i in result.issues[0]] == ['still wrong ["弗罗多" → "y"]']
         assert result.review.fixed == 0

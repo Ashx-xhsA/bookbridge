@@ -47,6 +47,7 @@ class TestReviewPrompt:
         assert "Task: review" in text
         assert "Target language: zh-Hans" in text
         assert '"issues"' in text and '"segment"' in text and '"fix"' in text
+        assert '"quote"' in text and "copied exactly from the translation" in text
 
     def test_defines_error_as_meaning_only(self) -> None:
         text = _review()
@@ -114,66 +115,60 @@ def _issues_json(*items: dict) -> str:
     return json.dumps({"issues": list(items)}, ensure_ascii=False)
 
 
+TEXTS = ["弗罗多跑了。", "她说她累了。"]
+
+
+def _item(**kw: object) -> dict:
+    base = {"segment": 2, "quote": "她说", "category": "pronoun", "severity": "error",
+            "fix": "他说", "message": "speaker is male"}  # fmt: skip
+    return {**base, **kw}
+
+
 class TestParseReview:
-    def test_maps_one_based_segments_to_batch_positions(self) -> None:
-        content = _issues_json(
-            {"segment": 2, "category": "pronoun", "severity": "error", "message": "她 → 他",
-             "fix": "他说"}
-        )  # fmt: skip
-        assert parse_review(content, expected=2) == {
-            1: [Issue("pronoun", "她 → 他 (fix: 他说)", "error")]
+    def test_maps_one_based_segments_and_shows_quote_and_fix(self) -> None:
+        assert parse_review(_issues_json(_item()), TEXTS) == {
+            1: [Issue("pronoun", 'speaker is male ["她说" → "他说"]', "error")]
         }
 
     def test_drops_out_of_range_and_malformed_items(self) -> None:
         content = _issues_json(
-            {"segment": 3, "category": "pronoun", "severity": "error", "message": "x"},
-            {"segment": 0, "category": "pronoun", "severity": "error", "message": "x"},
-            {"segment": "1", "category": "pronoun", "severity": "error", "message": "x"},
-            {"segment": 1, "category": "pronoun", "severity": "error"},
-            "not an object",
-        )
-        assert parse_review(content, expected=2) == {}
+            _item(segment=3), _item(segment=0), _item(segment="2"),
+            _item(message=None), "not an object",
+        )  # fmt: skip
+        assert parse_review(content, TEXTS) == {}
+
+    @pytest.mark.parametrize("quote", [None, "", "不适用", "他说"])
+    def test_items_without_a_quote_found_in_the_translation_are_dropped(
+        self, quote: object
+    ) -> None:
+        # Retracted items ("此条不成立", fix "（不适用）") cannot quote a wrong span.
+        assert parse_review(_issues_json(_item(quote=quote)), TEXTS) == {}
 
     def test_normalises_category_and_severity(self) -> None:
-        content = _issues_json({"segment": 1, "category": "vibes", "severity": "fatal",
-                                "message": "odd"})  # fmt: skip
-        assert parse_review(content, expected=1) == {0: [Issue("other", "odd", "warning")]}
+        content = _issues_json(_item(category="vibes", severity="fatal", fix=None))
+        assert parse_review(content, TEXTS) == {1: [Issue("other", "speaker is male", "warning")]}
 
     def test_clips_long_messages(self) -> None:
-        content = _issues_json(
-            {"segment": 1, "category": "style", "severity": "warning", "message": "x" * 1000}
-        )
-        assert len(parse_review(content, expected=1)[0][0].message) == 300
+        content = _issues_json(_item(category="style", message="x" * 1000))
+        assert len(parse_review(content, TEXTS)[1][0].message) == 300
 
     @pytest.mark.parametrize("category", ["style", "fluency", "voice", "other"])
     def test_style_level_categories_are_never_errors(self, category: str) -> None:
-        content = _issues_json({"segment": 1, "category": category, "severity": "error",
-                                "message": "stiff", "fix": "x"})  # fmt: skip
-        assert parse_review(content, expected=1)[0][0].severity == "warning"
+        content = _issues_json(_item(category=category))
+        assert parse_review(content, TEXTS)[1][0].severity == "warning"
 
-    def test_an_error_without_a_concrete_fix_is_only_a_warning(self) -> None:
-        for fix in (None, "", "   "):
-            content = _issues_json(
-                {
-                    "segment": 1,
-                    "category": "mistranslation",
-                    "severity": "error",
-                    "message": "此条不成立",
-                    "fix": fix,
-                }
-            )
-            assert parse_review(content, expected=1)[0][0].severity == "warning"  # fmt: skip
+    @pytest.mark.parametrize("fix", [None, "", "   ", "她说"])
+    def test_an_error_needs_a_fix_that_changes_the_quote(self, fix: object) -> None:
+        content = _issues_json(_item(fix=fix))
+        assert parse_review(content, TEXTS)[1][0].severity == "warning"
 
     def test_unparseable_reply_means_no_issues(self) -> None:
-        assert parse_review("looks fine to me", expected=2) == {}
-        assert parse_review('{"issues": "none"}', expected=2) == {}
+        assert parse_review("looks fine to me", TEXTS) == {}
+        assert parse_review('{"issues": "none"}', TEXTS) == {}
 
     def test_accepts_code_fenced_json(self) -> None:
-        content = "```json\n" + _issues_json(
-            {"segment": 1, "category": "omission", "severity": "error", "message": "dropped",
-             "fix": "星期日"}
-        ) + "\n```"  # fmt: skip
-        assert parse_review(content, expected=1)[0][0].category == "omission"
+        content = "```json\n" + _issues_json(_item(category="omission")) + "\n```"
+        assert parse_review(content, TEXTS)[1][0].category == "omission"
 
 
 class TestRecheckPrompt:
