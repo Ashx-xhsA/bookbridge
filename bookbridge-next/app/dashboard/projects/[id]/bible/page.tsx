@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import prisma from '@/lib/prisma'
 import { loadBibleEntries } from '@/lib/bible-entries'
+import { BIBLE_STATE, toBibleState } from '@/lib/bible-state'
+import { ensureSourceChars } from '@/lib/book-size'
 import BibleReview from './BibleReview'
 
 export default async function BiblePage({ params }: { params: Promise<{ id: string }> }) {
@@ -17,18 +19,19 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       id: true,
       title: true,
       ownerId: true,
-      bible: {
-        select: { status: true, scanStatus: true, styleGuide: true, jobId: true, updatedAt: true },
-      },
+      sourceChars: true,
+      bible: { select: BIBLE_STATE },
     },
   })
   if (!project || project.ownerId !== userId) notFound()
 
   // First page of each group; the rest loads from the entries API.
-  const [people, others] = await Promise.all([
+  const [people, others, sourceChars] = await Promise.all([
     loadBibleEntries(id, { group: 'person' }),
     loadBibleEntries(id, { group: 'other' }),
+    ensureSourceChars(id, project.sourceChars),
   ])
+  const bible = project.bible && toBibleState(project.bible)
   return (
     <div>
       <Link
@@ -47,9 +50,10 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       <div className="mt-6">
         {/* Remount after a scan finishes so client state starts from fresh data. */}
         <BibleReview
-          key={`${project.bible?.status}-${project.bible?.scanStatus}-${project.bible?.updatedAt.getTime()}`}
+          key={`${bible?.status}-${bible?.scanStatus}-${bible?.updatedAt.getTime()}`}
           projectId={id}
-          bible={project.bible}
+          bible={bible}
+          sourceChars={sourceChars}
           people={people}
           others={others}
         />

@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
       }),
       prisma.project.update({
         where: { id: project.id },
-        data: { status: 'READY' },
+        data: { status: 'READY', sourceChars: bookChars(chapters) },
       }),
     ])
     return NextResponse.json({ projectId: project.id })

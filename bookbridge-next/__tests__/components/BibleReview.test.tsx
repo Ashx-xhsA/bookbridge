@@ -10,7 +10,7 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('lucide-react', () => {
   const Icon = () => <svg />
-  return { CheckCircle2: Icon, Loader2: Icon, RefreshCw: Icon, Search: Icon, Plus: Icon, Trash2: Icon, Sparkles: Icon }
+  return { CheckCircle2: Icon, Loader2: Icon, RefreshCw: Icon, Search: Icon, Square: Icon, Plus: Icon, Trash2: Icon, Sparkles: Icon }
 })
 const mockPollJob = vi.fn()
 vi.mock('@/lib/jobPoll', () => ({ pollJob: (...a: unknown[]) => mockPollJob(...a) }))
