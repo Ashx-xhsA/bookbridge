@@ -11,9 +11,6 @@ vi.mock('next/link', () => ({
   ),
 }))
 vi.mock('@/lib/jobPoll', () => ({ pollJob: vi.fn() }))
-vi.mock('@/app/dashboard/projects/[id]/TranslateButton', () => ({
-  default: () => <button>Translate</button>,
-}))
 vi.mock('@/app/dashboard/projects/[id]/SummaryButton', () => ({
   default: () => <button>Summarize</button>,
 }))
@@ -73,6 +70,15 @@ describe('ChapterExplorer', () => {
     expect(screen.getByRole('button', { name: /^morning/i })).toBeInTheDocument()
     expect(screen.queryByText(/^\s*1\.\s*morning/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/chapter 1\b/i)).not.toBeInTheDocument()
+  })
+
+  it('has no per-chapter Translate button: chapters are picked in the list', async () => {
+    mockFetch.mockReturnValue(ok({ id: 'c2', segments: [] }))
+    render(<ChapterExplorer chapters={chapters} jobs={[]} projectId="p1" />)
+    fireEvent.click(screen.getByRole('button', { name: /^evening/i }))
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/projects/p1/chapters/c2'))
+    expect(screen.queryByRole('button', { name: /^translate$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /select evening/i })).toBeInTheDocument()
   })
 
   it('offers Translate All for untranslated chapters that have paragraphs', () => {

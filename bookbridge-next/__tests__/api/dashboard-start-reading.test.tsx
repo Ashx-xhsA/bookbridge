@@ -46,18 +46,6 @@ vi.mock('lucide-react', () => ({
   PlayCircle: () => <svg data-testid="icon-play-circle" />,
 }))
 
-// Mock TranslateButton (client component — cannot render in jsdom)
-vi.mock(
-  '@/app/dashboard/projects/[id]/TranslateButton',
-  () => ({
-    default: ({ projectId, chapterId }: { projectId: string; chapterId: string }) => (
-      <button data-testid="translate-btn" data-project={projectId} data-chapter={chapterId}>
-        Translate
-      </button>
-    ),
-  })
-)
-
 // Mock DeleteProjectButton (client component — uses useRouter which is not mocked here)
 vi.mock(
   '@/app/dashboard/projects/[id]/DeleteProjectButton',

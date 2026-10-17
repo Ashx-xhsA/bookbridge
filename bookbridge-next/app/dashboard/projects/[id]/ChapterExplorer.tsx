@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { FileText, CheckCircle, Clock, Loader2, PlayCircle, StopCircle } from 'lucide-react'
-import TranslateButton from './TranslateButton'
 import SummaryButton from './SummaryButton'
 import { pollJob } from '@/lib/jobPoll'
 import { chapterUrl, type ReaderRow } from '@/lib/reader'
@@ -371,13 +370,8 @@ export default function ChapterExplorer({
                       </button>
                     )
                   }
-                  return (
-                    <TranslateButton
-                      key={selected.id}
-                      projectId={projectId}
-                      chapterId={selected.id}
-                    />
-                  )
+                  // Not translated yet: chapters are picked in the list on the left.
+                  return null
                 })()}
               </div>
             </div>
