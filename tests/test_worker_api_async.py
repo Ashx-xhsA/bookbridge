@@ -415,3 +415,13 @@ def test_issue_list_per_segment_is_capped() -> None:
 
     jobs, _ = _run(ScriptedClient(many), segments=[{"index": 0, "source": "Frodo ran."}])
     assert len(jobs[-1]["segments"][0]["issues"]) == routes.MAX_SEGMENT_ISSUES
+
+
+def test_chapter_summary_is_written_in_the_target_language() -> None:
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted)
+    [summary_system] = [
+        s for s, u, j in scripted.calls if not j and not _is_review(s) and "<<<" not in u
+    ]
+    assert "Target language: zh-Hans" in summary_system
+    assert "in English" not in summary_system
