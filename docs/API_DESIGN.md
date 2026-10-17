@@ -188,10 +188,10 @@ All routes need a Clerk session unless marked **Public** or **Worker**. Every `[
 | `POST` | `/api/projects/[id]/glossary` | Owner | Add a term, optionally as an alias of another (`aliasOfId`) |
 | `PATCH` | `/api/projects/[id]/glossary/[termId]` | Owner | Edit translation, gender, voice; approve |
 | `DELETE` | `/api/projects/[id]/glossary/[termId]` | Owner | Delete a term |
-| `GET` | `/api/projects/[id]/bible` | Owner | Bible review and scan status, style guide |
-| `PATCH` | `/api/projects/[id]/bible` | Owner | Edit the style guide; confirm or reopen as draft |
-| `POST` | `/api/projects/[id]/bible/scan` | Owner | Start a pre-scan of the whole book (returns a job to poll) |
-| `GET` | `/api/projects/[id]/bible/entries?group=person\|other[&q=][&cursor=]` | Owner | One page (50) of main bible entries with their aliases, ordered by mentions: `{ data, total, nextCursor }` |
+| `GET` | `/api/projects/[id]/bible` | Owner | Bible review status, the book overview (stored as `styleGuide`), scan status with live progress (`scanDone` / `scanTotal`) and `scanLost` (no progress for 10 minutes) |
+| `PATCH` | `/api/projects/[id]/bible` | Owner | Edit the book overview; confirm or reopen as draft |
+| `POST` | `/api/projects/[id]/bible/scan` | Owner | Start a pre-scan of the whole book (returns a job to poll): one model call per ~12k-char passage for names and a summary, then one call for the overview. 409 while a scan is still reporting progress |
+| `DELETE` | `/api/projects/[id]/bible/scan` | Owner | Stop a running scan. The Worker stops at its next progress report; the current bible is kept |
 
 ### Public reading (shared link)
 
@@ -216,7 +216,8 @@ Server to server only. The Worker authenticates with the shared secret in `X-Wor
 |---|---|---|---|
 | `POST` | `/api/internal/worker-callback` | Worker | Per-paragraph translation results with review status and open issues |
 | `POST` | `/api/internal/worker-callback/glossary` | Worker | New proper nouns extracted after translation |
-| `POST` | `/api/internal/worker-callback/bible` | Worker | Pre-scan result: characters, aliases, places, style guide |
+| `POST` | `/api/internal/worker-callback/bible` | Worker | Pre-scan result: names of people and places with aliases (merged into the glossary) and the book overview |
+| `POST` | `/api/internal/worker-callback/bible/progress` | Worker | Scan progress after each step; replies `{continue: false}` when the scan was stopped or replaced |
 
 ---
 
