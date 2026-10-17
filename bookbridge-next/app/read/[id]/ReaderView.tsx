@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle, FileText, Search, X, Loader2 } from 'lucide-react'
+import { CheckCircle, Download, FileText, Search, X, Loader2 } from 'lucide-react'
 import { pollJob } from '@/lib/jobPoll'
 import {
   SEARCH_QUERY_MIN,
@@ -25,6 +25,13 @@ const MODE_LABELS: Record<ViewMode, string> = {
 }
 
 const MODE_KEY = 'bookbridge-reader-mode'
+
+const EXPORTS = [
+  { query: 'format=md&layout=translation', label: 'Markdown — translation' },
+  { query: 'format=md&layout=bilingual', label: 'Markdown — bilingual' },
+  { query: 'format=epub&layout=side', label: 'EPUB — side by side' },
+  { query: 'format=epub&layout=stacked', label: 'EPUB — paragraph by paragraph' },
+]
 
 function readSavedMode(): ViewMode {
   try {
@@ -252,6 +259,7 @@ export default function ReaderView({
                 <Search className="h-4 w-4" />
               </button>
             )}
+            {source.kind === 'owner' && <ExportMenu projectId={source.projectId} />}
             <div className="hidden sm:flex rounded-lg border border-parchment bg-white p-0.5">
               {(Object.keys(MODE_LABELS) as ViewMode[]).map((m) => (
                 <button
@@ -478,5 +486,38 @@ function ChapterSection({
         </button>
       )}
     </section>
+  )
+}
+
+// Owner-only downloads, built on the server from the whole book.
+function ExportMenu({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Export"
+        aria-expanded={open}
+        className="rounded-lg border border-parchment p-2 text-ink-muted hover:text-ink"
+      >
+        <Download className="h-4 w-4" />
+      </button>
+      {open && (
+        <ul className="absolute right-0 z-20 mt-1 w-60 rounded-lg border border-parchment bg-white py-1 text-xs shadow-lg">
+          {EXPORTS.map((e) => (
+            <li key={e.query}>
+              <a
+                href={`/api/projects/${projectId}/export?${e.query}`}
+                download
+                onClick={() => setOpen(false)}
+                className="block px-3 py-2 text-ink-light hover:bg-parchment/50 hover:text-ink"
+              >
+                {e.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
