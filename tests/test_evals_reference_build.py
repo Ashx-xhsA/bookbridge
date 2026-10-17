@@ -140,3 +140,14 @@ class TestDraft:
     def test_a_name_the_translator_never_rendered_is_kept_for_a_person_to_fill(self) -> None:
         [term] = draft([("Rhynie", "place", 2)], [{}])
         assert term["accepted"] == [] and term["checked"] is False
+
+
+def test_scan_cache_is_kept_per_model(tmp_path: Path) -> None:
+    from bookbridge.harness.providers.mock import MockLLMClient
+    from evals.book import ChapterPair
+    from evals.scan_cache import ensure_scan
+
+    chapters = [ChapterPair("Intro", ["Rhynie A.", "Rhynie B."], ["赖尼。"])]
+    ensure_scan(MockLLMClient(), tmp_path, chapters, [0], "zh-Hans")
+    # A mock run must never leave a cache a real-model run would pick up.
+    assert [p.name for p in tmp_path.glob("scan-*.json")] == ["scan-MockLLMClient-0-0.json"]
