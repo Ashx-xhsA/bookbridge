@@ -37,9 +37,10 @@ from dataclasses import dataclass, field, replace
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.matching import occurs
 from bookbridge.harness.models import AliasTarget, LLMClient, ProviderError, TranslatorError
-from bookbridge.harness.parsing import parse_entities, parse_summary
+from bookbridge.harness.parsing import parse_entities, parse_keep, parse_summary
 from bookbridge.harness.prompts import (
     build_overview_prompt,
+    build_prune_prompt,
     build_scan_prompt,
 )
 from bookbridge.harness.proper_nouns import GLOSSARY_CATEGORIES, is_proper_noun
@@ -48,6 +49,13 @@ from bookbridge.harness.retry import complete_with_retry
 logger = logging.getLogger(__name__)
 
 SCAN_CHUNK_CHARS = 12000
+# Upper bound on glossary terms from one scan (each name and alias is one):
+# a book rarely needs more than ~100 for consistent names. Over it, one more
+# call keeps the names that matter.
+MAX_GLOSSARY_TERMS = 200
+# A name in fewer paragraphs than this cannot be translated inconsistently,
+# so it is not worth a glossary row.
+MIN_MENTIONS = 2
 # Most-mentioned people named in the overview.
 MAX_OVERVIEW_CHARACTERS = 12
 # Characters of text sampled at the start, middle and end for the tone.
@@ -88,6 +96,8 @@ def scan_book(
     *,
     target_lang: str,
     max_chunk_chars: int = SCAN_CHUNK_CHARS,
+    max_terms: int = MAX_GLOSSARY_TERMS,
+    min_mentions: int = MIN_MENTIONS,
     progress: ScanProgress | None = None,
 ) -> ScanResult:
     """Scan `chapters` (lists of paragraphs) and return a draft bible.
@@ -113,7 +123,7 @@ def scan_book(
     if failures == len(chunks):
         raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
-    entities = _count_mentions(_merge(raw), text)
+    entities = _prune(client, _count_mentions(_merge(raw), text, min_mentions), max_terms)
     overview = _overview(client, summaries, entities, paragraphs, target_lang)
     step.done()
     return ScanResult(overview=overview, entities=entities)
@@ -154,7 +164,7 @@ def _scan_passage(
 def _proper_only(item: dict) -> dict | None:
     """Keep the proper names of one scanned person or place; the first becomes its
     main name."""
-    if item["category"] not in GLOSSARY_CATEGORIES:
+    if item["category"] not in GLOSSARY_CATEGORIES or item.get("standard"):
         return None
     names = [(item["name"], item["translation"]), *item["aliases"]]
     kept = [(n, t) for n, t in names if is_proper_noun(n)]
@@ -259,10 +269,52 @@ def _mentioning(entity: ScannedEntity, text: _Text) -> list[str]:
     ]  # fmt: skip
 
 
-def _count_mentions(entities: list[ScannedEntity], text: _Text) -> list[ScannedEntity]:
+def _count_mentions(
+    entities: list[ScannedEntity], text: _Text, min_mentions: int
+) -> list[ScannedEntity]:
     counted = [replace(e, mentions=len(_mentioning(e, text))) for e in entities]
-    found = [e for e in counted if e.mentions]  # never written that way: not a name here
+    # Never written that way: not a name here. Written once: nothing to keep consistent.
+    found = [e for e in counted if e.mentions >= max(1, min_mentions)]
     return sorted(found, key=lambda e: -e.mentions)  # stable: ties keep scan order
+
+
+def _rows(entity: ScannedEntity) -> int:
+    """Glossary terms one entity becomes: its main name plus each alias."""
+    return 1 + len(entity.aliases)
+
+
+def _within(entities: Sequence[ScannedEntity], max_terms: int) -> list[ScannedEntity]:
+    """The leading entities (already sorted by mentions) that fit in max_terms rows."""
+    kept, used = [], 0
+    for e in entities:
+        if used + _rows(e) <= max_terms:
+            kept.append(e)
+            used += _rows(e)
+    return kept
+
+
+def _prune(client: LLMClient, entities: list[ScannedEntity], max_terms: int) -> list[ScannedEntity]:
+    """Keep at most max_terms glossary terms; over the cap the model picks which.
+
+    Whatever the model answers, the cap holds: kept names stay in mention
+    order and are cut to fit. A failed call keeps the most-mentioned names.
+    """
+    if sum(_rows(e) for e in entities) <= max_terms:
+        return entities
+    system, user = build_prune_prompt(
+        [
+            (e.english, e.translation, e.category, e.mentions, [a.english for a in e.aliases])
+            for e in entities
+        ],
+        max_terms=max_terms,
+    )
+    try:
+        keep = parse_keep(complete_with_retry(client, system, user, json_mode=True))
+    except TranslatorError as exc:
+        logger.warning("glossary pruning failed: %s", type(exc).__name__)
+        keep = set()
+    chosen = [e for e in entities if e.english.lower() in keep] if keep else entities
+    return _within(chosen, max_terms)
 
 
 def _window(paragraphs: Sequence[str], start: int) -> list[int]:

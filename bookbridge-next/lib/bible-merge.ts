@@ -4,7 +4,9 @@
 // - Terms are matched case-insensitively on `english`.
 // - A term the user owns (edited or approved) keeps its translation and
 //   category; the scan only fills blank notes and refreshes the mention count.
-// - Other existing terms take the scan's values.
+// - Other existing terms take the scan's values, and those the scan no longer
+//   lists (as a name or an alias) are removed: a re-scan rebuilds the glossary,
+//   keeping only what the user edited or approved.
 // - Each alias is its own term (own translation) linked to its main term.
 //   An existing alias that already points somewhere is not relinked, and a
 //   name that is a main entity in this scan is never made an alias.
@@ -48,6 +50,8 @@ export type TermUpdate = {
 export type MergePlan = {
   creates: TermCreate[]
   updates: TermUpdate[]
+  // Ids of terms the user never touched that this scan does not list.
+  deletes: string[]
   // Lowercased english keys; resolved to ids once creates have run.
   links: { alias: string; main: string }[]
 }
@@ -77,7 +81,7 @@ function mainCreate(e: ScannedEntity): TermCreate {
 export function planBibleMerge(existing: ExistingTerm[], entities: ScannedEntity[]): MergePlan {
   const byKey = new Map(existing.map((t) => [termKey(t.english), t]))
   const mainKeys = new Set(entities.map((e) => termKey(e.english)))
-  const plan: MergePlan = { creates: [], updates: [], links: [] }
+  const plan: MergePlan = { creates: [], updates: [], deletes: [], links: [] }
   const done = new Set<string>()
 
   for (const e of entities) {
@@ -96,6 +100,10 @@ export function planBibleMerge(existing: ExistingTerm[], entities: ScannedEntity
       if (canLink(byKey.get(aliasKey), found)) plan.links.push({ alias: aliasKey, main: key })
     }
   }
+  const listed = new Set(
+    entities.flatMap((e) => [termKey(e.english), ...e.aliases.map((a) => termKey(a.english))])
+  )
+  plan.deletes = existing.filter((t) => !owned(t) && !listed.has(termKey(t.english))).map((t) => t.id)
   return plan
 }
 

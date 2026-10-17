@@ -289,6 +289,21 @@ def build_revision_prompt(
     return system, _user_message(preceding, config, REVISE_HEADING, "\n".join(blocks))
 
 
+# How the scan and extraction calls label each name. Only people and places
+# without a standard translation go into the glossary; asking for labels works
+# better than asking the model to leave names out (it listed them anyway).
+_CLASSIFY_NAMES = (
+    'Set "category" to "person" for a named person, "place" for a named place, and '
+    '"other" for every other proper noun (geological periods, species and genus names, '
+    "organizations, ships, books, events). "
+    'Set "standard_translation" to true when the name already has one widely used '
+    "translation in the target language (countries, continents, oceans, well-known "
+    "cities and regions, geological periods, scientific species names, nationality "
+    "words such as Americans), and false when translators could render it in "
+    "different ways (most characters, small or fictional places)."
+)
+
+
 def build_extraction_prompt(
     pairs: Sequence[tuple[str, str]], *, target_lang: str, known_terms: Sequence[str]
 ) -> tuple[str, str]:
@@ -298,16 +313,13 @@ def build_extraction_prompt(
             "Task: extract_terms",
             "You build a translation glossary from source/translation pairs.",
             f"Target language: {target_lang}",
-            "Proper nouns only, and of those people and places only: list the names of "
-            "people and places that appear in the source, with the translation actually "
-            "used in the translation text. Never list common nouns, job titles, kinship "
-            "words or forms of address. "
-            "Skip well-known real-world names that already have a standard translation — "
-            "countries, continents, major cities, rivers and mountain ranges (America, the "
-            "Amazon, the Andes) — and nationality or group words (Americans, Europeans). "
-            "Skip anything in the known-terms list.",
+            "Proper nouns only: list the names that appear in the source, with the "
+            "translation actually used in the translation text. Never list common nouns, "
+            "job titles, kinship words or forms of address. Skip anything in the "
+            "known-terms list.",
+            _CLASSIFY_NAMES,
             'Return only JSON: {"terms": [{"english": str, "translation": str, '
-            '"category": "person"|"place"}]}. '
+            '"category": "person"|"place"|"other", "standard_translation": true|false}]}. '
             'Return {"terms": []} if there are none.',
         ]
     )
@@ -326,12 +338,8 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             "Task: scan_entities",
             "You prepare a translation bible for a novel, one passage at a time.",
             f"Target language: {target_lang}",
-            "Proper nouns only, and of those people and places only: list the named "
-            "characters and the named places in the passage, with the translation to "
-            "use throughout the book. Leave out companies, groups, objects and events. "
-            "Skip well-known real-world names that already have a standard translation — "
-            "countries, continents, major cities, rivers and mountain ranges (America, the "
-            "Amazon, the Andes) — and nationality or group words (Americans, Europeans). "
+            "Proper nouns only: list the named people, places and other named things in "
+            "the passage, with the translation to use throughout the book. "
             "Under `aliases`, list other proper "
             'names the passage uses for the same entity (nicknames, "Mr. Samsa"), each '
             "with its own translation — an alias is translated as written, never as "
@@ -341,10 +349,11 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             'roles or job titles ("head clerk", "the maid"), kinship words or forms of '
             'address ("father", "Mother", "sir"), places like "office" or "living room", '
             'or objects like "sofa" or "desk". If a person has no name, leave them out.',
+            _CLASSIFY_NAMES,
             "Also summarise what happens in the passage in two or three plain "
             "English sentences (who does what, where), for a later overview of the book.",
             'Return only JSON: {"entities": [{"name": str, "translation": str, '
-            '"category": "person"|"place", '
+            '"category": "person"|"place"|"other", "standard_translation": true|false, '
             '"note": str|null, "aliases": [{"name": str, "translation": str}]}], '
             '"summary": str}',
         ]
@@ -372,6 +381,10 @@ def build_overview_prompt(
             "parentheses, who they are and how they relate to the others; 3) tone and "
             "style — narrative voice, register, how to render dialogue. Plain text, no "
             "preamble.",
+            "In part 2 list only people who take part in or are discussed in the text. "
+            "Leave out anyone who appears only in epigraphs, quotation credits, "
+            "acknowledgements or copyright notices. For non-fiction without characters, "
+            "name the few key figures, or say there are none.",
         ]
     )
     user = "\n\n".join(
@@ -398,3 +411,28 @@ def build_summary_prompt(*, max_words: int, target_lang: str | None) -> str:
             "summary text.",
         ]
     )
+
+
+def build_prune_prompt(
+    entries: Sequence[tuple[str, str, str, int, Sequence[str]]], *, max_terms: int
+) -> tuple[str, str]:
+    """Ask which names to keep when the scanned glossary is too big.
+
+    `entries` are (name, translation, category, mentions, aliases); every name
+    and alias counts as one glossary term.
+    """
+    system = "\n".join(
+        [
+            "Task: prune_glossary",
+            "You trim a translation glossary for a book to the names that matter.",
+            f"Keep at most {max_terms} terms; each name and each of its aliases counts as "
+            "one. Prefer recurring characters and places central to the book; drop "
+            "passing mentions and names a translator would render the same way anyway.",
+            'Return only JSON: {"keep": [main name, ...]} using the names exactly as listed.',
+        ]
+    )
+    lines = []
+    for name, translation, category, mentions, aliases in entries:
+        also = f"; aliases: {', '.join(aliases)}" if aliases else ""
+        lines.append(f"- {name} ({translation}) — {category}, {mentions} mentions{also}")
+    return system, "\n".join(lines)

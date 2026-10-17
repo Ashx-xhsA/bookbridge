@@ -22,6 +22,7 @@ const mockProjectFindUnique = vi.fn()
 const mockTermFindMany = vi.fn()
 const mockTermCreateMany = vi.fn()
 const mockTermUpsert = vi.fn()
+const mockTermCount = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -32,6 +33,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: (...args: unknown[]) => mockTermFindMany(...args),
       createMany: (...args: unknown[]) => mockTermCreateMany(...args),
       upsert: (...args: unknown[]) => mockTermUpsert(...args),
+      count: (...args: unknown[]) => mockTermCount(...args),
     },
   },
 }))
@@ -76,6 +78,29 @@ describe('POST /api/internal/worker-callback/glossary', () => {
     // Default: project exists. Individual tests override with
     // mockResolvedValueOnce when asserting the 404-not-found branch.
     mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID })
+    mockTermCount.mockResolvedValue(0)
+  })
+
+  it('adds only as many terms as fit under the 200-term cap', async () => {
+    mockTermCount.mockResolvedValueOnce(199)
+    mockTermFindMany.mockResolvedValueOnce([])
+    mockTermCreateMany.mockResolvedValueOnce({ count: 1 })
+    const { POST } = await import('@/app/api/internal/worker-callback/glossary/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, terms: VALID_TERMS }, withSecret()))
+    expect(res.status).toBe(200)
+    const [args] = mockTermCreateMany.mock.calls[0]
+    expect(args.data.map((d: { english: string }) => d.english)).toEqual(['Hermione'])
+    expect(mockTermCount).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID } })
+  })
+
+  it('adds nothing once the glossary is full', async () => {
+    mockTermCount.mockResolvedValueOnce(200)
+    mockTermFindMany.mockResolvedValueOnce([])
+    const { POST } = await import('@/app/api/internal/worker-callback/glossary/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, terms: VALID_TERMS }, withSecret()))
+    expect(res.status).toBe(200)
+    expect((await res.json()).inserted).toBe(0)
+    expect(mockTermCreateMany).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------

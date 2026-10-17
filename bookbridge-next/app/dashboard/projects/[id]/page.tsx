@@ -43,14 +43,11 @@ export default async function ProjectPage({
   if (!project) notFound()
   if (project.ownerId !== userId) notFound()
 
-  const [unreviewed, flaggedGroups] = await Promise.all([
-    prisma.glossaryTerm.count({ where: { projectId: id, approved: false, userEdited: false } }),
-    prisma.segment.groupBy({
-      by: ['chapterId'],
-      where: { status: 'flagged', chapter: { projectId: id } },
-      _count: { _all: true },
-    }),
-  ])
+  const flaggedGroups = await prisma.segment.groupBy({
+    by: ['chapterId'],
+    where: { status: 'flagged', chapter: { projectId: id } },
+    _count: { _all: true },
+  })
   const flaggedByChapter = new Map(flaggedGroups.map((g) => [g.chapterId, g._count._all]))
 
   const translatedCount = project.chapters.filter(isChapterDone).length
@@ -108,14 +105,6 @@ export default async function ProjectPage({
           >
             <BookOpen className="mr-1 inline h-4 w-4" />
             Glossary ({project._count.glossary})
-            {unreviewed > 0 && (
-              <span
-                aria-label={`${unreviewed} unreviewed terms`}
-                className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
-              >
-                {unreviewed}
-              </span>
-            )}
           </Link>
           <DeleteProjectButton projectId={project.id} />
         </div>

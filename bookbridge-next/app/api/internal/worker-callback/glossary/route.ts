@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { rejectUnlessWorker } from '@/lib/worker-secret'
+import { MAX_GLOSSARY_TERMS } from '@/lib/glossary-limits'
 
 // Server-to-server endpoint. After each chunk translation, the Python Worker
 // POSTs newly-extracted terms here (authenticated via WORKER_CALLBACK_SECRET).
@@ -63,9 +64,11 @@ export async function POST(req: NextRequest) {
   })
 
   const existingLower = new Set(existing.map((e) => e.english.toLowerCase()))
-  const toInsert = terms.filter(
-    (t) => !existingLower.has(t.english.toLowerCase())
-  )
+  // Extraction never grows the glossary past the cap.
+  const room = Math.max(0, MAX_GLOSSARY_TERMS - (await prisma.glossaryTerm.count({ where: { projectId } })))
+  const toInsert = terms
+    .filter((t) => !existingLower.has(t.english.toLowerCase()))
+    .slice(0, room)
 
   const skipped = terms.length - toInsert.length
 

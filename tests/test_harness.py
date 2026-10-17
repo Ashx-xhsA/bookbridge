@@ -325,12 +325,25 @@ class TestExtractTerms:
         terms = extract_terms(ScriptedClient(respond), pairs, target_lang="zh-Hans")
         assert [t.english for t in terms] == ["Frodo", "Hobbiton"]
 
-    def test_extraction_prompt_skips_well_known_names(self) -> None:
+    def test_extraction_prompt_asks_for_other_and_a_standard_translation_flag(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json())
         extract_terms(client, [("Frodo ran.", "x")], target_lang="zh-Hans")
         system = client.calls[0][0]
-        assert "people and places only" in system.lower()
-        assert "well-known" in system and "Andes" in system and "Americans" in system
+        assert '"person"|"place"|"other"' in system
+        assert '"standard_translation": true|false' in system
+
+    def test_drops_terms_with_a_standard_translation(self) -> None:
+        def respond(system: str, user: str, json_mode: bool) -> str:
+            terms = [
+                {"english": "Frodo", "translation": "弗罗多", "category": "person"},
+                {"english": "London", "translation": "伦敦", "category": "place",
+                 "standard_translation": True},
+            ]  # fmt: skip
+            return json.dumps({"terms": terms})
+
+        pairs = [("Frodo went to London.", "x")]
+        terms = extract_terms(ScriptedClient(respond), pairs, target_lang="zh-Hans")
+        assert [t.english for t in terms] == ["Frodo"]
 
     def test_extraction_prompt_asks_for_proper_nouns_only(self) -> None:
         client = ScriptedClient(lambda s, u, j: _terms_json())
