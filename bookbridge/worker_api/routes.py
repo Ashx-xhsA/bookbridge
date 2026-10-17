@@ -17,6 +17,7 @@ from bookbridge.harness.models import (
 )
 from bookbridge.harness.pipeline import SegmentOutcome, extract_terms, translate_segments
 from bookbridge.harness.prescan import ScannedEntity, ScanStopped, scan_book
+from bookbridge.harness.prompts import build_summary_prompt
 from bookbridge.ingestion.epub_reader import read_epub
 from bookbridge.ingestion.models import Book, IngestionError
 from bookbridge.ingestion.txt_reader import read_txt
@@ -120,13 +121,9 @@ def _bible(body: TranslateSegmentsAsyncRequest) -> BookBible | None:
     return BookBible(overview=body.bible.style_guide)
 
 
-def _summarize(llm: LLMClient, text: str, max_words: int = 100) -> str | None:
+def _summarize(llm: LLMClient, text: str, target_lang: str, max_words: int = 100) -> str | None:
     """Best-effort chapter summary; a failure never fails the translation job."""
-    system = (
-        f"Summarize the following text in {max_words} words or fewer. "
-        "Write a concise, informative summary suitable as a chapter overview. "
-        "Return only the summary text in English."
-    )
+    system = build_summary_prompt(max_words=max_words, target_lang=target_lang)
     try:
         return llm.complete(system, text[:SUMMARY_SOURCE_CHARS]).strip() or None
     except Exception as exc:
@@ -239,7 +236,8 @@ def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
         )
         return
     if not result.aborted:
-        summary = _summarize(llm, "\n\n".join(s.source for s in body.segments))
+        source = "\n\n".join(s.source for s in body.segments)
+        summary = _summarize(llm, source, body.target_lang)
         if summary:
             payload["summary"] = summary
     post_worker_callback(payload)
@@ -333,11 +331,7 @@ def bible_scan_async(body: BibleScanAsyncRequest, background_tasks: BackgroundTa
 @router.post("/summarize", response_model=SummarizeResponse)
 def summarize(body: SummarizeRequest) -> SummarizeResponse:
     """Generate a short summary of the given text using the configured LLM."""
-    system_prompt = (
-        f"Summarize the following text in {body.max_words} words or fewer. "
-        "Write a concise, informative summary suitable as a chapter overview. "
-        "Return only the summary text."
-    )
+    system_prompt = build_summary_prompt(max_words=body.max_words, target_lang=body.target_lang)
     try:
         content = client_for(body.llm).complete(system_prompt, body.text[:SUMMARY_SOURCE_CHARS])
     except ValueError as exc:

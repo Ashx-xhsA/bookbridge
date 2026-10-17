@@ -97,6 +97,7 @@ describe('POST /api/projects/[id]/summarize', () => {
     mockProjectFindUnique.mockResolvedValueOnce({
       id: 'proj1',
       ownerId: 'user_abc',
+      targetLang: 'ja',
       chapters: [
         { id: 'ch1', segments: [{ source: 'Chapter one' }, { source: 'content' }], summary: null },
       ],
@@ -116,5 +117,7 @@ describe('POST /api/projects/[id]/summarize', () => {
     expect(body.results[0].summary).toBe('A summary of chapter one.')
     const sent = JSON.parse(mockWorkerFetch.mock.calls[0][1].body)
     expect(sent.text).toBe('Chapter one\n\ncontent')
+    // Summaries are written in the project's target language.
+    expect(sent.target_lang).toBe('ja')
   })
 })

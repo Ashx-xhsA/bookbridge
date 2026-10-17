@@ -126,3 +126,20 @@ def test_invalid_epub_returns_422_no_stack_trace(client: TestClient) -> None:
     text = response.text
     assert "Traceback" not in text
     assert 'File "' not in text
+
+
+def test_summarize_writes_in_the_requested_target_language(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The mock client echoes the prompt's "Target language" into its reply.
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
+    response = client.post(
+        "/summarize", json={"text": "Gregor woke up.", "max_words": 50, "target_lang": "zh-Hans"}
+    )
+    assert response.status_code == 200
+    assert response.json()["summary"].startswith("[zh-Hans]")
+
+
+def test_summarize_rejects_an_unknown_target_language(client: TestClient) -> None:
+    response = client.post("/summarize", json={"text": "x", "target_lang": "klingon"})
+    assert response.status_code == 422
