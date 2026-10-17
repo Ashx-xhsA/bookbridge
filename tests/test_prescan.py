@@ -177,7 +177,22 @@ class TestScanBook:
             }
         )
         result = scan_book(router.client, BOOK, target_lang="zh-Hans")
-        assert [(e.english, e.category) for e in result.entities] == [("St. Petersburg", "general")]
+        # "bank" is not a category: it becomes "general", which is not kept.
+        assert result.entities == []
+
+    def test_keeps_only_people_and_places(self) -> None:
+        router = Router(
+            {
+                "friend": [
+                    _entity("Georg", "格奥尔格"),
+                    _entity("St. Petersburg", "圣彼得堡", "place"),
+                    _entity("Frieda", "弗里达", "organization"),
+                    _entity("Bendemann", "本德曼", "technical"),
+                ]
+            }
+        )
+        result = scan_book(router.client, BOOK, target_lang="zh-Hans")
+        assert sorted(e.english for e in result.entities) == ["Georg", "St. Petersburg"]
 
     def test_empty_book_makes_no_calls(self) -> None:
         router = Router({})
@@ -318,6 +333,15 @@ def test_scan_prompt_asks_for_a_passage_summary_and_no_gender() -> None:
     system, _ = build_scan_prompt("x", target_lang="zh-Hans")
     assert '"summary"' in system
     assert "gender" not in system
+
+
+def test_scan_prompt_asks_for_people_and_places_but_not_well_known_names() -> None:
+    from bookbridge.harness.prompts import build_scan_prompt
+
+    system, _ = build_scan_prompt("x", target_lang="zh-Hans")
+    assert "people and places only" in system.lower()
+    assert "well-known" in system and "Andes" in system and "Americans" in system
+    assert '"person"|"place"' in system and "organization" not in system
 
 
 def test_overview_prompt_asks_for_plot_characters_and_style_in_the_target_language() -> None:
