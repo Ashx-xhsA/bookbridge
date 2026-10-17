@@ -213,6 +213,7 @@ def extract_terms(
         new = [
             t for t in parse_terms(content, existing=seen)
             if t.category in GLOSSARY_CATEGORIES
+            and not t.standard
             and is_proper_noun(t.english)
             and occurs(t.english, source_text)
         ]  # fmt: skip

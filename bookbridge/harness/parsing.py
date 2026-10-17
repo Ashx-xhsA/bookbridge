@@ -69,7 +69,12 @@ def _clean_term(raw: object) -> ExtractedTerm | None:
         return None
     cat = raw.get("category")
     category = cat if isinstance(cat, str) and cat in TERM_CATEGORIES else "general"
-    return ExtractedTerm(english=eng.strip(), translation=tran.strip(), category=category)
+    return ExtractedTerm(
+        english=eng.strip(),
+        translation=tran.strip(),
+        category=category,
+        standard=raw.get("standard_translation") is True,
+    )
 
 
 def parse_terms(content: str, existing: Iterable[str]) -> list[ExtractedTerm]:
@@ -121,6 +126,7 @@ def parse_entities(content: str) -> list[dict]:
                 "translation": tran,
                 "category": cat if isinstance(cat, str) and cat in TERM_CATEGORIES else "general",
                 "notes": _text(raw.get("note") or raw.get("notes")) or None,
+                "standard": raw.get("standard_translation") is True,
                 "aliases": [
                     (_text(a.get("name")), _text(a.get("translation")))
                     for a in aliases
@@ -183,6 +189,13 @@ def parse_review(content: str, translations: Sequence[str]) -> dict[int, list[Is
         if parsed:
             out.setdefault(parsed[0], []).append(parsed[1])
     return out
+
+
+def parse_keep(content: str) -> set[str]:
+    """Lowercased names in a prune reply `{"keep": [str]}`."""
+    items = _json_object(content).get("keep")
+    names = (_text(n) for n in (items if isinstance(items, list) else []))
+    return {n.lower() for n in names if n}
 
 
 def parse_summary(content: str) -> str:

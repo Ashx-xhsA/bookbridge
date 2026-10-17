@@ -62,6 +62,8 @@ class ExtractedTerm:
     english: str
     translation: str
     category: str
+    # The model says the name already has one widely used translation.
+    standard: bool = False
 
 
 @dataclass(frozen=True)
