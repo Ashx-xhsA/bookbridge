@@ -272,9 +272,10 @@ def build_extraction_prompt(
             "Task: extract_terms",
             "You build a translation glossary from source/translation pairs.",
             f"Target language: {target_lang}",
-            "List proper nouns (people, places, organizations) and recurring technical "
-            "terms that appear in the source, with the translation actually used in "
-            "the translation text. Skip anything in the known-terms list.",
+            "Proper nouns only: list the names of people, places, organizations and "
+            "other named things that appear in the source, with the translation actually "
+            "used in the translation text. Never list common nouns, job titles, kinship "
+            "words or forms of address. Skip anything in the known-terms list.",
             'Return only JSON: {"terms": [{"english": str, "translation": str, '
             '"category": "person"|"place"|"organization"|"technical"|"general"}]}. '
             'Return {"terms": []} if there are none.',
@@ -295,16 +296,17 @@ def build_scan_prompt(passage: str, *, target_lang: str) -> tuple[str, str]:
             "Task: scan_entities",
             "You prepare a translation bible for a novel, one passage at a time.",
             f"Target language: {target_lang}",
-            "List the named characters, places, organizations and recurring special "
-            "terms in the passage. For each give the translation to use throughout "
-            "the book. Under `aliases`, list other names the passage uses for the same "
-            'entity (nicknames, titles, epithets such as "the old wizard"), each '
+            "Proper nouns only: list the named characters, places, organizations and "
+            "other named things (ships, books, events) in the passage. For each give the "
+            "translation to use throughout the book. Under `aliases`, list other proper "
+            'names the passage uses for the same entity (nicknames, "Mr. Samsa"), each '
             "with its own translation — an alias is translated as written, never as "
             "the main name. Add an alias only if it refers to that one entity in this "
-            "passage — never a surname shared by family members or a word like "
-            '"father" or "sir" that could mean someone else.',
-            "Skip ordinary objects, rooms and common nouns (sofa, desk, living room); "
-            "list only names and special terms whose translation must stay consistent.",
+            "passage — never a surname shared by family members.",
+            "Never list common nouns, even for people or recurring objects: no ordinary "
+            'roles or job titles ("head clerk", "the maid"), kinship words or forms of '
+            'address ("father", "Mother", "sir"), places like "office" or "living room", '
+            'or objects like "sofa" or "desk". If a person has no name, leave them out.',
             'Return only JSON: {"entities": [{"name": str, "translation": str, '
             '"category": "person"|"place"|"organization"|"technical"|"general", '
             '"gender": "male"|"female"|"unknown"|null, "note": str|null, '

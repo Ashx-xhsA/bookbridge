@@ -356,7 +356,8 @@ def test_new_terms_are_posted_in_chunks_the_bff_accepts() -> None:
     def respond(system: str, user: str, json_mode: bool) -> str:
         return _terms_json(*names) if json_mode else _translate_or_extract(system, user, False)
 
-    _, terms = _run(ScriptedClient(respond), project_id="proj_123456")
+    segments = [{"index": 0, "source": " met ".join(names) + "."}]  # extracted names must occur
+    _, terms = _run(ScriptedClient(respond), project_id="proj_123456", segments=segments)
     assert [len(call["terms"]) for call in terms] == [200, 50]
 
 

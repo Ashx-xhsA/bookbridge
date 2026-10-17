@@ -1,6 +1,7 @@
 """Only proper nouns may enter the bible or the auto-extracted glossary."""
 
 import pytest
+
 from bookbridge.harness.proper_nouns import is_proper_noun
 
 

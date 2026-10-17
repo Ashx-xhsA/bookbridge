@@ -9,11 +9,14 @@
      entity in ("Georg" ⊂ "Georg Bendemann");
    - an alias claimed by two entities ("Mr. Samsa"), or a lowercase alias
      naming another entity ("father"), is ambiguous and dropped;
-   - lowercase common nouns ("the sofa", "office") are dropped unless they
-     are people ("head clerk") or technical terms ("mithril").
-3. Count mentions (paragraphs naming the entity or an alias) with the same
-   matcher the translator uses, and sort by it.
-4. One call writes voice cards for the most-mentioned people, from dialogue
+3. Proper nouns only (see proper_nouns.py): common nouns ("firm", "head
+   clerk"), titles and kinship words ("Mother", "Chief") are dropped, as
+   names and as aliases; a proper alias of a common-noun entry becomes its
+   main name. This runs before merging.
+4. Count mentions (paragraphs naming the entity or an alias) with the same
+   matcher the translator uses, sort by it, and drop entities never written
+   that way in the book.
+5. One call writes voice cards for the most-mentioned people, from dialogue
    samples; one call writes a style guide from passages at the start, middle
    and end of the book.
 
@@ -38,6 +41,7 @@ from bookbridge.harness.prompts import (
     build_style_prompt,
     build_voice_prompt,
 )
+from bookbridge.harness.proper_nouns import is_proper_noun
 from bookbridge.harness.retry import complete_with_retry
 
 logger = logging.getLogger(__name__)
@@ -90,7 +94,7 @@ def scan_book(
     for chunk in chunks:
         found = _scan_passage(client, "\n\n".join(paragraphs[i] for i in chunk), target_lang)
         failures += found is None
-        raw += found or []
+        raw += [e for item in found or [] if (e := _proper_only(item))]
     if failures == len(chunks):
         raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
@@ -114,13 +118,22 @@ def _scan_passage(client: LLMClient, passage: str, target_lang: str) -> list[dic
         return None
 
 
+def _proper_only(item: dict) -> dict | None:
+    """Keep the proper names of one scanned entity; the first becomes its main name."""
+    names = [(item["name"], item["translation"]), *item["aliases"]]
+    kept = [(n, t) for n, t in names if is_proper_noun(n)]
+    if not kept:
+        return None
+    (name, translation), aliases = kept[0], kept[1:]
+    return {**item, "name": name, "translation": translation, "aliases": aliases}
+
+
 def _capitalised(name: str) -> bool:
     return any(ch.isupper() for ch in name)
 
 
 def _merge(raw: list[dict]) -> list[ScannedEntity]:
-    groups = _drop_ambiguous_aliases(_fold_named_aliases(_group_by_name(raw)))
-    return [g for g in groups if g.category in ("person", "technical") or _capitalised(g.english)]
+    return _drop_ambiguous_aliases(_fold_named_aliases(_group_by_name(raw)))
 
 
 def _group_by_name(raw: list[dict]) -> list[ScannedEntity]:
@@ -213,7 +226,8 @@ def _mentioning(entity: ScannedEntity, text: _Text) -> list[str]:
 
 def _count_mentions(entities: list[ScannedEntity], text: _Text) -> list[ScannedEntity]:
     counted = [replace(e, mentions=len(_mentioning(e, text))) for e in entities]
-    return sorted(counted, key=lambda e: -e.mentions)  # stable: ties keep scan order
+    found = [e for e in counted if e.mentions]  # never written that way: not a name here
+    return sorted(found, key=lambda e: -e.mentions)  # stable: ties keep scan order
 
 
 def _voice_samples(entity: ScannedEntity, text: _Text) -> list[str]:

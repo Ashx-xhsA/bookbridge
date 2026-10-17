@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from bookbridge.harness.batching import plan_batches
 from bookbridge.harness.config import TranslationConfig
-from bookbridge.harness.matching import match_glossary
+from bookbridge.harness.matching import match_glossary, occurs
 from bookbridge.harness.models import (
     BookBible,
     ContextSegment,
@@ -36,6 +36,7 @@ from bookbridge.harness.models import (
 )
 from bookbridge.harness.parsing import SegmentAlignmentError, parse_segments, parse_terms
 from bookbridge.harness.prompts import build_extraction_prompt, build_translation_prompt
+from bookbridge.harness.proper_nouns import is_proper_noun
 from bookbridge.harness.retry import complete_with_retry
 from bookbridge.harness.review import ReviewContext, review_batch
 from bookbridge.quality import Issue
@@ -193,6 +194,7 @@ def extract_terms(
 
     Only glossary entries that occur in a chunk are listed as "known" in its
     prompt (keeps the prompt small); dedup still runs against the whole glossary.
+    Only proper nouns written that way in the chunk's source are kept.
     """
     seen = [g.english for g in glossary]
     found: list[ExtractedTerm] = []
@@ -208,7 +210,10 @@ def extract_terms(
         except TranslatorError as exc:
             logger.warning("term extraction chunk failed: %s", type(exc).__name__)
             continue
-        new = parse_terms(content, existing=seen)
+        new = [
+            t for t in parse_terms(content, existing=seen)
+            if is_proper_noun(t.english) and occurs(t.english, source_text)
+        ]  # fmt: skip
         seen += [t.english for t in new]
         found += new
     return found
