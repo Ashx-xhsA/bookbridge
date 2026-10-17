@@ -236,4 +236,33 @@ describe('GET /api/read/[token]/chunks/[chunkId]', () => {
     )
     expect(res.status).toBe(404)
   })
+
+  // Phase 5: the reader renders one row per paragraph, so the public chunk
+  // also returns the aligned segments. Untranslated paragraphs keep their
+  // place (translation: null) and review details never leave the owner view.
+  it('returns aligned segments without review status or issues', async () => {
+    const reviewedChapter = {
+      ...fakeChapter,
+      segments: [
+        { index: 0, source: 'A.', translation: '甲', status: 'flagged',
+          reviewIssues: [{ category: 'omission', severity: 'error', message: 'dropped' }] },
+        { index: 1, source: 'B.', translation: null, status: 'pending', reviewIssues: [] },
+      ],
+    }
+    mockProjectFindFirst.mockResolvedValueOnce(publishedProject)
+    mockChapterFindUnique.mockResolvedValueOnce(reviewedChapter)
+    const { GET } = await import('@/app/api/read/[token]/chunks/[chunkId]/route')
+    const res = await GET(
+      makeGetRequest(VALID_TOKEN, CHUNK_ID),
+      makeParams(VALID_TOKEN, CHUNK_ID),
+    )
+    expect(res.status).toBe(200)
+    const raw = await res.text()
+    expect(JSON.parse(raw).data.segments).toEqual([
+      { index: 0, source: 'A.', translation: '甲' },
+      { index: 1, source: 'B.', translation: null },
+    ])
+    expect(raw).not.toContain('flagged')
+    expect(raw).not.toContain('dropped')
+  })
 })
