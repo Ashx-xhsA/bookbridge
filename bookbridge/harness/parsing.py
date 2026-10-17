@@ -12,6 +12,7 @@ import re
 from collections.abc import Iterable, Sequence
 
 from bookbridge.harness.models import TERM_CATEGORIES, ExtractedTerm, TranslatorError
+from bookbridge.quality.models import Issue
 
 _MARKER_RE = re.compile(r"^[ \t]*<<<[ \t]*(\d+)[ \t]*>>>[ \t]*$", re.MULTILINE)
 
@@ -128,6 +129,41 @@ def parse_entities(content: str) -> list[dict]:
                 ],
             }
         )
+    return out
+
+
+REVIEW_CATEGORIES: tuple[str, ...] = (
+    "mistranslation", "omission", "addition", "pronoun", "address", "voice",
+    "term", "alias", "fluency", "style", "other",
+)  # fmt: skip
+MAX_ISSUE_MESSAGE = 300
+
+
+def _review_issue(raw: object, expected: int) -> tuple[int, Issue] | None:
+    if not isinstance(raw, dict):
+        return None
+    seg, message = raw.get("segment"), _text(raw.get("message"))
+    if type(seg) is not int or not 1 <= seg <= expected or not message:
+        return None
+    cat = raw.get("category")
+    category = cat if isinstance(cat, str) and cat in REVIEW_CATEGORIES else "other"
+    severity = "error" if raw.get("severity") == "error" else "warning"
+    return seg - 1, Issue(category, message[:MAX_ISSUE_MESSAGE], severity)
+
+
+def parse_review(content: str, expected: int) -> dict[int, list[Issue]]:
+    """Parse `{"issues": [{"segment", "category", "severity", "message"}]}`.
+
+    Keys are 0-based positions in the reviewed batch. Unparseable replies and
+    malformed or out-of-range items are dropped — a broken review never
+    blocks a translation.
+    """
+    items = _json_object(content).get("issues")
+    out: dict[int, list[Issue]] = {}
+    for raw in items if isinstance(items, list) else []:
+        parsed = _review_issue(raw, expected)
+        if parsed:
+            out.setdefault(parsed[0], []).append(parsed[1])
     return out
 
 

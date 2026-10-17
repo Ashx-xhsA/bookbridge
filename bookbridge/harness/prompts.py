@@ -1,4 +1,4 @@
-"""Prompt builders for segment translation and term extraction.
+"""Prompt builders for translation, review, revision and term extraction.
 
 Every context component is rendered by its own helper and is skipped
 entirely when its TranslationConfig switch is off — tests assert the
@@ -7,12 +7,13 @@ heading is absent, which is what keeps the eval ablations honest.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.matching import match_glossary, occurs
 from bookbridge.harness.models import BookBible, CharacterCard, ContextSegment, GlossaryEntry
-from bookbridge.harness.parsing import format_segments, marker
+from bookbridge.harness.parsing import REVIEW_CATEGORIES, format_segments, marker
+from bookbridge.quality.models import Issue
 
 # Same budget as v1 (~2000 tokens); only the "full" baseline can reach it.
 MAX_GLOSSARY_TERMS = 200
@@ -21,6 +22,8 @@ BIBLE_HEADING = "## Book bible (highest priority)"
 GLOSSARY_HEADING = "## Glossary"
 CONTEXT_HEADING = "## Preceding text (context only — do not translate)"
 SEGMENTS_HEADING = "## Segments to translate"
+REVIEW_HEADING = "## Segments to review"
+REVISE_HEADING = "## Segments to revise"
 
 
 def select_glossary(
@@ -124,10 +127,36 @@ def _system_prompt(source_lang: str, target_lang: str, count: int, sections: Seq
         "the translation of that segment. Keep the markers and their order; never "
         "merge, split, skip or add segments. Output nothing else.",
     ]
+    return _join(parts, sections)
+
+
+def _context_sections(
+    batch_text: str,
+    glossary: Sequence[GlossaryEntry],
+    config: TranslationConfig,
+    bible: BookBible | None,
+) -> list[str]:
+    """Bible and glossary sections — identical for translator, reviewer and reviser."""
+    return [
+        render_bible(bible, batch_text, glossary, config),
+        render_glossary(select_glossary(glossary, batch_text, config)),
+    ]
+
+
+def _join(parts: Sequence[str], sections: Sequence[str]) -> str:
+    out = list(parts)
     for section in sections:
         if section:
-            parts += ["", section]
-    return "\n".join(parts)
+            out += ["", section]
+    return "\n".join(out)
+
+
+def _user_message(
+    preceding: Sequence[ContextSegment], config: TranslationConfig, heading: str, body: str
+) -> str:
+    context = render_context(preceding, config.context_window)
+    parts = [context, ""] if context else []
+    return "\n".join([*parts, heading, body])
 
 
 def build_translation_prompt(
@@ -141,16 +170,97 @@ def build_translation_prompt(
     bible: BookBible | None = None,
 ) -> tuple[str, str]:
     """Return (system, user) messages for translating one batch."""
-    batch_text = "\n".join(batch)
-    sections = [
-        render_bible(bible, batch_text, glossary, config),
-        render_glossary(select_glossary(glossary, batch_text, config)),
-    ]
+    sections = _context_sections("\n".join(batch), glossary, config, bible)
     system = _system_prompt(source_lang, target_lang, len(batch), sections)
-    context = render_context(preceding, config.context_window)
-    user_parts = [context, ""] if context else []
-    user_parts += [SEGMENTS_HEADING, format_segments(batch)]
-    return system, "\n".join(user_parts)
+    return system, _user_message(preceding, config, SEGMENTS_HEADING, format_segments(batch))
+
+
+def _issue_lines(label: str, issues: Sequence[Issue]) -> list[str]:
+    return [f"[{label}] ({i.severity}, {i.category}) {i.message}" for i in issues]
+
+
+def build_review_prompt(
+    pairs: Sequence[tuple[str, str]],
+    *,
+    source_lang: str,
+    target_lang: str,
+    glossary: Sequence[GlossaryEntry],
+    preceding: Sequence[ContextSegment],
+    config: TranslationConfig,
+    bible: BookBible | None,
+    rule_issues: Mapping[int, Sequence[Issue]],
+) -> tuple[str, str]:
+    """Ask an editor model for problems the rule checks cannot see, as JSON.
+
+    `rule_issues` (keyed by position in `pairs`) is shown under each segment
+    so the reviewer doesn't repeat it.
+    """
+    categories = "|".join(f'"{c}"' for c in REVIEW_CATEGORIES)
+    parts = [
+        "Task: review",
+        f"You are a senior literary editor checking a translation from {source_lang} "
+        f"to {target_lang}.",
+        f"Target language: {target_lang}",
+        "Compare each translation with its source. Report only real problems: "
+        "mistranslation, omission, addition, wrong pronoun or gender, wrong form of "
+        "address, a character's voice that does not match the bible, a glossary term "
+        "not used, or an alias replaced by the main name. Do not repeat problems "
+        "listed under [automatic check]; do not report matters of taste.",
+        'Severity "error" means the segment must be fixed (meaning, omission, pronoun, '
+        'term); "warning" is for minor style.',
+        'Return only JSON: {"issues": [{"segment": <marker number>, "category": '
+        f'{categories}, "severity": "error"|"warning", "message": str}}]}}. '
+        'Return {"issues": []} if every segment is fine.',
+    ]
+    batch_text = "\n".join(src for src, _ in pairs)
+    system = _join(parts, _context_sections(batch_text, glossary, config, bible))
+    blocks = [
+        "\n".join(
+            [
+                marker(n),
+                f"[source] {src}",
+                f"[translation] {tgt}",
+                *_issue_lines("automatic check", rule_issues.get(n - 1, ())),
+            ]
+        )  # fmt: skip
+        for n, (src, tgt) in enumerate(pairs, start=1)
+    ]
+    return system, _user_message(preceding, config, REVIEW_HEADING, "\n".join(blocks))
+
+
+def build_revision_prompt(
+    items: Sequence[tuple[str, str, Sequence[Issue]]],
+    *,
+    source_lang: str,
+    target_lang: str,
+    glossary: Sequence[GlossaryEntry],
+    preceding: Sequence[ContextSegment],
+    config: TranslationConfig,
+    bible: BookBible | None,
+) -> tuple[str, str]:
+    """Ask for corrected translations of flagged segments, in the marker protocol."""
+    count = len(items)
+    parts = [
+        "Task: revise",
+        f"You are a literary translator revising a translation from {source_lang} "
+        f"to {target_lang}.",
+        f"Target language: {target_lang}",
+        "Each segment shows the source, the current translation and the problems "
+        "found in it. Rewrite the translation to fix those problems, staying faithful "
+        "to the source; keep what is already right.",
+        f"Output exactly {count} segment(s): each marker line ({marker(1)}, …) on its "
+        "own, followed by the revised translation only. Keep the markers and their "
+        "order. Output nothing else.",
+    ]
+    batch_text = "\n".join(src for src, _, _ in items)
+    system = _join(parts, _context_sections(batch_text, glossary, config, bible))
+    blocks = [
+        "\n".join(
+            [marker(n), f"[source] {src}", f"[translation] {tgt}", *_issue_lines("problem", issues)]
+        )  # fmt: skip
+        for n, (src, tgt, issues) in enumerate(items, start=1)
+    ]
+    return system, _user_message(preceding, config, REVISE_HEADING, "\n".join(blocks))
 
 
 def build_extraction_prompt(
