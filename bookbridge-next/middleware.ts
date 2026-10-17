@@ -1,14 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { PUBLIC_ROUTES } from '@/lib/public-routes'
 
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/read/(.*)',
-  // Server-to-server endpoints. Auth is handled inside the route via a
-  // shared secret header; Clerk must not 404 these before the handler runs.
-  '/api/internal/(.*)',
-])
+const isPublicRoute = createRouteMatcher(PUBLIC_ROUTES)
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {
