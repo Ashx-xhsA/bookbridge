@@ -4,6 +4,7 @@ configs B and C share one glossary and overview (a re-scan could differ)."""
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -63,7 +64,9 @@ def ensure_scan(
     target_lang: str,
 ) -> tuple[list[ScannedEntity], str]:
     """The cached scan for these chapters, scanning (and caching) it if missing."""
-    path = book_dir / f"scan-{positions[0]}-{positions[-1]}.json"
+    # Per model too: a mock run must never leave a cache a real run picks up.
+    model = re.sub(r"[^A-Za-z0-9._-]", "_", getattr(client, "model", None) or type(client).__name__)
+    path = book_dir / f"scan-{model}-{positions[0]}-{positions[-1]}.json"
     cached = load_scan(path, chapters=positions)
     if cached is not None:
         return cached
