@@ -74,6 +74,7 @@ export async function POST(
         body: JSON.stringify({
           text: joinSegments(chapter.segments).slice(0, 8000),
           max_words: 100,
+          target_lang: project.targetLang,
           llm: llmCreds,
         }),
         timeoutMs: 30_000,

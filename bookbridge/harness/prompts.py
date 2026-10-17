@@ -382,3 +382,19 @@ def build_overview_prompt(
         ]
     )
     return system, user
+
+
+def build_summary_prompt(*, max_words: int, target_lang: str | None) -> str:
+    """System prompt for a short chapter summary shown in the UI, written in the
+    project's target language (English when none is given)."""
+    language = target_lang or "English"
+    return "\n".join(
+        [
+            "Task: chapter_summary",
+            f"Target language: {language}",
+            f"Summarize the following text in {max_words} words or fewer, written in "
+            "the target language. Write a concise, informative summary suitable as a "
+            "chapter overview. Keep names as the source writes them. Return only the "
+            "summary text.",
+        ]
+    )

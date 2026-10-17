@@ -142,6 +142,8 @@ class ErrorResponse(BaseModel):
 class SummarizeRequest(BaseModel):
     text: str = Field(..., min_length=1)
     max_words: int = Field(default=100, ge=20, le=300)
+    # Language the summary is written in; English when absent.
+    target_lang: TargetLang | None = None
     llm: LLMCredentials | None = None
 
 
