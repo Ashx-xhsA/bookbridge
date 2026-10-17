@@ -75,14 +75,14 @@ h1, h2 { text-align: center; }
 h2 { margin: 1.5em 0 1em; }
 .src { color: #555; }
 table.side { width: 100%; border-collapse: collapse; }
-table.side td { width: 50%; vertical-align: top; padding: 0.3em 0.6em; }
-table.side tr { border-bottom: 1px solid #ddd; }
+table.side td { width: 50%; vertical-align: top; padding: 0 0.6em 1.1em; }
 div.pair { margin: 0 0 1.1em; }
 div.pair p { margin: 0; }
 div.pair p.src { margin-bottom: 0.3em; }
 p.missing { font-style: italic; color: #999; }
 @media (max-width: 600px) {
-  table.side td { display: block; width: auto; padding: 0.2em 0; }
+  table.side td { display: block; width: auto; padding: 0 0 0.3em; }
+  table.side td.tgt { padding-bottom: 1.1em; }
 }
 `
 
