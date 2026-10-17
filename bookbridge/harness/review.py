@@ -47,6 +47,9 @@ class BatchReview:
     sources: Sequence[str]
     translations: list[str]
     issues: list[list[Issue]] = field(default_factory=list)
+    # Before any revision — what evals compare the final state against.
+    first_translations: list[str] = field(default_factory=list)
+    first_issues: list[list[Issue]] = field(default_factory=list)
     reviewed: bool = False
     flagged: int = 0
     fixed: int = 0
@@ -66,6 +69,8 @@ def review_batch(
         logger.warning("review call failed: %s", type(exc).__name__)
         return out
     out.reviewed = True
+    out.first_translations = list(out.translations)
+    out.first_issues = list(out.issues)
     pending = [i for i in everything if has_errors(out.issues[i])]
     out.flagged = len(pending)
     for _ in range(ctx.config.review_max_retries):
