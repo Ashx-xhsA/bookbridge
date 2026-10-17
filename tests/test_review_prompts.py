@@ -1,0 +1,145 @@
+"""Phase 4b: reviewer and revision prompts, and parsing the reviewer's JSON."""
+
+import json
+
+from bookbridge.harness.config import TranslationConfig
+from bookbridge.harness.models import BookBible, CharacterCard, ContextSegment, GlossaryEntry
+from bookbridge.harness.parsing import count_markers, parse_review
+from bookbridge.harness.prompts import (
+    BIBLE_HEADING,
+    CONTEXT_HEADING,
+    GLOSSARY_HEADING,
+    build_review_prompt,
+    build_revision_prompt,
+)
+from bookbridge.quality import Issue
+
+FRODO = GlossaryEntry("Frodo", "弗罗多", "person")
+SAM = GlossaryEntry("Sam", "山姆", "person")
+BIBLE = BookBible(
+    style_guide="Keep it terse.",
+    characters=(CharacterCard(name="Frodo", translation="弗罗多", gender="male"),),
+)
+PAIRS = [("Frodo ran.", "弗罗多跑了。"), ("It rained.", "下雨了。")]
+TERM_ISSUE = Issue("term", "'Frodo' should be translated as '弗罗多'", "error")
+
+
+def _review(config: TranslationConfig = TranslationConfig(), **kw) -> str:
+    system, user = build_review_prompt(
+        kw.get("pairs", PAIRS),
+        source_lang="en",
+        target_lang="zh-Hans",
+        glossary=kw.get("glossary", [FRODO, SAM]),
+        preceding=kw.get("preceding", []),
+        config=config,
+        bible=kw.get("bible", BIBLE),
+        rule_issues=kw.get("rule_issues", {}),
+    )
+    return system + "\n" + user
+
+
+class TestReviewPrompt:
+    def test_names_the_task_language_and_json_shape(self) -> None:
+        text = _review()
+        assert "Task: review" in text
+        assert "Target language: zh-Hans" in text
+        assert '"issues"' in text and '"segment"' in text
+
+    def test_lists_every_pair_under_a_marker(self) -> None:
+        text = _review()
+        assert count_markers(text) == 2
+        assert "[source] Frodo ran." in text and "[translation] 弗罗多跑了。" in text
+        assert "[source] It rained." in text
+
+    def test_sees_the_same_matched_glossary_as_the_translator(self) -> None:
+        text = _review()
+        assert GLOSSARY_HEADING in text and "弗罗多" in text
+        assert "山姆" not in text  # Sam is not in this batch
+
+    def test_rule_issues_are_shown_on_their_segment(self) -> None:
+        text = _review(rule_issues={1: [TERM_ISSUE]})
+        second = text.split("<<<2>>>", 1)[1]
+        assert "should be translated as" in second
+        assert "should be translated as" not in text.split("<<<2>>>", 1)[0].split("<<<1>>>")[-1]
+
+    def test_switches_remove_bible_and_context(self) -> None:
+        preceding = [ContextSegment("Before.", "之前。")]
+        on = _review(preceding=preceding)
+        assert BIBLE_HEADING in on and CONTEXT_HEADING in on
+        off = _review(TranslationConfig(book_bible=False, context_window=0), preceding=preceding)
+        assert BIBLE_HEADING not in off and CONTEXT_HEADING not in off
+
+
+class TestRevisionPrompt:
+    def _prompt(self, config: TranslationConfig = TranslationConfig()) -> tuple[str, str]:
+        return build_revision_prompt(
+            [("Frodo ran.", "佛罗多跑了。", [TERM_ISSUE])],
+            source_lang="en",
+            target_lang="zh-Hans",
+            glossary=[FRODO, SAM],
+            preceding=[ContextSegment("Before.", "之前。")],
+            config=config,
+            bible=BIBLE,
+        )
+
+    def test_shows_source_current_translation_and_problems(self) -> None:
+        system, user = self._prompt()
+        assert "Task: revise" in system
+        assert "Target language: zh-Hans" in system
+        assert count_markers(user) == 1
+        assert "[source] Frodo ran." in user
+        assert "[translation] 佛罗多跑了。" in user
+        assert "should be translated as" in user
+
+    def test_asks_for_marker_output_and_carries_context(self) -> None:
+        system, user = self._prompt()
+        assert "<<<1>>>" in system
+        assert GLOSSARY_HEADING in system and BIBLE_HEADING in system
+        assert CONTEXT_HEADING in user
+
+    def test_switches_apply(self) -> None:
+        system, user = self._prompt(TranslationConfig(book_bible=False, context_window=0))
+        assert BIBLE_HEADING not in system and CONTEXT_HEADING not in user
+
+
+def _issues_json(*items: dict) -> str:
+    return json.dumps({"issues": list(items)}, ensure_ascii=False)
+
+
+class TestParseReview:
+    def test_maps_one_based_segments_to_batch_positions(self) -> None:
+        content = _issues_json(
+            {"segment": 2, "category": "pronoun", "severity": "error", "message": "她 → 他"}
+        )
+        assert parse_review(content, expected=2) == {1: [Issue("pronoun", "她 → 他", "error")]}
+
+    def test_drops_out_of_range_and_malformed_items(self) -> None:
+        content = _issues_json(
+            {"segment": 3, "category": "pronoun", "severity": "error", "message": "x"},
+            {"segment": 0, "category": "pronoun", "severity": "error", "message": "x"},
+            {"segment": "1", "category": "pronoun", "severity": "error", "message": "x"},
+            {"segment": 1, "category": "pronoun", "severity": "error"},
+            "not an object",
+        )
+        assert parse_review(content, expected=2) == {}
+
+    def test_normalises_category_and_severity(self) -> None:
+        content = _issues_json({"segment": 1, "category": "vibes", "severity": "fatal",
+                                "message": "odd"})  # fmt: skip
+        assert parse_review(content, expected=1) == {0: [Issue("other", "odd", "warning")]}
+
+    def test_clips_long_messages(self) -> None:
+        content = _issues_json(
+            {"segment": 1, "category": "style", "severity": "warning", "message": "x" * 1000}
+        )
+        assert len(parse_review(content, expected=1)[0][0].message) == 300
+
+    def test_unparseable_reply_means_no_issues(self) -> None:
+        assert parse_review("looks fine to me", expected=2) == {}
+        assert parse_review('{"issues": "none"}', expected=2) == {}
+
+    def test_accepts_code_fenced_json(self) -> None:
+        content = "```json\n" + _issues_json(
+            {"segment": 1, "category": "omission", "severity": "error", "message": "dropped"}
+        ) + "\n```"  # fmt: skip
+        assert parse_review(content, expected=1)[0][0].category == "omission"
