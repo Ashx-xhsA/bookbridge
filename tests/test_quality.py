@@ -1,132 +1,152 @@
-"""Tests for the quality checking module."""
+"""Per-segment rule checks (Phase 4a): deterministic, no LLM calls."""
 
 import pytest
 
-from bookbridge.quality.base import BaseQualityChecker
-from bookbridge.quality.models import Issue, QualityReport
+from bookbridge.harness.models import AliasTarget, GlossaryEntry
+from bookbridge.quality import Issue, check_segment, has_errors
 from bookbridge.quality.zh_hans import ChineseSimplifiedChecker
 
-# --- Fixtures following v2 skill pattern ---
+GANDALF = AliasTarget(english="Gandalf", translation="甘道夫")
 
 
-@pytest.fixture
-def zh_checker():
-    """Create a Chinese Simplified quality checker."""
-    return ChineseSimplifiedChecker()
+def _term(english: str, translation: str, alias_of: AliasTarget | None = None) -> GlossaryEntry:
+    return GlossaryEntry(english=english, translation=translation, category="person",
+                         alias_of=alias_of)  # fmt: skip
 
 
-@pytest.fixture
-def sample_glossary():
-    """Sample glossary terms for consistency checks."""
-    return {
-        "Ariekei": "阿里耶基",
-        "Embassytown": "大使城",
-        "Avice": "艾维斯",
-    }
+GLOSSARY = [
+    _term("Gandalf", "甘道夫"),
+    _term("the old wizard", "老巫师", alias_of=GANDALF),
+    _term("Shire", "夏尔"),
+]
 
 
-# --- BaseQualityChecker tests ---
+def _categories(issues: list[Issue]) -> list[str]:
+    return [i.category for i in issues]
 
 
-class TestBaseQualityChecker:
-    """Tests for the abstract base checker interface."""
+class TestTermConsistency:
+    def test_clean_segment_has_no_issues(self) -> None:
+        issues = check_segment(
+            "Gandalf came to the Shire.", "甘道夫来到了夏尔。",
+            target_lang="zh-Hans", glossary=GLOSSARY,
+        )  # fmt: skip
+        assert issues == []
 
-    def test_cannot_instantiate_directly(self):
-        with pytest.raises(TypeError):
-            BaseQualityChecker()
+    def test_missing_term_translation_is_an_error(self) -> None:
+        issues = check_segment(
+            "Gandalf came to the Shire.", "甘道夫来到了郡里。",
+            target_lang="zh-Hans", glossary=GLOSSARY,
+        )  # fmt: skip
+        assert _categories(issues) == ["term"]
+        assert issues[0].severity == "error"
+        assert "Shire" in issues[0].message and "夏尔" in issues[0].message
 
-    def test_check_completeness_equal_paragraphs(self, zh_checker):
-        original = "Paragraph one.\n\nParagraph two."
-        translation = "第一段。\n\n第二段。"
-        assert zh_checker.check_completeness(original, translation) is True
-
-    def test_check_completeness_missing_paragraph(self, zh_checker):
-        original = "Paragraph one.\n\nParagraph two.\n\nParagraph three."
-        translation = "第一段。\n\n第二段。"
-        assert zh_checker.check_completeness(original, translation) is False
-
-    def test_check_glossary_consistency_all_present(self, zh_checker, sample_glossary):
-        translation = "阿里耶基住在大使城，艾维斯也在那里。"
-        issues = zh_checker.check_glossary_consistency(translation, sample_glossary)
-        assert len(issues) == 0
-
-    def test_check_glossary_consistency_missing_term(self, zh_checker, sample_glossary):
-        translation = "阿里耶基住在某个城市。"
-        issues = zh_checker.check_glossary_consistency(translation, sample_glossary)
-        assert len(issues) >= 1
-        assert any("Embassytown" in i.message or "大使城" in i.message for i in issues)
-
-    def test_check_glossary_returns_issues(self, zh_checker, sample_glossary):
-        translation = "一些随机文本。"
-        issues = zh_checker.check_glossary_consistency(translation, sample_glossary)
-        assert all(isinstance(i, Issue) for i in issues)
-
-
-# --- ChineseSimplifiedChecker tests ---
-
-
-class TestChineseSimplifiedChecker:
-    """Tests for Chinese-specific quality checks."""
-
-    def test_detects_half_width_punctuation(self, zh_checker):
-        text = "这是一个句子, 有半角标点."
-        issues = zh_checker.check_language_specific(text)
-        assert any("punctuation" in i.category for i in issues)
-
-    def test_accepts_full_width_punctuation(self, zh_checker):
-        text = "这是一个句子，有全角标点。"
-        issues = zh_checker.check_language_specific(text)
-        punct_issues = [i for i in issues if "punctuation" in i.category]
-        assert len(punct_issues) == 0
-
-    def test_detects_stray_english_sentences(self, zh_checker):
-        text = "翻译文本。This sentence was not translated. 更多中文。"
-        issues = zh_checker.check_language_specific(text)
-        assert any("untranslated" in i.category for i in issues)
-
-    def test_accepts_english_proper_nouns(self, zh_checker):
-        text = "阿里耶基是Embassytown的居民。"
-        issues = zh_checker.check_language_specific(text)
-        untranslated = [i for i in issues if "untranslated" in i.category]
-        assert len(untranslated) == 0
-
-    def test_no_issues_for_clean_translation(self, zh_checker):
-        text = "这是一段完美的翻译文本，没有任何问题。"
-        issues = zh_checker.check_language_specific(text)
-        assert len(issues) == 0
-
-
-# --- QualityReport tests ---
-
-
-class TestQualityReport:
-    """Tests for the QualityReport model."""
-
-    def test_report_creation(self):
-        report = QualityReport(chunk_id=1, language="zh-Hans")
-        assert report.chunk_id == 1
-        assert report.passed is True
-        assert report.issue_count == 0
-
-    def test_report_with_issues(self):
-        issues = [Issue(category="punctuation", message="found comma")]
-        report = QualityReport(chunk_id=1, language="zh-Hans", issues=issues, passed=False)
-        assert report.issue_count == 1
-        assert report.passed is False
-
-    def test_report_to_dict(self):
-        report = QualityReport(chunk_id=3, language="zh-Hans")
-        d = report.to_dict()
-        assert d["chunk_id"] == 3
-        assert d["language"] == "zh-Hans"
-        assert d["issues"] == []
-        assert d["passed"] is True
-
-    def test_run_all_checks_returns_report(self, zh_checker, sample_glossary):
-        original = "The Ariekei live in Embassytown."
-        translation = "阿里耶基住在大使城。"
-        report = zh_checker.run_all_checks(
-            chunk_id=1, original=original, translation=translation, glossary=sample_glossary
+    def test_only_terms_in_the_source_are_checked(self) -> None:
+        # The glossary has "Shire", but this paragraph never mentions it.
+        issues = check_segment(
+            "Gandalf smiled.", "甘道夫笑了。", target_lang="zh-Hans", glossary=GLOSSARY
         )
-        assert isinstance(report, QualityReport)
-        assert report.language == "zh-Hans"
+        assert issues == []
+
+    def test_alias_replaced_by_main_name_is_flagged(self) -> None:
+        issues = check_segment(
+            "The old wizard smiled.", "甘道夫笑了。", target_lang="zh-Hans", glossary=GLOSSARY
+        )
+        assert _categories(issues) == ["alias_replaced"]
+        assert issues[0].severity == "error"
+        assert "老巫师" in issues[0].message
+
+    def test_alias_and_main_name_both_in_source_is_fine(self) -> None:
+        issues = check_segment(
+            "Gandalf, the old wizard, smiled.", "甘道夫，那位老巫师，笑了。",
+            target_lang="zh-Hans", glossary=GLOSSARY,
+        )  # fmt: skip
+        assert issues == []
+
+    def test_lowercase_alias_matches_sentence_start(self) -> None:
+        issues = check_segment(
+            "The old wizard smiled.", "老巫师笑了。", target_lang="zh-Hans", glossary=GLOSSARY
+        )
+        assert issues == []
+
+
+class TestTruncation:
+    LONG = (
+        "It was a bright cold day in April, and the clocks were striking thirteen. "
+        "Winston Smith slipped quickly through the glass doors of Victory Mansions."
+    )
+
+    def test_far_too_short_translation_is_an_error(self) -> None:
+        issues = check_segment(self.LONG, "四月。", target_lang="zh-Hans", glossary=[])
+        assert "truncation" in _categories(issues)
+        assert has_errors(issues)
+
+    def test_normal_length_ratio_passes(self) -> None:
+        zh = "四月里一个晴朗寒冷的日子，钟敲了十三下。温斯顿·史密斯迅速溜进了胜利大厦的玻璃门。"
+        issues = check_segment(self.LONG, zh, target_lang="zh-Hans", glossary=[])
+        assert "truncation" not in _categories(issues)
+
+    def test_short_sources_are_not_ratio_checked(self) -> None:
+        issues = check_segment('"No," he said.', "“不。”", target_lang="zh-Hans", glossary=[])
+        assert "truncation" not in _categories(issues)
+
+    def test_european_targets_use_a_higher_threshold(self) -> None:
+        issues = check_segment(self.LONG, "Era un día de abril.", target_lang="es", glossary=[])
+        assert "truncation" in _categories(issues)
+
+
+class TestUntranslated:
+    def test_copied_source_is_an_error_in_any_language(self) -> None:
+        text = "He walked home slowly."
+        issues = check_segment(text, text, target_lang="fr", glossary=[])
+        assert _categories(issues) == ["untranslated"]
+        assert has_errors(issues)
+
+    def test_stray_english_sentence_in_chinese(self) -> None:
+        issues = check_segment(
+            "He said this sentence was not translated at all.",
+            "他说 this sentence was not translated。",
+            target_lang="zh-Hans",
+            glossary=[],
+        )
+        assert "untranslated" in _categories(issues)
+
+    def test_chinese_checks_apply_to_traditional_too(self) -> None:
+        issues = check_segment(
+            "He said this sentence was not translated at all.",
+            "他說 this sentence was not translated。",
+            target_lang="zh-Hant",
+            glossary=[],
+        )
+        assert "untranslated" in _categories(issues)
+
+
+class TestPunctuation:
+    def test_half_width_punctuation_is_only_a_warning(self) -> None:
+        issues = check_segment("He came, and left.", "他来了, 又走了。", target_lang="zh-Hans",
+                               glossary=[])  # fmt: skip
+        assert _categories(issues) == ["punctuation"]
+        assert not has_errors(issues)
+
+
+class TestChineseChecker:
+    @pytest.fixture
+    def zh(self) -> ChineseSimplifiedChecker:
+        return ChineseSimplifiedChecker()
+
+    def test_accepts_english_proper_nouns(self, zh: ChineseSimplifiedChecker) -> None:
+        assert zh.check_language_specific("阿里耶基是Embassytown的居民。") == []
+
+    def test_clean_text(self, zh: ChineseSimplifiedChecker) -> None:
+        assert zh.check_language_specific("这是一段完美的翻译文本，没有任何问题。") == []
+
+
+class TestIssue:
+    def test_to_dict(self) -> None:
+        issue = Issue(category="term", message="m", severity="error")
+        assert issue.to_dict() == {"category": "term", "message": "m", "severity": "error"}
+
+    def test_has_errors_ignores_warnings(self) -> None:
+        assert not has_errors([Issue(category="punctuation", message="m")])
+        assert has_errors([Issue(category="term", message="m", severity="error")])

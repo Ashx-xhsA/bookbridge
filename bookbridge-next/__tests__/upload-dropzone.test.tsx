@@ -30,19 +30,19 @@ import NewProjectPage from '@/app/dashboard/new/page'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makePdfFile(name = 'book.pdf'): File {
-  return new File(['%PDF-1.4 content'], name, { type: 'application/pdf' })
+function makeEpubFile(name = 'book.epub'): File {
+  return new File(['PK epub content'], name, { type: 'application/epub+zip' })
 }
 
-function makeNonPdfFile(name = 'photo.png'): File {
-  return new File(['PNG data'], name, { type: 'image/png' })
+function makeUnsupportedFile(name = 'book.pdf'): File {
+  return new File(['%PDF-1.4 content'], name, { type: 'application/pdf' })
 }
 
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
+describe('NewProjectPage — book upload dropzone (issue #47, EPUB/TXT since Phase 1)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -92,7 +92,7 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Test 3 — Clicking the dropzone then selecting a valid PDF shows the filename
+  // Test 3 — Clicking the dropzone then selecting a valid EPUB shows the filename
   //
   // A correctly fixed component wires an onClick on the dropzone wrapper to
   // call inputRef.current.click().  This test simulates that full interaction:
@@ -104,7 +104,7 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
   // interaction path incomplete.  The assertion below checks the spy WAS
   // called, which fails on the broken component.
   // -------------------------------------------------------------------------
-  it('clicking the dropzone then changing the input displays the selected PDF filename', () => {
+  it('clicking the dropzone then changing the input displays the selected EPUB filename', () => {
     render(<NewProjectPage />)
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
@@ -122,43 +122,57 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1)
 
     // Step 2 — simulate the browser's file-picker response
-    const pdf = makePdfFile('my-novel.pdf')
+    const epub = makeEpubFile('my-novel.epub')
+    Object.defineProperty(fileInput, 'files', {
+      value: { 0: epub, length: 1, item: () => epub },
+      writable: false,
+    })
+    fireEvent.change(fileInput)
+
+    expect(screen.getByText('my-novel.epub')).toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
+  // Test 4 — Selecting an unsupported file (e.g. a PDF) shows a validation error
+  //
+  // The <input> has accept=".epub,.txt" but a JS-side type check is also needed.
+  // With the bug the input is unreachable, so no change event fires and no
+  // validation message is ever shown.
+  // -------------------------------------------------------------------------
+  it('shows a validation error when an unsupported file is selected', () => {
+    render(<NewProjectPage />)
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).not.toBeNull()
+
+    const pdf = makeUnsupportedFile('book.pdf')
+
     Object.defineProperty(fileInput, 'files', {
       value: { 0: pdf, length: 1, item: () => pdf },
       writable: false,
     })
     fireEvent.change(fileInput)
 
-    expect(screen.getByText('my-novel.pdf')).toBeInTheDocument()
-  })
-
-  // -------------------------------------------------------------------------
-  // Test 4 — Selecting a non-PDF file shows a validation error
-  //
-  // The <input> has accept=".pdf" but a JS-side type check is also needed.
-  // With the bug the input is unreachable, so no change event fires and no
-  // validation message is ever shown.
-  // -------------------------------------------------------------------------
-  it('shows a validation error when a non-PDF file is selected', () => {
-    render(<NewProjectPage />)
-
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    expect(fileInput).not.toBeNull()
-
-    const png = makeNonPdfFile('photo.png')
-
-    Object.defineProperty(fileInput, 'files', {
-      value: { 0: png, length: 1, item: () => png },
-      writable: false,
-    })
-    fireEvent.change(fileInput)
-
-    // THE FAILING ASSERTION: a correct implementation rejects non-PDF files
+    // THE FAILING ASSERTION: a correct implementation rejects non-EPUB/TXT files
     // and surfaces an error.  The bug prevents any onChange from firing, so
     // the error never appears.
     expect(
-      screen.getByText(/only pdf files are supported/i)
+      screen.getByText(/only epub and txt files are supported/i)
     ).toBeInTheDocument()
+  })
+
+  it('rejects a file larger than the upload limit before sending it', () => {
+    render(<NewProjectPage />)
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const big = makeEpubFile('huge.epub')
+    Object.defineProperty(big, 'size', { value: 5 * 1024 * 1024 })
+    Object.defineProperty(fileInput, 'files', {
+      value: { 0: big, length: 1, item: () => big },
+      writable: false,
+    })
+    fireEvent.change(fileInput)
+    expect(screen.getByText(/larger than 4\.5 MB/i)).toBeInTheDocument()
+    expect(screen.queryByText('huge.epub')).not.toBeInTheDocument()
   })
 
   // -------------------------------------------------------------------------
@@ -180,7 +194,15 @@ describe('NewProjectPage — PDF upload dropzone (issue #47)', () => {
     // The component sets error synchronously before any async work when
     // file is null, so no act() wrapping is needed.
     expect(
-      await screen.findByText(/please select a pdf file/i)
+      await screen.findByText(/please select an epub or txt file/i)
     ).toBeInTheDocument()
+  })
+})
+
+describe('NewProjectPage — accepted formats', () => {
+  it('restricts the file picker to .epub and .txt', () => {
+    render(<NewProjectPage />)
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput.getAttribute('accept')).toBe('.epub,.txt')
   })
 })

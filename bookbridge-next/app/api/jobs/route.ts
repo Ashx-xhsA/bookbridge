@@ -10,6 +10,44 @@ const bodySchema = z.object({
   chapterId: z.string().cuid(),
 })
 
+// Paragraphs from before this chapter that seed the Worker's rolling context
+// window. The Worker trims to its configured window (max 10).
+const PRECEDING_SEGMENTS = 10
+
+// Worker cap on character cards per request; most-mentioned win.
+const MAX_BIBLE_CHARACTERS = 500
+
+// A drafted or confirmed bible is injected (translating before review is
+// allowed; the UI nudges the user to review first). Character cards are the
+// project's people — aliases excluded, they are glossary rows of their own.
+function bibleForWorker(
+  row: { status: string; styleGuide: string } | null,
+  terms: {
+    english: string
+    translation: string
+    category: string
+    gender: string | null
+    voice: string | null
+    notes: string | null
+    mentions: number
+    aliasOf: unknown
+  }[]
+) {
+  if (!row || (row.status !== 'DRAFT' && row.status !== 'CONFIRMED')) return undefined
+  const characters = terms
+    .filter((t) => t.category === 'person' && !t.aliasOf)
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, MAX_BIBLE_CHARACTERS)
+    .map((t) => ({
+      name: t.english,
+      translation: t.translation,
+      gender: t.gender,
+      voice: t.voice,
+      notes: t.notes,
+    }))
+  return { style_guide: row.styleGuide, characters }
+}
+
 // The check intentionally does not include SUCCEEDED — users may want to
 // re-translate a chapter after reviewing the first pass (e.g. after adding
 // glossary terms or fixing source text). Concurrent double-clicks from the
@@ -50,13 +88,19 @@ export async function POST(req: NextRequest) {
 
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
-    select: { id: true, sourceContent: true, projectId: true, number: true },
+    select: {
+      id: true,
+      projectId: true,
+      number: true,
+      segments: { select: { index: true, source: true }, orderBy: { index: 'asc' } },
+    },
   })
   if (!chapter || chapter.projectId !== projectId) {
     return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
   }
 
-  if (!chapter.sourceContent?.trim()) {
+  const segments = chapter.segments.filter((s) => s.source.trim())
+  if (segments.length === 0) {
     return NextResponse.json(
       { error: 'No source content to translate' },
       { status: 400 }
@@ -66,10 +110,12 @@ export async function POST(req: NextRequest) {
   const STALE_THRESHOLD_MS = 5 * 60 * 1000
   const existingJob = await prisma.translationJob.findFirst({
     where: { chapterId, status: { in: [...ACTIVE_JOB_STATUSES] } },
-    select: { id: true, status: true, createdAt: true },
+    select: { id: true, status: true, createdAt: true, updatedAt: true },
   })
   if (existingJob) {
-    const age = Date.now() - new Date(existingJob.createdAt).getTime()
+    // The Worker reports progress after every batch, which bumps updatedAt:
+    // a long chapter that is still moving is not stale.
+    const age = Date.now() - new Date(existingJob.updatedAt).getTime()
     if (age < STALE_THRESHOLD_MS) {
       return NextResponse.json(
         { id: existingJob.id, status: existingJob.status, error: 'Translation is already in progress for this chapter' },
@@ -82,20 +128,15 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Adjacent-chapter summaries + full project glossary run in parallel.
-  // Summaries go into the system prompt as free-form context; glossary is
-  // forwarded structured so the Worker can render it with approval priority
-  // and (on the server-creds path) dedupe new_terms against it.
-  const [precedingChapters, glossaryRows] = await Promise.all([
-    prisma.chapter.findMany({
-      where: {
-        projectId,
-        number: { lt: chapter.number },
-        summary: { not: null },
-      },
-      select: { number: true, title: true, summary: true },
-      orderBy: { number: 'desc' },
-      take: 2,
+  // The full glossary goes to the Worker, which picks the terms that occur
+  // in each batch. The tail of the previous chapter seeds the context
+  // window — newest-first so `take` keeps the closest paragraphs.
+  const [precedingRows, glossaryRows, bibleRow] = await Promise.all([
+    prisma.segment.findMany({
+      where: { chapter: { projectId, number: { lt: chapter.number } } },
+      orderBy: [{ chapter: { number: 'desc' } }, { index: 'desc' }],
+      take: PRECEDING_SEGMENTS,
+      select: { source: true, translation: true },
     }),
     prisma.glossaryTerm.findMany({
       where: { projectId },
@@ -104,24 +145,33 @@ export async function POST(req: NextRequest) {
         translation: true,
         category: true,
         approved: true,
+        gender: true,
+        voice: true,
+        notes: true,
+        mentions: true,
+        aliasOf: { select: { english: true, translation: true } },
       },
+    }),
+    prisma.bookBible.findUnique({
+      where: { projectId },
+      select: { status: true, styleGuide: true },
     }),
   ])
 
-  const contextParts: string[] = []
-  for (const prev of precedingChapters.reverse()) {
-    contextParts.push(`Previous chapter "${prev.title}": ${prev.summary}`)
-  }
-  const context = contextParts.length > 0 ? contextParts.join('\n') : undefined
-
-  const glossary = glossaryRows
-    .filter((t): t is typeof t & { translation: string } => !!t.translation)
-    .map((t) => ({
-      english: t.english,
-      translation: t.translation,
-      category: t.category,
-      approved: t.approved,
-    }))
+  const preceding = precedingRows.reverse()
+  const terms = glossaryRows.filter(
+    (t): t is typeof t & { translation: string } => !!t.translation
+  )
+  const glossary = terms.map((t) => ({
+    english: t.english,
+    translation: t.translation,
+    category: t.category,
+    approved: t.approved,
+    ...(t.aliasOf?.translation
+      ? { alias_of: { english: t.aliasOf.english, translation: t.aliasOf.translation } }
+      : {}),
+  }))
+  const bible = bibleForWorker(bibleRow, terms)
 
   const llmCreds = await getUserLLMCredentials(userId)
   if (!llmCreds) {
@@ -143,19 +193,22 @@ export async function POST(req: NextRequest) {
   // handler may never run, leaving failed-dispatch jobs stuck in PENDING.
   after(async () => {
     try {
-      await workerFetch('/translate/chunk/async', {
+      const res = await workerFetch('/translate/segments/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           job_id: job.id,
-          source_text: chapter.sourceContent,
+          segments,
+          preceding,
           target_lang: project.targetLang,
           project_id: projectId,
-          context,
           llm: llmCreds,
           ...(glossary.length > 0 ? { glossary } : {}),
+          ...(bible ? { bible } : {}),
         }),
       })
+      // workerFetch only throws on network errors; a 4xx/5xx must fail too.
+      if (!res.ok) throw new Error(`Worker responded ${res.status}`)
     } catch (err) {
       console.error('[api/jobs] worker dispatch failed', {
         jobId: job.id,

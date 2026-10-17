@@ -46,7 +46,7 @@ describe('GET /api/settings', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.hasApiKey).toBe(true)
-    expect(body.freeCharsUsed).toBe(500)
+    expect(body).not.toHaveProperty('freeCharsUsed') // free tier removed in 1146c5a
     expect(body.apiProvider).toBe('openai')
   })
 
@@ -58,7 +58,7 @@ describe('GET /api/settings', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.hasApiKey).toBe(false)
-    expect(body.freeCharsUsed).toBe(0)
+    expect(body).not.toHaveProperty('freeCharsUsed')
   })
 })
 

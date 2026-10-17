@@ -81,7 +81,7 @@ describe('POST /api/projects/[id]/summarize', () => {
       id: 'proj1',
       ownerId: 'user_abc',
       chapters: [
-        { id: 'ch1', sourceContent: 'text', summary: 'existing summary' },
+        { id: 'ch1', segments: [{ source: 'text' }], summary: 'existing summary' },
       ],
     })
     const { POST } = await import('@/app/api/projects/[id]/summarize/route')
@@ -98,7 +98,7 @@ describe('POST /api/projects/[id]/summarize', () => {
       id: 'proj1',
       ownerId: 'user_abc',
       chapters: [
-        { id: 'ch1', sourceContent: 'Chapter one content', summary: null },
+        { id: 'ch1', segments: [{ source: 'Chapter one' }, { source: 'content' }], summary: null },
       ],
     })
     mockWorkerFetch.mockResolvedValueOnce({
@@ -114,5 +114,7 @@ describe('POST /api/projects/[id]/summarize', () => {
     const body = await res.json()
     expect(body.count).toBe(1)
     expect(body.results[0].summary).toBe('A summary of chapter one.')
+    const sent = JSON.parse(mockWorkerFetch.mock.calls[0][1].body)
+    expect(sent.text).toBe('Chapter one\n\ncontent')
   })
 })

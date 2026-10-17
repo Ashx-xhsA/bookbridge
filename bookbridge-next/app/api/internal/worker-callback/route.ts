@@ -1,48 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import type { Prisma } from '@/app/generated/prisma/client'
 import prisma from '@/lib/prisma'
+import { rejectUnlessWorker } from '@/lib/worker-secret'
 
 // Server-to-server endpoint. The Python Worker POSTs here with the result of
-// a background /translate/chunk/async translation. We verify a shared secret
-// in X-Worker-Secret and then persist the outcome so the BFF poller can see
-// it. No user auth — Clerk is not in this path.
+// a background /translate/segments/async job. We verify a shared secret in
+// X-Worker-Secret and then persist per-segment results so the BFF poller can
+// see them. No user auth — Clerk is not in this path.
 
-const bodySchema = z.union([
+// Issues the review loop left open (limits match the Worker's).
+const reviewIssue = z.object({
+  category: z.string().min(1).max(50),
+  severity: z.enum(['error', 'warning']),
+  message: z.string().min(1).max(300),
+})
+
+const segmentResult = z.object({
+  index: z.number().int().min(0),
+  translation: z.string().min(1),
+  reviewed: z.boolean().default(false),
+  issues: z.array(reviewIssue).max(20).default([]),
+})
+
+type SegmentResult = z.infer<typeof segmentResult>
+
+const results = {
+  segments: z.array(segmentResult).max(5000).default([]),
+  failed_indices: z.array(z.number().int().min(0)).max(5000).default([]),
+  summary: z.string().optional(),
+}
+
+const bodySchema = z.discriminatedUnion('status', [
+  // Progress after each batch: stores those segments and doubles as the
+  // heartbeat the jobs route uses to tell a slow job from a dead one.
+  z.object({
+    job_id: z.string().min(1).max(128),
+    status: z.literal('RUNNING'),
+    ...results,
+  }),
   z.object({
     job_id: z.string().min(1).max(128),
     status: z.literal('SUCCEEDED'),
-    translated_content: z.string().min(1),
-    summary: z.string().optional(),
+    ...results,
   }),
   z.object({
     job_id: z.string().min(1).max(128),
     status: z.literal('FAILED'),
-    error: z.string().optional(),
+    error: z.string().max(500).optional(),
+    ...results,
   }),
 ])
 
-function secretsEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a)
-  const bb = Buffer.from(b)
-  if (ba.length !== bb.length) return false
-  return timingSafeEqual(ba, bb)
+type CallbackBody = z.infer<typeof bodySchema>
+
+// Large chapters mean many segment writes in one transaction.
+export const maxDuration = 60
+
+const ACTIVE = new Set(['PENDING', 'RUNNING'])
+
+function jobUpdate(payload: CallbackBody) {
+  if (payload.status === 'RUNNING') return { status: 'RUNNING' as const }
+  if (payload.status === 'SUCCEEDED') return { status: 'SUCCEEDED' as const, error: null }
+  return { status: 'FAILED' as const, error: payload.error ?? 'Translation failed' }
 }
 
 export async function POST(req: NextRequest) {
-  const expected = process.env.WORKER_CALLBACK_SECRET
-  if (!expected) {
-    console.error('[worker-callback] WORKER_CALLBACK_SECRET is not configured')
-    return NextResponse.json(
-      { error: 'Callback receiver not configured' },
-      { status: 500 }
-    )
-  }
-
-  const provided = req.headers.get('x-worker-secret') ?? ''
-  if (!provided || !secretsEqual(provided, expected)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const rejected = rejectUnlessWorker(req, 'worker-callback')
+  if (rejected) return rejected
 
   let raw: unknown
   try {
@@ -58,32 +83,25 @@ export async function POST(req: NextRequest) {
 
   const payload = parsed.data
 
-  const data =
-    payload.status === 'SUCCEEDED'
-      ? { status: 'SUCCEEDED' as const, translatedContent: payload.translated_content }
-      : { status: 'FAILED' as const, error: payload.error ?? 'Translation failed' }
-
   try {
-    // Atomic: the poller must never observe a SUCCEEDED job whose
-    // chapter.translation is still null. Old sync path wrapped both writes
-    // in a transaction; we preserve that invariant here.
-    await prisma.$transaction(async (tx) => {
-      const job = await tx.translationJob.update({
-        where: { id: payload.job_id },
-        data,
-        select: { id: true, chapterId: true },
-      })
-
-      if (payload.status === 'SUCCEEDED' && job.chapterId) {
-        await tx.chapter.update({
-          where: { id: job.chapterId },
-          data: {
-            translation: payload.translated_content,
-            ...(payload.summary ? { summary: payload.summary } : {}),
-          },
-        })
-      }
+    const job = await prisma.translationJob.findUnique({
+      where: { id: payload.job_id },
+      select: { id: true, chapterId: true, status: true },
     })
+    if (!job) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+    // A job already finished (or replaced as stale) must not be overwritten
+    // by a Worker run that kept going in the background.
+    if (!ACTIVE.has(job.status)) {
+      return NextResponse.json({ error: 'Job is no longer active' }, { status: 409 })
+    }
+    // One atomic batch with the job status written last: the poller must
+    // never observe a terminal job whose segments are not yet stored.
+    await prisma.$transaction([
+      ...(job.chapterId ? segmentWrites(job.chapterId, payload) : []),
+      prisma.translationJob.update({ where: { id: payload.job_id }, data: jobUpdate(payload) }),
+    ])
   } catch (err) {
     if ((err as { code?: string })?.code === 'P2025') {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
@@ -96,4 +114,37 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true }, { status: 200 })
+}
+
+// An open error flags the segment for a human whether it came from the rule
+// checks or the reviewer; otherwise it is "reviewed" only if the reviewer ran.
+function segmentStatus(seg: SegmentResult): string {
+  if (seg.issues.some((i) => i.severity === 'error')) return 'flagged'
+  return seg.reviewed ? 'reviewed' : 'translated'
+}
+
+function segmentWrites(
+  chapterId: string,
+  payload: CallbackBody
+): Prisma.PrismaPromise<unknown>[] {
+  const writes: Prisma.PrismaPromise<unknown>[] = payload.segments.map((seg) =>
+    prisma.segment.updateMany({
+      where: { chapterId, index: seg.index },
+      data: { translation: seg.translation, status: segmentStatus(seg), reviewIssues: seg.issues },
+    })
+  )
+  if (payload.failed_indices.length > 0) {
+    writes.push(
+      prisma.segment.updateMany({
+        where: { chapterId, index: { in: payload.failed_indices } },
+        data: { status: 'failed' },
+      })
+    )
+  }
+  if (payload.summary) {
+    writes.push(
+      prisma.chapter.update({ where: { id: chapterId }, data: { summary: payload.summary } })
+    )
+  }
+  return writes
 }

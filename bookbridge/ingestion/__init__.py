@@ -1,1 +1,1 @@
-"""Ingestion module: PDF reading, chunking, and term extraction."""
+"""Ingestion module: EPUB/TXT reading into chapters and paragraphs."""

@@ -11,11 +11,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockProjectFindFirst = vi.fn()
+const mockSegmentFindMany = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
     project: {
       findFirst: (...args: unknown[]) => mockProjectFindFirst(...args),
+    },
+    segment: {
+      findMany: (...args: unknown[]) => mockSegmentFindMany(...args),
     },
   },
 }))
@@ -87,6 +91,58 @@ describe('getPublishedProjectWithChapters', () => {
       id: true,
       number: true,
       title: true,
+    })
+  })
+})
+
+describe('getPublishedProjectForReader', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns null for an unknown or unpublished token without loading text', async () => {
+    mockProjectFindFirst.mockResolvedValueOnce(null)
+    const { getPublishedProjectForReader } = await import('@/lib/public-project')
+
+    expect(await getPublishedProjectForReader('some-token')).toBeNull()
+    const [args] = mockProjectFindFirst.mock.calls[0]
+    expect(args.where).toEqual({ publicToken: 'some-token', isPublic: true })
+    expect(mockSegmentFindMany).not.toHaveBeenCalled()
+  })
+
+  it('loads the chapter outline plus only the first chapter, without review details', async () => {
+    mockProjectFindFirst.mockResolvedValueOnce({
+      id: 'proj_1',
+      title: 'Book',
+      sourceLang: 'en',
+      targetLang: 'zh-Hans',
+      chapters: [
+        { id: 'c1', number: 1, title: 'One', _count: { segments: 2 }, segments: [] },
+        { id: 'c2', number: 2, title: 'Two', _count: { segments: 3 }, segments: [{ id: 's9' }] },
+      ],
+    })
+    mockSegmentFindMany.mockResolvedValueOnce([
+      { index: 0, source: 'A.', translation: '甲', status: 'flagged',
+        reviewIssues: [{ category: 'omission', severity: 'error', message: 'secret' }] },
+    ])
+    const { getPublishedProjectForReader } = await import('@/lib/public-project')
+
+    const reader = await getPublishedProjectForReader('some-token')
+
+    const [args] = mockProjectFindFirst.mock.calls[0]
+    // The outline query must not pull paragraph text for the whole book.
+    expect(JSON.stringify(args.select.chapters)).not.toContain('source')
+    expect(mockSegmentFindMany).toHaveBeenCalledTimes(1)
+    expect(mockSegmentFindMany.mock.calls[0][0].where).toEqual({ chapterId: 'c1' })
+    expect(reader).toEqual({
+      title: 'Book',
+      sourceLang: 'en',
+      targetLang: 'zh-Hans',
+      chapters: [
+        { key: 'c1', id: 'c1', number: 1, title: 'One', done: true },
+        { key: 'c2', id: 'c2', number: 2, title: 'Two', done: false },
+      ],
+      initialRows: { c1: [{ index: 0, source: 'A.', translation: '甲' }] },
     })
   })
 })

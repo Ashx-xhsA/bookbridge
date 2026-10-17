@@ -148,47 +148,75 @@ Extract named entities from all parsed chunks of a project.
 
 ## Part 3: Next.js BFF API Routes (App Router)
 
-All routes require Clerk authentication unless marked public.
+> Updated 2026-10-17 to match the code after the EPUB/TXT refactor (Phase 5). Parts 1, 2 and 4 still describe the pre-refactor design and will be rewritten together with the README.
 
-### Projects
+All routes need a Clerk session unless marked **Public** or **Worker**. Every `[id]` route checks ownership: missing project → 404, someone else's → 403. Route params and query strings are validated with Zod first (400 on failure). Public routes take the project's `publicToken` (a UUID) as the authorization and return 404 for both unknown and unpublished tokens.
 
-| Method | Route | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/projects` | Translator | List user's projects |
-| `POST` | `/api/projects` | Translator | Create project, trigger Worker `/parse` |
-| `GET` | `/api/projects/[id]` | Translator | Get project details + chunk list |
-| `PATCH` | `/api/projects/[id]` | Translator | Update name, publish/unpublish |
-| `DELETE` | `/api/projects/[id]` | Translator | Delete project |
-
-### Chunks
+### Projects and upload
 
 | Method | Route | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/projects/[id]/chunks` | Translator | List all chunks with status |
-| `POST` | `/api/projects/[id]/chunks/[chunkId]/translate` | Translator | Trigger Worker `/translate/chunk` |
-| `GET` | `/api/projects/[id]/chunks/[chunkId]` | Translator | Get chunk content + translation |
+| `GET` | `/api/projects` | Owner | List the user's projects |
+| `POST` | `/api/upload` | Owner | Upload an EPUB or TXT (form data, max 4.5 MB); the Worker `/parse` splits it into chapters and paragraph `Segment`s. Over 1.5 M characters → 413 |
+| `GET` | `/api/projects/[id]` | Owner | Project metadata, chapter list (no text), jobs, glossary |
+| `PATCH` | `/api/projects/[id]` | Owner | Rename; publish / unpublish (publishing rotates `publicToken`) |
+| `DELETE` | `/api/projects/[id]` | Owner | Delete the project and everything under it |
 
-### Glossary
-
-| Method | Route | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/projects/[id]/glossary` | Translator | List all terms |
-| `POST` | `/api/projects/[id]/glossary` | Translator | Add term manually |
-| `PATCH` | `/api/projects/[id]/glossary/[termId]` | Translator | Edit / approve term translation |
-| `DELETE` | `/api/projects/[id]/glossary/[termId]` | Translator | Delete term |
-
-### Public Reading
+### Reading (owner)
 
 | Method | Route | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/read/[token]` | Public | Get published project metadata + chunk list |
-| `GET` | `/api/read/[token]/chunks/[chunkId]` | Public | Get chunk content for reading view |
+| `GET` | `/api/projects/[id]/chapters/[chapterId]` | Owner | One chapter's paragraphs, aligned: `{ index, source, translation \| null, status, issues }[]`. Untranslated paragraphs keep their place. `status` is `pending` / `translated` / `reviewed` / `flagged` / `failed`; `issues` are the review issues still open |
+| `GET` | `/api/projects/[id]/search?q=` | Owner | Search source and translation (2–100 chars, case-insensitive, max 50 hits): `{ chapterId, chapterNumber, chapterTitle, index, snippet }[]` |
+| `GET` | `/api/projects/[id]/export?format=md\|epub&layout=…` | Owner | Download the whole book. `md`: `layout=translation` (default) or `bilingual`. `epub`: bilingual EPUB 3, `layout=side` (default, source left / translation right) or `stacked` (source paragraph, then its translation). Exports never include review details |
 
-### Jobs
+### Translation jobs
 
 | Method | Route | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/jobs/[jobId]` | Translator | Poll Worker job status (proxies Worker `/job/{id}`) |
+| `POST` | `/api/jobs` | Owner | Translate one chapter: sends its paragraphs, the preceding context, matched glossary and the book bible to the Worker (`/translate/segments/async`) |
+| `GET` | `/api/jobs/[jobId]` | Owner | Poll a job |
+| `DELETE` | `/api/jobs/[jobId]` | Owner | Delete the job record (the UI's Stop button); the Worker is not told to stop |
+| `GET` | `/api/projects/[id]/translate-batch` | Owner | Chapters still to translate, for "Translate All" |
+| `POST` | `/api/projects/[id]/summarize` | Owner | Summarize a chapter (shown in the UI only, not used as translation context) |
+
+### Glossary and book bible
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/projects/[id]/glossary` | Owner | List all terms |
+| `POST` | `/api/projects/[id]/glossary` | Owner | Add a term, optionally as an alias of another (`aliasOfId`) |
+| `PATCH` | `/api/projects/[id]/glossary/[termId]` | Owner | Edit translation, gender, voice; approve |
+| `DELETE` | `/api/projects/[id]/glossary/[termId]` | Owner | Delete a term |
+| `GET` | `/api/projects/[id]/bible` | Owner | Bible review and scan status, style guide |
+| `PATCH` | `/api/projects/[id]/bible` | Owner | Edit the style guide; confirm or reopen as draft |
+| `POST` | `/api/projects/[id]/bible/scan` | Owner | Start a pre-scan of the whole book (returns a job to poll) |
+| `GET` | `/api/projects/[id]/bible/entries?group=person\|other[&q=][&cursor=]` | Owner | One page (50) of main bible entries with their aliases, ordered by mentions: `{ data, total, nextCursor }` |
+
+### Public reading (shared link)
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/read/[token]` | Public | Published project metadata and chapter list |
+| `GET` | `/api/read/[token]/chunks/[chunkId]` | Public | One chapter: joined `originalText` / `translatedText` plus aligned `segments: { index, source, translation }[]` (no status or issues) |
+| `GET` | `/api/read/[token]/search?q=` | Public | Same search as the owner route, scoped to the published project |
+
+### Settings
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/settings` | Owner | The user's model provider settings (`hasApiKey` only, never the key) |
+| `PATCH` | `/api/settings` | Owner | Save provider, base URL and API key |
+
+### Worker callbacks
+
+Server to server only. The Worker authenticates with the shared secret in `X-Worker-Secret`; there is no Clerk session.
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/internal/worker-callback` | Worker | Per-paragraph translation results with review status and open issues |
+| `POST` | `/api/internal/worker-callback/glossary` | Worker | New proper nouns extracted after translation |
+| `POST` | `/api/internal/worker-callback/bible` | Worker | Pre-scan result: characters, aliases, places, style guide |
 
 ---
 

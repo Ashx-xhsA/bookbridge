@@ -53,9 +53,10 @@ describe('GET /api/projects/[id]/translate-batch', () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: 'user_abc' } as ReturnType<typeof auth> extends Promise<infer T> ? T : never)
     mockProjectFindUnique.mockResolvedValueOnce({ ownerId: 'user_abc' })
     mockChapterFindMany.mockResolvedValueOnce([
-      { id: 'ch1', number: 1, title: 'One', translation: 'Translated', sourceContent: 'text' },
-      { id: 'ch2', number: 2, title: 'Two', translation: null, sourceContent: 'text' },
-      { id: 'ch3', number: 3, title: 'Three', translation: null, sourceContent: null },
+      // `segments` holds at most one untranslated segment (take: 1)
+      { id: 'ch1', number: 1, title: 'One', segments: [], _count: { segments: 3 } },
+      { id: 'ch2', number: 2, title: 'Two', segments: [{ id: 's1' }], _count: { segments: 2 } },
+      { id: 'ch3', number: 3, title: 'Three', segments: [], _count: { segments: 0 } },
     ])
 
     const { GET } = await import('@/app/api/projects/[id]/translate-batch/route')
@@ -67,5 +68,16 @@ describe('GET /api/projects/[id]/translate-batch', () => {
     expect(body.translated).toBe(1)
     expect(body.untranslated).toHaveLength(1)
     expect(body.untranslated[0].id).toBe('ch2')
+    expect(mockChapterFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          segments: {
+            where: { OR: [{ translation: null }, { status: 'failed' }] },
+            select: { id: true },
+            take: 1,
+          },
+        }),
+      })
+    )
   })
 })

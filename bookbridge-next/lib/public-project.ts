@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { publicRows, type PublicRow } from '@/lib/reader'
+import { READER_OUTLINE, loadFirstChapterRows, toReaderChapters } from '@/lib/reader-data'
 
 // publicToken is minted via crypto.randomUUID() in the project publish flow, so
 // the format is strict — reject anything non-UUID at the edge to shrink the
@@ -32,17 +34,25 @@ export async function getPublishedProjectWithChapters(token: string) {
   })
 }
 
-// Reader-page variant: includes sourceContent + translation so the public
-// reader can render the full two-column view in one Server Component pass.
-// Exposing chunks in bulk is OK here because the token IS the authorization —
-// same privilege as the per-chunk endpoint, just batched.
+// Reader-page variant: the chapter outline plus the first chapter's
+// paragraphs, without review status or issues. Later chapters come from the
+// per-chunk endpoint as the reader scrolls.
 export async function getPublishedProjectForReader(token: string) {
-  return prisma.project.findFirst({
+  const project = await prisma.project.findFirst({
     where: { publicToken: token, isPublic: true },
-    include: {
-      chapters: {
-        orderBy: { number: 'asc' },
-      },
-    },
+    select: { title: true, sourceLang: true, targetLang: true, chapters: READER_OUTLINE },
   })
+  if (!project) return null
+
+  const firstRows = await loadFirstChapterRows(project.chapters)
+  const initialRows: Record<string, PublicRow[]> = {}
+  for (const [key, rows] of Object.entries(firstRows)) initialRows[key] = publicRows(rows)
+
+  return {
+    title: project.title,
+    sourceLang: project.sourceLang,
+    targetLang: project.targetLang,
+    chapters: toReaderChapters(project.chapters),
+    initialRows,
+  }
 }

@@ -1,6 +1,16 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import prisma from '@/lib/prisma'
+import { aliasLinkError } from '@/lib/glossary-alias'
+
+const createSchema = z.object({
+  english: z.string().trim().min(1).max(200),
+  translation: z.string().max(500).optional(),
+  category: z.string().min(1).max(50).optional(),
+  // Create the term as an alias of this main term (own translation).
+  aliasOfId: z.string().min(1).max(128).optional(),
+})
 
 export async function GET(
   _req: NextRequest,
@@ -46,26 +56,31 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let body: { english?: string; translation?: string; category?: string }
+  let raw: unknown
   try {
-    body = await req.json()
+    raw = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+  const parsed = createSchema.safeParse(raw)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'english term is required' }, { status: 400 })
+  }
+  const { english, translation, category, aliasOfId } = parsed.data
 
-  if (!body.english) {
-    return NextResponse.json(
-      { error: 'english term is required' },
-      { status: 400 }
-    )
+  if (aliasOfId) {
+    const linkError = await aliasLinkError(id, null, aliasOfId)
+    if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
   }
 
   const term = await prisma.glossaryTerm.create({
     data: {
       projectId: id,
-      english: body.english,
-      translation: body.translation || null,
-      category: body.category || 'general',
+      english,
+      translation: translation || null,
+      category: category || 'general',
+      // A user-added alias is reviewed by definition; a re-scan keeps it.
+      ...(aliasOfId ? { aliasOfId, userEdited: true } : {}),
     },
   })
 

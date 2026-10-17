@@ -1,31 +1,28 @@
-"""Failing (red) tests for issue #61 — Worker async translate endpoint.
+"""Worker async segment translation: POST /translate/segments/async + callbacks.
 
-The current /translate/chunk is synchronous and blocks on the LLM for 30-120 s
-per chapter, which hard-fails on Vercel hobby tier (10 s function ceiling).
-Issue #61 adds a new /translate/chunk/async endpoint that:
-
-1. Accepts {job_id, source_text, target_lang}
-2. Returns 202 immediately
-3. Runs the translation in a FastAPI BackgroundTask
-4. POSTs the result back to Next.js via a shared-secret callback (because the
-   Python Worker has no Postgres driver — callback lets Next.js own the DB
-   write via Prisma, avoiding a new Python dependency)
-
-The callback target + secret are read from env vars:
-  - CALLBACK_BASE_URL      — e.g. https://bookbridge.vercel.app
-  - WORKER_CALLBACK_SECRET — shared with the Next.js /api/internal/worker-callback
-
-These tests MUST fail until the endpoint and callback helper land.
+The endpoint returns 202 at once; a BackgroundTask runs the harness pipeline
+and POSTs per-segment results back to the BFF (which owns the DB). New
+glossary terms come from a separate extraction call and go to the glossary
+callback.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import json
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from bookbridge.harness.models import ProviderError
+from bookbridge.harness.prompts import BIBLE_HEADING, CONTEXT_HEADING
+from bookbridge.harness.providers.openai_compat import OpenAICompatClient
+from bookbridge.worker_api import routes
 from bookbridge.worker_api.main import create_app
+from bookbridge.worker_api.models import LLMCredentials, TranslateSegmentsAsyncRequest
+from tests.test_harness import ScriptedClient, _echo, _segments_in, _terms_json
+
+JOB_ID = "clh3p7b1p0003qzrmkf8g4m0k"
 
 
 @pytest.fixture()
@@ -33,126 +30,267 @@ def client() -> TestClient:
     return TestClient(create_app())
 
 
+def _body(**overrides: object) -> dict:
+    body: dict = {
+        "job_id": JOB_ID,
+        "target_lang": "zh-Hans",
+        "segments": [{"index": 0, "source": "Frodo ran."}, {"index": 2, "source": "Sam."}],
+    }
+    body.update(overrides)
+    return body
+
+
+def _run(scripted: ScriptedClient, **overrides: object) -> tuple[list[dict], list[dict]]:
+    """Run the background job with a scripted client; return (job, glossary) callbacks."""
+    jobs: list[dict] = []
+    terms: list[dict] = []
+    with (
+        patch.object(routes, "client_for", return_value=scripted),
+        patch.object(routes, "post_worker_callback", side_effect=jobs.append),
+        patch.object(routes, "post_glossary_callback", side_effect=lambda **kw: terms.append(kw)),
+    ):
+        routes.run_translation_job(TranslateSegmentsAsyncRequest(**_body(**overrides)))
+    return jobs, terms
+
+
+def _texts(rows: list[dict]) -> list[dict]:
+    """Index and translation only — review fields have their own tests."""
+    return [{"index": r["index"], "translation": r["translation"]} for r in rows]
+
+
+def _is_review(system: str) -> bool:
+    return "Task: review" in system
+
+
+def _translate_or_extract(system: str, user: str, json_mode: bool) -> str:
+    if _is_review(system):
+        return '{"issues": []}'
+    if json_mode:
+        return _terms_json("Frodo")
+    if "<<<" not in user:  # summary call
+        return "A short summary."
+    return _echo(system, user, json_mode)
+
+
 # ---------------------------------------------------------------------------
-# POST /translate/chunk/async
+# Endpoint contract
 # ---------------------------------------------------------------------------
 
 
-def test_translate_chunk_async_returns_202_for_valid_request(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Endpoint accepts {job_id, source_text, target_lang} and returns 202 + body."""
+def test_returns_202_and_runs_job(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
-    monkeypatch.setenv("CALLBACK_BASE_URL", "https://example.invalid")
-    monkeypatch.setenv("WORKER_CALLBACK_SECRET", "test-secret")
-
-    with patch("bookbridge.worker_api.routes.post_worker_callback") as mock_cb:
-        response = client.post(
-            "/translate/chunk/async",
-            json={
-                "job_id": "clh3p7b1p0003qzrmkf8g4m0k",
-                "source_text": "Der Hund biss den Mann.",
-                "target_lang": "zh-Hans",
-            },
-        )
-
+    jobs: list[dict] = []
+    with patch.object(routes, "post_worker_callback", side_effect=jobs.append):
+        response = client.post("/translate/segments/async", json=_body())
     assert response.status_code == 202
-    body = response.json()
-    assert body["job_id"] == "clh3p7b1p0003qzrmkf8g4m0k"
-    assert body["status"] == "accepted"
-    # Background task runs synchronously in TestClient — callback should fire
-    assert mock_cb.called
+    assert response.json() == {"job_id": JOB_ID, "status": "accepted"}
+    payload = jobs[-1]  # after one RUNNING progress callback
+    assert [j["status"] for j in jobs] == ["RUNNING", "SUCCEEDED"]
+    assert payload["status"] == "SUCCEEDED"
+    assert _texts(payload["segments"]) == [
+        {"index": 0, "translation": "[zh-Hans] Frodo ran."},
+        {"index": 2, "translation": "[zh-Hans] Sam."},
+    ]
 
 
-def test_translate_chunk_async_rejects_malformed_job_id_with_400(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Malformed job_id → 400, not 500 (per issue #61 Security DoD)."""
-    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
-    response = client.post(
-        "/translate/chunk/async",
-        json={
-            "job_id": "not valid!!",
-            "source_text": "Der Hund biss den Mann.",
-            "target_lang": "zh-Hans",
-        },
-    )
+def test_rejects_malformed_job_id(client: TestClient) -> None:
+    response = client.post("/translate/segments/async", json=_body(job_id="not valid!!"))
     assert response.status_code == 400
 
 
-def test_translate_chunk_async_background_posts_success_callback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """On translator success, background task POSTs SUCCEEDED + translated_content."""
-    from bookbridge.worker_api import routes
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"target_lang": "klingon"},
+        {"segments": []},
+        {"segments": [{"index": -1, "source": "x"}]},
+        {"segments": [{"index": 0, "source": ""}]},
+        {"segments": [{"index": 0, "source": "a"}, {"index": 0, "source": "b"}]},
+        {"config": {"glossary_mode": "vector"}},
+        {"config": {"context_window": 11}},
+        {"config": {"max_batch_chars": 0}},
+        {"preceding": [{"source": "x"}] * 11},
+        {"glossary": [{"english": "A", "translation": "a", "alias_of": {"english": "B"}}]},
+        {"bible": {"style_guide": "x" * 5001}},
+        {"config": {"book_bible": "maybe"}},
+        {"config": {"review_max_retries": 3}},
+        {"config": {"review_max_retries": -1}},
+    ],
+)
+def test_rejects_invalid_body_with_422(client: TestClient, overrides: dict) -> None:
+    response = client.post("/translate/segments/async", json=_body(**overrides))
+    assert response.status_code == 422
 
-    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
 
-    from bookbridge.harness.translator import TranslateResult
+def test_rejects_oversized_total_source(client: TestClient) -> None:
+    big = [{"index": i, "source": "x" * 20_000} for i in range(60)]
+    response = client.post("/translate/segments/async", json=_body(segments=big))
+    assert response.status_code == 422
 
-    fake_translator = MagicMock()
-    fake_translator.translate.return_value = TranslateResult(text="狗咬了那个男人。", new_terms=[])
 
-    calls: list[dict] = []
+# ---------------------------------------------------------------------------
+# Background job
+# ---------------------------------------------------------------------------
 
-    def capture_callback(payload: dict) -> None:
-        calls.append(payload)
 
-    with (
-        patch.object(routes, "get_translator", return_value=fake_translator),
-        patch.object(routes, "post_worker_callback", side_effect=capture_callback),
-    ):
-        routes.translate_and_callback(
-            job_id="clh3p7b1p0003qzrmkf8g4m0k",
-            source_text="Der Hund biss den Mann.",
-            target_lang="zh-Hans",
-        )
-
-    assert len(calls) == 1
-    payload = calls[0]
-    assert payload["job_id"] == "clh3p7b1p0003qzrmkf8g4m0k"
+def test_success_payload_maps_results_to_segment_indices() -> None:
+    jobs, _ = _run(ScriptedClient(_translate_or_extract))
+    payload = jobs[-1]
+    assert payload["job_id"] == JOB_ID
     assert payload["status"] == "SUCCEEDED"
-    assert payload["translated_content"] == "狗咬了那个男人。"
+    assert [s["index"] for s in payload["segments"]] == [0, 2]
+    assert payload["segments"][0]["translation"] == "T:Frodo ran."
+    assert payload["failed_indices"] == []
+    assert payload["summary"] == "A short summary."
 
 
-def test_translate_chunk_async_background_posts_failure_callback_on_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """On translator exception, background task POSTs FAILED + generic error.
+def test_progress_callbacks_after_each_batch_then_final() -> None:
+    jobs, _ = _run(ScriptedClient(_translate_or_extract), config={"max_batch_chars": 1})
+    assert [j["status"] for j in jobs] == ["RUNNING", "RUNNING", "SUCCEEDED"]
+    assert _texts(jobs[0]["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert _texts(jobs[1]["segments"]) == [{"index": 2, "translation": "T:Sam."}]
 
-    Security DoD: failed jobs store generic error text — no provider stack trace.
-    """
-    from bookbridge.worker_api import routes
 
-    fake_translator = MagicMock()
-    fake_translator.translate.side_effect = RuntimeError(
-        "DeepSeek returned 503 with stack trace AAA/BBB/CCC"
-    )
+def test_partial_failure_reports_successes_and_failed_indices() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        if not json_mode and "<<<" in user and "Sam." in _segments_in(user):
+            return ""  # cannot be aligned
+        return _translate_or_extract(system, user, json_mode)
 
-    calls: list[dict] = []
-
-    def capture_callback(payload: dict) -> None:
-        calls.append(payload)
-
-    with (
-        patch.object(routes, "get_translator", return_value=fake_translator),
-        patch.object(routes, "post_worker_callback", side_effect=capture_callback),
-    ):
-        routes.translate_and_callback(
-            job_id="clh3p7b1p0003qzrmkf8g4m0k",
-            source_text="Der Hund biss den Mann.",
-            target_lang="zh-Hans",
-        )
-
-    assert len(calls) == 1
-    payload = calls[0]
-    assert payload["job_id"] == "clh3p7b1p0003qzrmkf8g4m0k"
+    jobs, _ = _run(ScriptedClient(respond))
+    payload = jobs[-1]
     assert payload["status"] == "FAILED"
-    # Generic error text only — no provider stack trace / URL / response body
-    assert "DeepSeek" not in payload.get("error", "")
-    assert "503" not in payload.get("error", "")
-    assert "AAA" not in payload.get("error", "")
-    assert "translated_content" not in payload or payload["translated_content"] is None
+    assert _texts(payload["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert payload["failed_indices"] == [2]
+    assert "1 of 2" in payload["error"]
+
+
+def test_provider_failure_stops_and_keeps_finished_segments() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        if not json_mode and "<<<" in user and "Sam." in _segments_in(user):
+            raise ProviderError("401 body=secret-token", retryable=False)
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, _ = _run(ScriptedClient(respond), config={"max_batch_chars": 1})
+    payload = jobs[-1]
+    assert payload["status"] == "FAILED"
+    assert _texts(payload["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert payload["error"] == "Translation provider failed; finished segments were kept"
+    assert "secret" not in str(payload)
+
+
+def test_term_extraction_failure_does_not_change_the_job() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        if json_mode and not _is_review(system):
+            raise RuntimeError("extraction exploded")
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, terms = _run(ScriptedClient(respond), project_id="proj_123456")
+    assert jobs[-1]["status"] == "SUCCEEDED"
+    assert terms == []
+
+
+def test_unexpected_exception_posts_generic_failure() -> None:
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        raise RuntimeError("DeepSeek returned 503 with stack trace AAA")
+
+    jobs, terms = _run(ScriptedClient(respond))
+    payload = jobs[-1]
+    assert payload["status"] == "FAILED"
+    assert payload["error"] == "Translation failed"
+    assert "segments" not in payload
+    assert terms == []
+
+
+def test_client_configuration_error_posts_failure() -> None:
+    jobs: list[dict] = []
+    with (
+        patch.object(routes, "client_for", side_effect=ValueError("LLM provider not configured")),
+        patch.object(routes, "post_worker_callback", side_effect=jobs.append),
+    ):
+        routes.run_translation_job(TranslateSegmentsAsyncRequest(**_body()))
+    assert jobs == [{"job_id": JOB_ID, "status": "FAILED", "error": "Translation failed"}]
+
+
+def test_new_terms_posted_when_project_id_given() -> None:
+    _, terms = _run(ScriptedClient(_translate_or_extract), project_id="proj_123456")
+    assert terms == [
+        {
+            "project_id": "proj_123456",
+            "terms": [{"english": "Frodo", "translation": "译Frodo", "category": "person"}],
+        }
+    ]
+
+
+def test_no_extraction_without_project_id() -> None:
+    scripted = ScriptedClient(_translate_or_extract)
+    _, terms = _run(scripted)
+    assert terms == []
+    assert not any("Task: extract_terms" in system for system, _, _ in scripted.calls)
+
+
+def test_config_and_preceding_reach_the_prompt() -> None:
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted, preceding=[{"source": "Before.", "translation": "之前。"}])
+    assert "之前。" in scripted.calls[0][1]
+
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(
+        scripted,
+        preceding=[{"source": "Before.", "translation": "之前。"}],
+        config={"context_window": 0},
+    )
+    assert all(CONTEXT_HEADING not in user for _, user, _ in scripted.calls)
+
+
+def test_alias_rows_reach_the_prompt_with_referent() -> None:
+    scripted = ScriptedClient(_translate_or_extract)
+    glossary = [
+        {
+            "english": "Mithrandir",
+            "translation": "米斯兰达",
+            "alias_of": {"english": "Gandalf", "translation": "甘道夫"},
+        }
+    ]
+    _run(scripted, glossary=glossary, segments=[{"index": 0, "source": "Mithrandir came."}])
+    system = scripted.calls[0][0]
+    assert "Mithrandir → 米斯兰达" in system and "Gandalf / 甘道夫" in system
+
+
+def test_bible_reaches_the_prompt_and_switch_removes_it() -> None:
+    bible = {
+        "style_guide": "Keep it terse.",
+        "characters": [{"name": "Frodo", "translation": "弗罗多", "voice": "Earnest."}],
+    }
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted, bible=bible)
+    assert "Keep it terse." in scripted.calls[0][0]
+    assert "Earnest." in scripted.calls[0][0]  # "Frodo ran." is in the batch
+
+    scripted = ScriptedClient(_translate_or_extract)
+    _run(scripted, bible=bible, config={"book_bible": False})
+    assert all(BIBLE_HEADING not in system for system, _, _ in scripted.calls)
+
+
+# ---------------------------------------------------------------------------
+# client_for — per-user credentials win over env
+# ---------------------------------------------------------------------------
+
+
+def test_client_for_uses_user_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
+    creds = LLMCredentials(
+        llm_api_key="sk-user", llm_base_url="https://api.deepseek.com/v1", llm_model="deepseek-chat"
+    )
+    llm = routes.client_for(creds)
+    assert isinstance(llm, OpenAICompatClient)
+    assert llm.model == "deepseek-chat"
+
+
+def test_client_for_falls_back_to_env_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "mock")
+    assert not isinstance(routes.client_for(None), OpenAICompatClient)
+    assert not isinstance(routes.client_for(LLMCredentials()), OpenAICompatClient)
 
 
 # ---------------------------------------------------------------------------
@@ -163,10 +301,7 @@ def test_translate_chunk_async_background_posts_failure_callback_on_exception(
 def test_post_worker_callback_swallows_non_urlerror_exceptions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Addresses C.L.E.A.R. MUST FIX #4 — any exception raised by urlopen must
-    be caught so the FastAPI background task runner never crashes. urlopen can
-    raise ValueError (bad scheme), ssl.SSLError, OSError, etc., not just URLError.
-    """
+    """Any exception from urlopen must be caught so the background runner never crashes."""
     from bookbridge.worker_api import callback
 
     monkeypatch.setenv("CALLBACK_BASE_URL", "https://bookbridge.example.test")
@@ -177,8 +312,7 @@ def test_post_worker_callback_swallows_non_urlerror_exceptions(
 
         raise ssl.SSLError("fake SSL handshake failure")
 
-    with patch.object(callback, "urlopen", raise_ssl_error):
-        # Must not raise — just logs.
+    with patch.object(callback, "urlopen", raise_ssl_error), patch.object(callback.time, "sleep"):
         callback.post_worker_callback({"job_id": "x" * 10, "status": "FAILED", "error": "test"})
 
 
@@ -194,7 +328,7 @@ def test_post_worker_callback_sends_secret_header(
     captured: list[tuple[str, dict]] = []
 
     class FakeResponse:
-        def __enter__(self) -> "FakeResponse":
+        def __enter__(self) -> FakeResponse:
             return self
 
         def __exit__(self, *args: object) -> None:
@@ -203,22 +337,79 @@ def test_post_worker_callback_sends_secret_header(
         def read(self) -> bytes:
             return b""
 
-    def fake_urlopen(req, timeout):  # noqa: ANN001
+    def fake_urlopen(req, timeout):  # noqa: ANN001, ARG001
         captured.append((req.full_url, dict(req.headers)))
         return FakeResponse()
 
     with patch.object(callback, "urlopen", fake_urlopen):
-        callback.post_worker_callback(
-            {
-                "job_id": "clh3p7b1p0003qzrmkf8g4m0k",
-                "status": "SUCCEEDED",
-                "translated_content": "狗咬了那个男人。",
-            }
-        )
+        callback.post_worker_callback({"job_id": JOB_ID, "status": "FAILED", "error": "x"})
 
-    assert len(captured) == 1
-    url, headers = captured[0]
+    [(url, headers)] = captured
     assert url == "https://bookbridge.example.test/api/internal/worker-callback"
-    # urllib normalizes header keys to Title-Case
     assert headers.get("X-worker-secret") == "shared-secret-xyz"
     assert headers.get("Content-type") == "application/json"
+
+
+def test_new_terms_are_posted_in_chunks_the_bff_accepts() -> None:
+    names = [f"Name{i:03d}" for i in range(250)]
+
+    def respond(system: str, user: str, json_mode: bool) -> str:
+        return _terms_json(*names) if json_mode else _translate_or_extract(system, user, False)
+
+    segments = [{"index": 0, "source": " met ".join(names) + "."}]  # extracted names must occur
+    _, terms = _run(ScriptedClient(respond), project_id="proj_123456", segments=segments)
+    assert [len(call["terms"]) for call in terms] == [200, 50]
+
+
+# ---------------------------------------------------------------------------
+# Review loop results (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def _flag_second(system: str, user: str, json_mode: bool) -> str:
+    if _is_review(system):
+        issue = {"segment": 2, "category": "pronoun", "severity": "warning", "message": "他/她",
+                 "quote": "T:Sam."}  # fmt: skip
+        return json.dumps({"issues": [issue] if "Sam." in user else []})
+    return _translate_or_extract(system, user, json_mode)
+
+
+def test_rows_carry_review_state_and_issues() -> None:
+    jobs, _ = _run(ScriptedClient(_flag_second))
+    rows = jobs[-1]["segments"]
+    assert rows[0] == {"index": 0, "translation": "T:Frodo ran.", "reviewed": True, "issues": []}
+    assert rows[1]["reviewed"] is True
+    assert rows[1]["issues"] == [{"category": "pronoun", "severity": "warning", "message": "他/她"}]
+
+
+def test_progress_rows_carry_review_state_too() -> None:
+    jobs, _ = _run(ScriptedClient(_flag_second), config={"max_batch_chars": 1})
+    assert jobs[0]["status"] == "RUNNING"
+    assert jobs[0]["segments"][0]["reviewed"] is True
+
+
+def test_review_switch_off_sends_no_review_calls() -> None:
+    scripted = ScriptedClient(_flag_second)
+    jobs, _ = _run(scripted, config={"review_max_retries": 0})
+    assert not any(_is_review(system) for system, _, _ in scripted.calls)
+    assert all(r["reviewed"] is False and r["issues"] == [] for r in jobs[-1]["segments"])
+
+
+def test_issue_list_per_segment_is_capped() -> None:
+    def many(system: str, user: str, json_mode: bool) -> str:
+        if _is_review(system):
+            issues = [
+                {
+                    "segment": 1,
+                    "category": "style",
+                    "severity": "warning",
+                    "message": f"m{i}",
+                    "quote": "T:Frodo",
+                }  # fmt: skip
+                for i in range(50)
+            ]
+            return json.dumps({"issues": issues})
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, _ = _run(ScriptedClient(many), segments=[{"index": 0, "source": "Frodo ran."}])
+    assert len(jobs[-1]["segments"][0]["issues"]) == routes.MAX_SEGMENT_ISSUES

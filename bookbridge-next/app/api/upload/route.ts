@@ -1,30 +1,39 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { workerFetch } from '@/lib/worker'
+import { targetLangSchema } from '@/lib/languages'
+import { MAX_BOOK_CHARS, bookChars } from '@/lib/book-limits'
 
-// /parse walks every page of the PDF and runs OCR-cleanup; a 300-page book can
-// legitimately take 30+ seconds on a cold worker. Lift the route budget so the
-// platform doesn't kill us before the worker responds. maxDuration is a no-op
-// on local dev and on Vercel hobby (capped at 10s) but required for Pro.
+// /parse unzips and walks every document of the EPUB; a large book on a cold
+// worker can take tens of seconds. Lift the route budget so the platform
+// doesn't kill us before the worker responds. maxDuration is a no-op on local
+// dev and on Vercel hobby (capped at 10s) but required for Pro.
 export const maxDuration = 60
 const PARSE_TIMEOUT_MS = 55_000
+const ACCEPTED_EXTENSIONS = ['.epub', '.txt']
 
-interface WorkerChunk {
-  chunk_id: number
-  title: string
-  start_page: number
-  end_page: number
-  page_count: number
-  content?: string | null
-}
+// The worker is trusted, but its output is still validated before it is
+// written to the DB so a malformed response fails loudly instead of creating
+// half-populated chapters.
+const workerParseSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  chapters: z.array(
+    z.object({
+      number: z.number().int(),
+      title: z.string(),
+      paragraphs: z.array(z.string()),
+    })
+  ),
+})
+type WorkerParseResponse = z.infer<typeof workerParseSchema>
 
-interface WorkerParseResponse {
-  job_id: string
-  status: string
-  chunks?: WorkerChunk[]
-  error?: string | null
-}
+const uploadFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(200).default('Untitled'),
+  targetLang: targetLangSchema.default('zh-Hans'),
+})
 
 export async function POST(req: NextRequest) {
   const { userId } = await auth()
@@ -34,14 +43,19 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData()
   const file = formData.get('file') as File | null
-  const title = (formData.get('title') as string) || 'Untitled'
-  const targetLang = (formData.get('targetLang') as string) || 'zh-Hans'
-  const chapterCountRaw = formData.get('chapterCount') as string | null
-  const chapterCount = chapterCountRaw ? parseInt(chapterCountRaw, 10) : null
+  const fields = uploadFieldsSchema.safeParse({
+    title: formData.get('title') || undefined,
+    targetLang: formData.get('targetLang') || undefined,
+  })
+  if (!fields.success) {
+    return NextResponse.json({ error: 'Invalid title or target language.' }, { status: 400 })
+  }
+  const { title, targetLang } = fields.data
 
-  if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+  const fileName = file?.name?.toLowerCase() ?? ''
+  if (!file || !ACCEPTED_EXTENSIONS.some((ext) => fileName.endsWith(ext))) {
     return NextResponse.json(
-      { error: 'A PDF file is required.' },
+      { error: 'An EPUB or TXT file is required.' },
       { status: 400 }
     )
   }
@@ -64,9 +78,6 @@ export async function POST(req: NextRequest) {
 
   const workerForm = new FormData()
   workerForm.append('file', file)
-  if (chapterCount && chapterCount > 0) {
-    workerForm.append('chapter_count', String(chapterCount))
-  }
 
   let parseData: WorkerParseResponse | null = null
   let workerErrorDetail: string | null = null
@@ -79,7 +90,12 @@ export async function POST(req: NextRequest) {
       timeoutMs: PARSE_TIMEOUT_MS,
     })
     if (workerRes.ok) {
-      parseData = (await workerRes.json()) as WorkerParseResponse
+      const parsed = workerParseSchema.safeParse(await workerRes.json())
+      if (parsed.success) {
+        parseData = parsed.data
+      } else {
+        workerErrorDetail = 'Worker returned an invalid response'
+      }
     } else {
       workerErrorStatus = workerRes.status
       try {
@@ -94,21 +110,35 @@ export async function POST(req: NextRequest) {
     workerErrorDetail = err instanceof Error ? err.message : 'Worker unavailable'
   }
 
-  const chunks = parseData?.chunks ?? []
+  const chapters = parseData?.chapters ?? []
 
-  if (chunks.length > 0 && parseData) {
+  if (bookChars(chapters) > MAX_BOOK_CHARS) {
+    // Nothing usable was stored yet; drop the placeholder project.
+    await prisma.project.delete({ where: { id: project.id } })
+    return NextResponse.json(
+      {
+        error: `This book is too long (over ${MAX_BOOK_CHARS.toLocaleString('en-US')} characters). Please split it into volumes and upload them separately.`,
+      },
+      { status: 413 }
+    )
+  }
+
+  if (chapters.length > 0 && parseData) {
     await prisma.$transaction([
-      prisma.chapter.createMany({
-        data: chunks.map((ch) => ({
-          projectId: project.id,
-          number: ch.chunk_id,
-          title: ch.title,
-          startPage: ch.start_page,
-          endPage: ch.end_page,
-          pageCount: ch.page_count,
-          sourceContent: typeof ch.content === 'string' ? ch.content : null,
-        })),
-      }),
+      ...chapters.map((ch) =>
+        prisma.chapter.create({
+          data: {
+            projectId: project.id,
+            number: ch.number,
+            title: ch.title,
+            segments: {
+              createMany: {
+                data: ch.paragraphs.map((source, index) => ({ index, source })),
+              },
+            },
+          },
+        })
+      ),
       prisma.translationJob.create({
         data: {
           projectId: project.id,

@@ -139,7 +139,7 @@ export default async function Home() {
                   Upload
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-light">
-                  Upload your PDF book. We parse it into chapters automatically
+                  Upload your EPUB or TXT book. We parse it into chapters automatically
                   and build a table of contents.
                 </p>
               </div>

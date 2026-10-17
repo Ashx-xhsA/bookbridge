@@ -18,7 +18,6 @@
     ],
     "deny": [
       "Write .env",
-      "Write legacy/**",
       "Shell(rm *)"
     ]
   },

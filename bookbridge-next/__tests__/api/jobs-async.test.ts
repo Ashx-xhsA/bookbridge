@@ -53,6 +53,8 @@ const mockChapterUpdate = vi.fn()
 const mockUserFindUnique = vi.fn()
 const mockUserUpdate = vi.fn()
 const mockGlossaryTermFindMany = vi.fn()
+const mockSegmentFindMany = vi.fn()
+const mockBibleFindUnique = vi.fn()
 const mockTransaction = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
@@ -76,6 +78,12 @@ vi.mock('@/lib/prisma', () => ({
     },
     glossaryTerm: {
       findMany: (...args: unknown[]) => mockGlossaryTermFindMany(...args),
+    },
+    segment: {
+      findMany: (...args: unknown[]) => mockSegmentFindMany(...args),
+    },
+    bookBible: {
+      findUnique: (...args: unknown[]) => mockBibleFindUnique(...args),
     },
     $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
@@ -122,6 +130,8 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', freeCharsUsed: 0 })
     mockChapterFindMany.mockResolvedValue([])
     mockGlossaryTermFindMany.mockResolvedValue([])
+    mockSegmentFindMany.mockResolvedValue([])
+    mockBibleFindUnique.mockResolvedValue(null)
   })
 
   // -------------------------------------------------------------------------
@@ -168,7 +178,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -202,7 +212,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
   // The Worker call to /translate/chunk/async must be dispatched but must
   // not be awaited before returning the 202 response.
   // -------------------------------------------------------------------------
-  it('calls Worker /translate/chunk/async (not /translate/chunk) for the background task', async () => {
+  it('calls Worker /translate/segments/async for the background task', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
     mockProjectFindUnique.mockResolvedValueOnce({
       id: PROJECT_ID,
@@ -211,7 +221,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -229,11 +239,9 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
 
     expect(res.status).toBe(202)
 
-    // THE FAILING ASSERTION: current route calls /translate/chunk (sync).
-    // After issue #61, it must call /translate/chunk/async (new Worker endpoint).
     const fetchedUrl = mockGlobalFetch.mock.calls[0]?.[0] as string | undefined
     expect(fetchedUrl).toBeDefined()
-    expect(fetchedUrl).toContain('/translate/chunk/async')
+    expect(fetchedUrl).toContain('/translate/segments/async')
   })
 
   // -------------------------------------------------------------------------
@@ -253,7 +261,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
@@ -263,12 +271,14 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
         translation: '赫敏',
         category: 'person',
         approved: true,
+        aliasOf: null,
       },
       {
-        english: 'wand',
-        translation: '魔杖',
-        category: 'technical',
+        english: 'Granger',
+        translation: '格兰杰',
+        category: 'person',
         approved: false,
+        aliasOf: { english: 'Hermione', translation: '赫敏' },
       },
     ])
 
@@ -303,6 +313,12 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
       category: 'person',
       approved: true,
     })
+    expect(parsed.glossary[0].alias_of).toBeUndefined()
+    expect(parsed.glossary[1]).toMatchObject({
+      english: 'Granger',
+      alias_of: { english: 'Hermione', translation: '赫敏' },
+    })
+    expect(parsed.bible).toBeUndefined() // no scan yet
   })
 
   it('omits glossary field when the project has no terms (not an empty array)', async () => {
@@ -314,7 +330,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
     })
     mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
@@ -355,7 +371,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     })
     mockChapterFindUnique.mockResolvedValueOnce({
       id: CHAPTER_ID,
-      sourceContent: SOURCE_TEXT,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
       projectId: PROJECT_ID,
       number: 1,
     })
@@ -407,5 +423,239 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     const { POST } = await import('@/app/api/jobs/route')
     const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
     expect(res.status).toBe(404)
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 1: source text lives in Segment rows, joined in index order.
+  // -------------------------------------------------------------------------
+  it('sends every chapter segment with its index (segment-level translation)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [
+        { index: 0, source: 'First paragraph.' },
+        { index: 1, source: 'Second paragraph.' },
+      ],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(202)
+    expect(mockChapterFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          segments: { select: { index: true, source: true }, orderBy: { index: 'asc' } },
+        }),
+      })
+    )
+    const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body.segments).toEqual([
+      { index: 0, source: 'First paragraph.' },
+      { index: 1, source: 'Second paragraph.' },
+    ])
+    expect(body.source_text).toBeUndefined()
+    // Chapter summaries are no longer injected — the rolling window replaces them.
+    expect(body.context).toBeUndefined()
+  })
+
+  it('seeds the context window with the end of the previous chapter, oldest first', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 3,
+    })
+    // Query orders newest-first so `take` keeps the closest paragraphs.
+    mockSegmentFindMany.mockResolvedValueOnce([
+      { source: 'Last.', translation: '最后。' },
+      { source: 'Before last.', translation: null },
+    ])
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+    expect(mockSegmentFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { chapter: { projectId: PROJECT_ID, number: { lt: 3 } } },
+        orderBy: [{ chapter: { number: 'desc' } }, { index: 'desc' }],
+      })
+    )
+    const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body.preceding).toEqual([
+      { source: 'Before last.', translation: null },
+      { source: 'Last.', translation: '最后。' },
+    ])
+  })
+
+  it.each([
+    ['DRAFT', 'IDLE'],
+    ['CONFIRMED', 'IDLE'],
+    ['CONFIRMED', 'SCANNING'], // still used while a re-scan runs
+    ['DRAFT', 'FAILED'], // ... and after a re-scan failed
+  ])(
+    'sends the %s bible (scan %s): style guide plus person cards, most-mentioned first',
+    async (status, scanStatus) => {
+      vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+      mockProjectFindUnique.mockResolvedValueOnce({
+        id: PROJECT_ID,
+        ownerId: USER_ID,
+        targetLang: TARGET_LANG,
+      })
+      mockChapterFindUnique.mockResolvedValueOnce({
+        id: CHAPTER_ID,
+        segments: [{ index: 0, source: SOURCE_TEXT }],
+        projectId: PROJECT_ID,
+        number: 1,
+      })
+      mockBibleFindUnique.mockResolvedValueOnce({ status, scanStatus, styleGuide: '- 简洁' })
+      mockGlossaryTermFindMany.mockResolvedValueOnce([
+        { english: 'Ron', translation: '罗恩', category: 'person', approved: false,
+          gender: 'male', voice: null, notes: null, mentions: 3, aliasOf: null },
+        { english: 'Hermione', translation: '赫敏', category: 'person', approved: true,
+          gender: 'female', voice: 'Precise.', notes: null, mentions: 9, aliasOf: null },
+        { english: 'Granger', translation: '格兰杰', category: 'person', approved: false,
+          gender: null, voice: null, notes: null, mentions: 0,
+          aliasOf: { english: 'Hermione', translation: '赫敏' } },
+        { english: 'Hogwarts', translation: '霍格沃茨', category: 'place', approved: false,
+          gender: null, voice: null, notes: null, mentions: 20, aliasOf: null },
+      ])
+      mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+      mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+      const { POST } = await import('@/app/api/jobs/route')
+      await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+
+      const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+      expect(body.bible).toEqual({
+        style_guide: '- 简洁',
+        characters: [
+          { name: 'Hermione', translation: '赫敏', gender: 'female', voice: 'Precise.', notes: null },
+          { name: 'Ron', translation: '罗恩', gender: 'male', voice: null, notes: null },
+        ],
+      })
+    }
+  )
+
+  it('omits a bible that has never been drafted', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockBibleFindUnique.mockResolvedValueOnce({ status: 'NONE', scanStatus: 'SCANNING', styleGuide: '' })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body.bible).toBeUndefined()
+  })
+
+  it.each([500, 422])('marks the job FAILED when the Worker responds %i', async (code) => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: code }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    await vi.waitFor(() => expect(mockJobUpdate).toHaveBeenCalled())
+    expect(mockJobUpdate).toHaveBeenCalledWith({
+      where: { id: JOB_ID },
+      data: { status: 'FAILED', error: 'Worker unavailable' },
+    })
+  })
+
+  it('treats a long job that still reports progress as active (409)', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobFindFirst.mockResolvedValueOnce({
+      id: 'clh3p7b1p0009qzrmkf8g4zzz',
+      status: 'RUNNING',
+      createdAt: new Date(Date.now() - 30 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 60 * 1000), // progress a minute ago
+    })
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(409)
+    expect(mockJobCreate).not.toHaveBeenCalled()
+  })
+
+  it('replaces a job with no progress for 5 minutes', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockJobFindFirst.mockResolvedValueOnce({
+      id: 'clh3p7b1p0009qzrmkf8g4zzz',
+      status: 'RUNNING',
+      createdAt: new Date(Date.now() - 30 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 6 * 60 * 1000),
+    })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(202)
+  })
+
+  it('returns 400 when the chapter has no segments', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({
+      id: PROJECT_ID,
+      ownerId: USER_ID,
+      targetLang: TARGET_LANG,
+    })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    const { POST } = await import('@/app/api/jobs/route')
+    const res = await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    expect(res.status).toBe(400)
+    expect(mockJobCreate).not.toHaveBeenCalled()
   })
 })

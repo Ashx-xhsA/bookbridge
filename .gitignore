@@ -7,3 +7,15 @@ dist/
 build/
 .env
 HW-rubic/
+.venv/
+
+# Smoke runs contain full book text; only eval summaries get committed
+evals/results/smoke-*.json
+evals/results/smoke-*.html
+
+# Planning docs, progress log and chat logs stay local (personal notes, not part of the repo)
+docs/PROGRESS.md
+docs/ROADMAP.md
+docs/refactor-plan.md
+docs/phase5-plan.md
+docs/chat-log/

@@ -1,42 +1,28 @@
 """Data models for the quality checking module."""
 
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Literal
+
+Severity = Literal["error", "warning"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Issue:
-    """A quality issue found during translation checking."""
+    """A problem found in one translated segment.
+
+    Errors send the segment back for revision; warnings are only recorded.
+    """
 
     category: str
     message: str
-    severity: str = "warning"
+    severity: Severity = "warning"
 
-    def to_dict(self) -> dict:
-        return {
-            "category": self.category,
-            "message": self.message,
-            "severity": self.severity,
-        }
+    def to_dict(self) -> dict[str, str]:
+        return {"category": self.category, "message": self.message, "severity": self.severity}
 
 
-@dataclass
-class QualityReport:
-    """Aggregated quality report for a translated chunk."""
-
-    chunk_id: int
-    language: str
-    issues: list[Issue] = field(default_factory=list)
-    passed: bool = True
-
-    @property
-    def issue_count(self) -> int:
-        return len(self.issues)
-
-    def to_dict(self) -> dict:
-        return {
-            "chunk_id": self.chunk_id,
-            "language": self.language,
-            "issues": [i.to_dict() for i in self.issues],
-            "passed": self.passed,
-            "issue_count": self.issue_count,
-        }
+def has_errors(issues: Iterable[Issue]) -> bool:
+    return any(i.severity == "error" for i in issues)

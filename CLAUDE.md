@@ -5,29 +5,26 @@ Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **P
 ## Architecture Rules
 - Next.js API Routes proxy all Worker calls — browser never talks to Worker directly
 - PostgreSQL is the single source of truth; ChromaDB is a local RAG cache on the Worker only
-- Wrap existing Python core (`ingestion/`, `glossary/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
+- Wrap existing Python core (`ingestion/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
 - Server Components by default; add `'use client'` only for interactivity or browser APIs
 
 ## Project Structure
 ```
 bookbridge/         # Python Worker package
-  ingestion/        # PDF reading, chunking, term extraction
-  glossary/         # ChromaDB RAG store (local to Worker)
+  ingestion/        # EPUB/TXT reading into chapters and paragraphs
   harness/          # translation orchestrator + Claude API client
-  quality/          # per-language quality checkers
+  quality/          # per-segment rule checks used by the review loop
   worker_api/       # FastAPI endpoints
-  mcp_servers/      # glossary and translation MCP servers
 tests/              # pytest suite (Python Worker)
 app/                # Next.js App Router (Sprint 2+)
   api/              # BFF API Routes
 prisma/             # Prisma schema + migrations
 docs/               # PRD, API design, sprint notes
-legacy/             # reference baseline — do not modify
 ```
 
 ## Python Conventions
 - Type hints on all signatures; ruff enforced
-- Dataclasses for domain objects (`ChunkManifest`, `ChunkInfo`, `Term`, `TranslationJob`)
+- Dataclasses for domain objects (`Book`, `Chapter`, `Term`, `TranslationJob`)
 - `pathlib.Path` over `os.path`; functions under 40 lines
 - TDD: write failing test first, then implement
 - Run: `pytest tests/ -v --tb=short`
@@ -65,7 +62,6 @@ legacy/             # reference baseline — do not modify
 
 ## Don'ts
 - Don't store secrets in code
-- Don't modify `legacy/`
 - Don't use ChromaDB or SQLite as persistent state (PostgreSQL only)
 
 @import docs/PRD.md

@@ -16,9 +16,8 @@ Before writing any code, read and internalize these project files:
 - [ ] `pyproject.toml` -- current dependencies and project config
 
 Identify the closest existing module to use as a structural reference:
-- `bookbridge/ingestion/` -- for data processing modules (PDF, chunking)
+- `bookbridge/ingestion/` -- for data processing modules (readers, chunking)
 - `bookbridge/glossary/` -- for SQLite-backed storage modules
-- `bookbridge/output/` -- for output generation modules
 
 ## Step 1: Dependency Check
 
@@ -143,7 +142,6 @@ Commit: `refactor: improve <module_name> code quality (ref #<issue>)`
 ## Constraints
 
 - Do NOT modify existing tests or code in other modules
-- Do NOT modify anything in `legacy/`
 - Do NOT use `print()` -- use `rich.console` or `logging`
 - Do NOT hardcode file paths
 - Do NOT store secrets in code

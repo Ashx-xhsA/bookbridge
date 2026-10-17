@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { Plus, FileText, Clock, CheckCircle } from 'lucide-react'
 import prisma from '@/lib/prisma'
+import { CHAPTER_PROGRESS, isChapterDone } from '@/lib/segments'
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-parchment text-ink-light',
@@ -18,7 +19,7 @@ export default async function DashboardPage() {
 
   const projects = await prisma.project.findMany({
     where: { ownerId: userId },
-    include: { chapters: { select: { translation: true } } },
+    include: { chapters: { select: CHAPTER_PROGRESS } },
     orderBy: { updatedAt: 'desc' },
   })
 
@@ -45,7 +46,7 @@ export default async function DashboardPage() {
           <FileText className="mx-auto h-12 w-12 text-parchment" />
           <h3 className="mt-4 font-serif text-lg font-medium text-ink">No books yet</h3>
           <p className="mt-2 text-sm text-ink-muted">
-            Upload a PDF to start translating.
+            Upload an EPUB or TXT book to start translating.
           </p>
           <Link
             href="/dashboard/new"
@@ -58,9 +59,7 @@ export default async function DashboardPage() {
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => {
-            const translatedCount = project.chapters.filter(
-              (c) => c.translation
-            ).length
+            const translatedCount = project.chapters.filter(isChapterDone).length
             const totalChapters = project.chapters.length
             const progress =
               totalChapters > 0

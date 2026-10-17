@@ -1,10 +1,10 @@
 /**
  * Failing (red) tests for issue #61 — POST /api/internal/worker-callback.
  *
- * The Python Worker's /translate/chunk/async dispatches a background task
+ * The Python Worker's /translate/segments/async dispatches a background task
  * that POSTs its result to this endpoint. We verify a shared secret in the
- * X-Worker-Secret header and then write status / translatedContent / error
- * to the TranslationJob row via Prisma so the BFF poller can see it.
+ * X-Worker-Secret header and then write per-segment translations plus the
+ * job status via Prisma so the BFF poller can see it.
  *
  * These tests MUST fail until the route exists.
  */
@@ -15,30 +15,27 @@ import { NextRequest } from 'next/server'
 // ---------------------------------------------------------------------------
 // Mock Prisma singleton
 //
-// The route uses prisma.$transaction(async tx => ...) for atomic dual writes
-// (job + chapter). Our mock routes tx.translationJob.update and
-// tx.chapter.update back to the same fn mocks so assertions still work.
+// The route looks the job up first, then applies every write in one
+// array-form $transaction (segments first, job status last). Each mocked
+// write returns a tagged object so tests can assert the transaction order.
 // ---------------------------------------------------------------------------
-const mockJobUpdate = vi.fn()
-const mockChapterUpdate = vi.fn()
+const mockJobFindUnique = vi.fn()
+const mockJobUpdate = vi.fn((args: unknown) => ({ op: 'job.update', args }))
+const mockChapterUpdate = vi.fn((args: unknown) => ({ op: 'chapter.update', args }))
+const mockSegmentUpdateMany = vi.fn((args: unknown) => ({ op: 'segment.updateMany', args }))
+const mockTransaction = vi.fn(async (ops: unknown[]) => ops)
 
-type MockPrisma = {
-  translationJob: { update: (...args: unknown[]) => unknown }
-  chapter: { update: (...args: unknown[]) => unknown }
-  $transaction: (fn: (tx: MockPrisma) => Promise<unknown>) => Promise<unknown>
-}
-
-const mockPrisma: MockPrisma = {
-  translationJob: {
-    update: (...args: unknown[]) => mockJobUpdate(...args),
+vi.mock('@/lib/prisma', () => ({
+  default: {
+    translationJob: {
+      findUnique: (...args: unknown[]) => mockJobFindUnique(...args),
+      update: (args: unknown) => mockJobUpdate(args),
+    },
+    chapter: { update: (args: unknown) => mockChapterUpdate(args) },
+    segment: { updateMany: (args: unknown) => mockSegmentUpdateMany(args) },
+    $transaction: (ops: unknown[]) => mockTransaction(ops),
   },
-  chapter: {
-    update: (...args: unknown[]) => mockChapterUpdate(...args),
-  },
-  $transaction: async (fn) => fn(mockPrisma),
-}
-
-vi.mock('@/lib/prisma', () => ({ default: mockPrisma }))
+}))
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -46,6 +43,12 @@ vi.mock('@/lib/prisma', () => ({ default: mockPrisma }))
 const JOB_ID = 'clh3p7b1p0003qzrmkf8g4m0k'
 const CHAPTER_ID = 'clh3p7b1p0002qzrmkf8g4m0j'
 const SECRET = 'test-shared-secret'
+const OK_BODY = {
+  job_id: JOB_ID,
+  status: 'SUCCEEDED',
+  segments: [{ index: 0, translation: 'x' }],
+  failed_indices: [],
+}
 
 function makeRequest(
   body: Record<string, unknown>,
@@ -63,6 +66,7 @@ describe('POST /api/internal/worker-callback', () => {
     vi.clearAllMocks()
     vi.resetModules()
     process.env.WORKER_CALLBACK_SECRET = SECRET
+    mockJobFindUnique.mockResolvedValue({ id: JOB_ID, chapterId: CHAPTER_ID, status: 'PENDING' })
   })
 
   // -------------------------------------------------------------------------
@@ -71,7 +75,7 @@ describe('POST /api/internal/worker-callback', () => {
   it('returns 401 when X-Worker-Secret header is missing', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
-      makeRequest({ job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' })
+      makeRequest(OK_BODY)
     )
     expect(res.status).toBe(401)
     expect(mockJobUpdate).not.toHaveBeenCalled()
@@ -81,7 +85,7 @@ describe('POST /api/internal/worker-callback', () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
-        { job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' },
+        OK_BODY,
         { 'X-Worker-Secret': 'wrong' }
       )
     )
@@ -94,7 +98,7 @@ describe('POST /api/internal/worker-callback', () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
-        { job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' },
+        OK_BODY,
         { 'X-Worker-Secret': SECRET }
       )
     )
@@ -115,7 +119,7 @@ describe('POST /api/internal/worker-callback', () => {
     expect(mockJobUpdate).not.toHaveBeenCalled()
   })
 
-  it('returns 400 when status is not SUCCEEDED or FAILED', async () => {
+  it('returns 400 when status is not RUNNING, SUCCEEDED or FAILED', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
@@ -127,65 +131,105 @@ describe('POST /api/internal/worker-callback', () => {
     expect(mockJobUpdate).not.toHaveBeenCalled()
   })
 
-  // -------------------------------------------------------------------------
-  // Happy path — success (mirrors translation onto chapter.translation so the
-  // reader UI can display it without joining through the job table)
-  // -------------------------------------------------------------------------
-  it('updates job and chapter with translatedContent when status is SUCCEEDED', async () => {
-    mockJobUpdate.mockResolvedValueOnce({
-      id: JOB_ID,
-      chapterId: CHAPTER_ID,
-    })
-    mockChapterUpdate.mockResolvedValueOnce({ id: CHAPTER_ID })
+  it.each([
+    { segments: [{ index: -1, translation: 'x' }] },
+    { segments: [{ index: 0, translation: '' }] },
+    { failed_indices: ['a'] },
+  ])('returns 400 for malformed segment results %#', async (patch) => {
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    const res = await POST(makeRequest({ ...OK_BODY, ...patch }, { 'X-Worker-Secret': SECRET }))
+    expect(res.status).toBe(400)
+    expect(mockTransaction).not.toHaveBeenCalled()
+  })
 
+  // -------------------------------------------------------------------------
+  // Success — per-segment writes, then the job, in one transaction
+  // -------------------------------------------------------------------------
+  it('writes each segment translation and marks the job SUCCEEDED last', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
         {
-          job_id: JOB_ID,
-          status: 'SUCCEEDED',
-          translated_content: '狗咬了那个男人。',
+          ...OK_BODY,
+          segments: [
+            { index: 0, translation: '狗咬了那个男人。' },
+            { index: 2, translation: '第三段。' },
+          ],
+          summary: 'A dog bites a man.',
         },
         { 'X-Worker-Secret': SECRET }
       )
     )
     expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '狗咬了那个男人。', status: 'translated', reviewIssues: [] },
+    })
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 2 },
+      data: { translation: '第三段。', status: 'translated', reviewIssues: [] },
+    })
+    expect(mockChapterUpdate).toHaveBeenCalledWith({
+      where: { id: CHAPTER_ID },
+      data: { summary: 'A dog bites a man.' },
+    })
     expect(mockJobUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: JOB_ID },
-        data: expect.objectContaining({
-          status: 'SUCCEEDED',
-          translatedContent: '狗咬了那个男人。',
-        }),
+        data: expect.objectContaining({ status: 'SUCCEEDED' }),
       })
     )
-    expect(mockChapterUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: CHAPTER_ID },
-        data: { translation: '狗咬了那个男人。' },
-      })
-    )
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    const ops = mockTransaction.mock.calls[0][0] as { op: string }[]
+    expect(ops.at(-1)?.op).toBe('job.update')
   })
 
-  it('does not update chapter.translation when job has no chapterId', async () => {
-    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, chapterId: null })
+  it('only updates the job when it has no chapterId', async () => {
+    mockJobFindUnique.mockResolvedValueOnce({ id: JOB_ID, chapterId: null, status: 'PENDING' })
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    const res = await POST(makeRequest(OK_BODY, { 'X-Worker-Secret': SECRET }))
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).not.toHaveBeenCalled()
+    expect(mockJobUpdate).toHaveBeenCalled()
+  })
 
+  // -------------------------------------------------------------------------
+  // Failure — keep partial results, flag failed segments
+  // -------------------------------------------------------------------------
+  it('keeps translated segments and flags failed ones on a partial failure', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
-        { job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' },
+        {
+          job_id: JOB_ID,
+          status: 'FAILED',
+          error: '1 of 2 segments failed to translate',
+          segments: [{ index: 0, translation: '甲' }],
+          failed_indices: [1],
+        },
         { 'X-Worker-Secret': SECRET }
       )
     )
     expect(res.status).toBe(200)
-    expect(mockChapterUpdate).not.toHaveBeenCalled()
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '甲', status: 'translated', reviewIssues: [] },
+    })
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: { in: [1] } },
+      data: { status: 'failed' },
+    })
+    expect(mockJobUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          error: '1 of 2 segments failed to translate',
+        }),
+      })
+    )
   })
 
-  // -------------------------------------------------------------------------
-  // Happy path — failure (must NOT touch chapter.translation)
-  // -------------------------------------------------------------------------
-  it('updates job with FAILED + error message when status is FAILED', async () => {
-    mockJobUpdate.mockResolvedValueOnce({ id: JOB_ID, chapterId: CHAPTER_ID })
+  it('updates only the job on a total failure', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
@@ -194,34 +238,99 @@ describe('POST /api/internal/worker-callback', () => {
       )
     )
     expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).not.toHaveBeenCalled()
+    expect(mockChapterUpdate).not.toHaveBeenCalled()
     expect(mockJobUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: JOB_ID },
-        data: expect.objectContaining({
-          status: 'FAILED',
-          error: 'Translation failed',
-        }),
+        data: expect.objectContaining({ status: 'FAILED', error: 'Translation failed' }),
       })
     )
-    expect(mockChapterUpdate).not.toHaveBeenCalled()
   })
 
-  // -------------------------------------------------------------------------
-  // Edge — job not found in DB (Prisma P2025)
-  // -------------------------------------------------------------------------
-  it('returns 404 when job does not exist', async () => {
-    const notFound = Object.assign(new Error('not found'), {
-      code: 'P2025',
-    })
-    mockJobUpdate.mockRejectedValueOnce(notFound)
-
+  it('stores a progress batch and keeps the job RUNNING (heartbeat)', async () => {
     const { POST } = await import('@/app/api/internal/worker-callback/route')
     const res = await POST(
       makeRequest(
-        { job_id: JOB_ID, status: 'SUCCEEDED', translated_content: 'x' },
+        { job_id: JOB_ID, status: 'RUNNING', segments: [{ index: 3, translation: '丁' }] },
         { 'X-Worker-Secret': SECRET }
       )
     )
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 3 },
+      data: { translation: '丁', status: 'translated', reviewIssues: [] },
+    })
+    expect(mockJobUpdate).toHaveBeenCalledWith({
+      where: { id: JOB_ID },
+      data: { status: 'RUNNING' },
+    })
+  })
+
+  it.each(['SUCCEEDED', 'FAILED'])(
+    'ignores a late callback for a job that is already %s',
+    async (status) => {
+      mockJobFindUnique.mockResolvedValueOnce({ id: JOB_ID, chapterId: CHAPTER_ID, status })
+      const { POST } = await import('@/app/api/internal/worker-callback/route')
+      const res = await POST(makeRequest(OK_BODY, { 'X-Worker-Secret': SECRET }))
+      expect(res.status).toBe(409)
+      expect(mockTransaction).not.toHaveBeenCalled()
+    }
+  )
+
+  // -------------------------------------------------------------------------
+  // Review loop results (Phase 4)
+  // -------------------------------------------------------------------------
+  const PRONOUN = { category: 'pronoun', severity: 'error', message: '她 → 他' }
+  const STYLE = { category: 'style', severity: 'warning', message: 'stiff' }
+
+  async function postSegments(segments: Record<string, unknown>[]) {
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    return POST(makeRequest({ ...OK_BODY, segments }, { 'X-Worker-Secret': SECRET }))
+  }
+
+  it('marks a reviewed segment with no open errors as reviewed', async () => {
+    const res = await postSegments([{ index: 0, translation: '甲', reviewed: true, issues: [STYLE] }])
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '甲', status: 'reviewed', reviewIssues: [STYLE] },
+    })
+  })
+
+  it('marks a segment with an open error as flagged and stores the issues', async () => {
+    const res = await postSegments([
+      { index: 0, translation: '甲', reviewed: true, issues: [PRONOUN, STYLE] },
+    ])
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '甲', status: 'flagged', reviewIssues: [PRONOUN, STYLE] },
+    })
+  })
+
+  it('flags rule errors even when the reviewer call did not run', async () => {
+    await postSegments([{ index: 0, translation: '甲', reviewed: false, issues: [PRONOUN] }])
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'flagged' }) })
+    )
+  })
+
+  it.each([
+    [{ ...PRONOUN, severity: 'fatal' }],
+    [{ ...PRONOUN, message: 'x'.repeat(301) }],
+    [{ ...PRONOUN, category: 'x'.repeat(51) }],
+    Array.from({ length: 21 }, () => STYLE),
+  ])('rejects malformed or oversized issue lists', async (...issues) => {
+    const res = await postSegments([{ index: 0, translation: '甲', reviewed: true, issues }])
+    expect(res.status).toBe(400)
+    expect(mockTransaction).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when job does not exist', async () => {
+    mockJobFindUnique.mockResolvedValueOnce(null)
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    const res = await POST(makeRequest(OK_BODY, { 'X-Worker-Secret': SECRET }))
     expect(res.status).toBe(404)
+    expect(mockTransaction).not.toHaveBeenCalled()
   })
 })

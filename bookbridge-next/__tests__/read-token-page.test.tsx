@@ -66,27 +66,16 @@ const VALID_TOKEN = '550e8400-e29b-41d4-a716-446655440000'
 
 function makeProject(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'proj_1',
     title: 'Don Quixote',
     sourceLang: 'Spanish',
     targetLang: 'English',
-    status: 'COMPLETED',
     chapters: [
-      {
-        id: 'ch_1',
-        number: 1,
-        title: 'The Windmills',
-        sourceContent: 'In a village of La Mancha...',
-        translation: 'En un lugar de la Mancha...',
-      },
-      {
-        id: 'ch_2',
-        number: 2,
-        title: 'Sancho Panza',
-        sourceContent: 'Sancho rode behind him...',
-        translation: 'Sancho cabalgaba detrás...',
-      },
+      { key: 'ch_1', id: 'ch_1', number: 1, title: 'The Windmills', done: true },
+      { key: 'ch_2', id: 'ch_2', number: 2, title: 'Sancho Panza', done: false },
     ],
+    initialRows: {
+      ch_1: [{ index: 0, source: 'In a village of La Mancha...', translation: 'En un lugar de la Mancha...' }],
+    },
     ...overrides,
   }
 }

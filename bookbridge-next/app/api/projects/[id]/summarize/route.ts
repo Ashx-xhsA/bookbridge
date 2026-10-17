@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { SEGMENT_SOURCES, joinSegments } from '@/lib/segments'
 import { workerFetch } from '@/lib/worker'
 import { getUserLLMCredentials } from '@/lib/llm-credentials'
 
@@ -22,7 +23,9 @@ export async function POST(
 
   const project = await prisma.project.findUnique({
     where: { id },
-    include: { chapters: { orderBy: { number: 'asc' } } },
+    include: {
+      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_SOURCES } },
+    },
   })
 
   if (!project) {
@@ -38,13 +41,13 @@ export async function POST(
     if (!specificChapter) {
       return NextResponse.json({ error: 'Chapter not found' }, { status: 404 })
     }
-    if (!specificChapter.sourceContent) {
+    if (specificChapter.segments.length === 0) {
       return NextResponse.json({ error: 'No source content' }, { status: 400 })
     }
     chaptersToSummarize = [specificChapter]
   } else {
     chaptersToSummarize = project.chapters.filter(
-      (c) => c.sourceContent && !c.summary
+      (c) => c.segments.length > 0 && !c.summary
     )
   }
 
@@ -69,7 +72,7 @@ export async function POST(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: chapter.sourceContent!.slice(0, 8000),
+          text: joinSegments(chapter.segments).slice(0, 8000),
           max_words: 100,
           llm: llmCreds,
         }),

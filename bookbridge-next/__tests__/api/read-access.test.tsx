@@ -68,6 +68,7 @@ const publicProject = {
   title: 'A Public Book',
   ownerId: OWNER_ID,
   isPublic: true,
+  publicToken: '550e8400-e29b-41d4-a716-446655440000',
   sourceLang: 'en',
   targetLang: 'zh-Hans',
   chapters: [],
@@ -147,18 +148,15 @@ describe('app/read/[id]/page.tsx — access gate (issue #51)', () => {
   // -------------------------------------------------------------------------
   // Public non-owner access → renders; auth() must still be called first
   // -------------------------------------------------------------------------
-  it('renders the page for a non-owner when the project is public', async () => {
+  it('sends a non-owner of a public project to its shared link (no review details)', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OTHER_USER_ID } as AuthReturn)
     mockProjectFindUnique.mockResolvedValueOnce(publicProject)
 
     const { default: ReaderPage } = await import('@/app/read/[id]/page')
 
-    await ReaderPage(makeParams(PROJECT_ID)).catch((e: Error) => {
-      throw new Error(`Public project access threw unexpectedly: ${e.message}`)
-    })
-
-    // THE FAILING ASSERTION: current page never calls auth().
+    await expect(ReaderPage(makeParams(PROJECT_ID))).rejects.toThrow('NEXT_REDIRECT')
     expect(vi.mocked(auth)).toHaveBeenCalled()
+    expect(mockRedirect).toHaveBeenCalledWith(`/read/${publicProject.publicToken}`)
     expect(mockNotFound).not.toHaveBeenCalled()
   })
 
