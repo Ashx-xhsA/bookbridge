@@ -381,6 +381,10 @@ def build_overview_prompt(
             "parentheses, who they are and how they relate to the others; 3) tone and "
             "style — narrative voice, register, how to render dialogue. Plain text, no "
             "preamble.",
+            "In part 2 list only people who take part in or are discussed in the text. "
+            "Leave out anyone who appears only in epigraphs, quotation credits, "
+            "acknowledgements or copyright notices. For non-fiction without characters, "
+            "name the few key figures, or say there are none.",
         ]
     )
     user = "\n\n".join(

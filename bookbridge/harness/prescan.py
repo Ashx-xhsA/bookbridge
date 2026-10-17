@@ -53,6 +53,9 @@ SCAN_CHUNK_CHARS = 12000
 # a book rarely needs more than ~100 for consistent names. Over it, one more
 # call keeps the names that matter.
 MAX_GLOSSARY_TERMS = 200
+# A name in fewer paragraphs than this cannot be translated inconsistently,
+# so it is not worth a glossary row.
+MIN_MENTIONS = 2
 # Most-mentioned people named in the overview.
 MAX_OVERVIEW_CHARACTERS = 12
 # Characters of text sampled at the start, middle and end for the tone.
@@ -94,6 +97,7 @@ def scan_book(
     target_lang: str,
     max_chunk_chars: int = SCAN_CHUNK_CHARS,
     max_terms: int = MAX_GLOSSARY_TERMS,
+    min_mentions: int = MIN_MENTIONS,
     progress: ScanProgress | None = None,
 ) -> ScanResult:
     """Scan `chapters` (lists of paragraphs) and return a draft bible.
@@ -119,7 +123,7 @@ def scan_book(
     if failures == len(chunks):
         raise TranslatorError("Bible scan failed: every passage call failed")
     text = _Text.of(paragraphs)
-    entities = _prune(client, _count_mentions(_merge(raw), text), max_terms)
+    entities = _prune(client, _count_mentions(_merge(raw), text, min_mentions), max_terms)
     overview = _overview(client, summaries, entities, paragraphs, target_lang)
     step.done()
     return ScanResult(overview=overview, entities=entities)
@@ -265,9 +269,12 @@ def _mentioning(entity: ScannedEntity, text: _Text) -> list[str]:
     ]  # fmt: skip
 
 
-def _count_mentions(entities: list[ScannedEntity], text: _Text) -> list[ScannedEntity]:
+def _count_mentions(
+    entities: list[ScannedEntity], text: _Text, min_mentions: int
+) -> list[ScannedEntity]:
     counted = [replace(e, mentions=len(_mentioning(e, text))) for e in entities]
-    found = [e for e in counted if e.mentions]  # never written that way: not a name here
+    # Never written that way: not a name here. Written once: nothing to keep consistent.
+    found = [e for e in counted if e.mentions >= max(1, min_mentions)]
     return sorted(found, key=lambda e: -e.mentions)  # stable: ties keep scan order
 
 

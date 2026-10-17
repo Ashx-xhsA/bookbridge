@@ -39,6 +39,21 @@ _GENERIC = frozenset(
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     }
 )  # fmt: skip
+# Geological periods and epochs. "Jurassic Europe" or "Late Cretaceous
+# Laramidia" describes a place at a time, not a name (the place alone is the
+# term), and a bare period has a standard translation. Costs the rare real
+# name that starts with one ("Jurassic Coast").
+_PERIOD_PREFIX = frozenset({"early", "middle", "late", "upper", "lower"})
+_PERIODS = frozenset(
+    {
+        "hadean", "archean", "proterozoic", "ediacaran", "cambrian", "ordovician",
+        "silurian", "devonian", "carboniferous", "mississippian", "pennsylvanian",
+        "permian", "triassic", "jurassic", "cretaceous", "paleogene", "palaeogene",
+        "neogene", "quaternary", "paleocene", "palaeocene", "eocene", "oligocene",
+        "miocene", "pliocene", "pleistocene", "holocene", "paleozoic", "palaeozoic",
+        "mesozoic", "cenozoic", "precambrian",
+    }
+)  # fmt: skip
 # "d’Artagnan", "l'Orient": a short lowercase particle glued to a capitalised name.
 _PARTICLE = re.compile(r"^[a-z]{1,2}['’][A-Z]")
 
@@ -58,11 +73,18 @@ def _core(word: str) -> str:
 GLOSSARY_CATEGORIES = frozenset({"person", "place"})
 
 
+def _starts_with_period(words: list[str]) -> bool:
+    lowered = [w.lower() for w in words]
+    if lowered and lowered[0] in _PERIOD_PREFIX:
+        lowered = lowered[1:]
+    return bool(lowered) and lowered[0] in _PERIODS
+
+
 def is_proper_noun(name: str) -> bool:
     words = name.split()
     if words and words[0].lower() in _ARTICLES:
         words = words[1:]
-    if not words:
+    if not words or _starts_with_period(words):
         return False
     named = []
     for i, word in enumerate(words):
