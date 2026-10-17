@@ -127,4 +127,37 @@ describe('ReaderView', () => {
     expect(await screen.findByRole('button', { name: /chapter 1.*boa/i })).toBeInTheDocument()
     expect(mockFetch).not.toHaveBeenCalled()
   })
+
+  it('offers the owner Markdown and both bilingual EPUB layouts as downloads', () => {
+    render(
+      <ReaderView
+        title="Book"
+        chapters={chapters}
+        initialRows={{ c1: firstRows }}
+        source={{ kind: 'owner', projectId: 'p1' }}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /export/i }))
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'))
+    expect(hrefs).toEqual(
+      expect.arrayContaining([
+        '/api/projects/p1/export?format=md&layout=translation',
+        '/api/projects/p1/export?format=md&layout=bilingual',
+        '/api/projects/p1/export?format=epub&layout=side',
+        '/api/projects/p1/export?format=epub&layout=stacked',
+      ])
+    )
+  })
+
+  it('has no export on a shared link', () => {
+    render(
+      <ReaderView
+        title="Book"
+        chapters={chapters}
+        initialRows={{ c1: firstRows }}
+        source={{ kind: 'public', token: 'tok' }}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /export/i })).not.toBeInTheDocument()
+  })
 })
