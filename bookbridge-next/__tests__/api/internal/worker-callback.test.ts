@@ -163,11 +163,11 @@ describe('POST /api/internal/worker-callback', () => {
     expect(res.status).toBe(200)
     expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
       where: { chapterId: CHAPTER_ID, index: 0 },
-      data: { translation: '狗咬了那个男人。', status: 'translated' },
+      data: { translation: '狗咬了那个男人。', status: 'translated', reviewIssues: [] },
     })
     expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
       where: { chapterId: CHAPTER_ID, index: 2 },
-      data: { translation: '第三段。', status: 'translated' },
+      data: { translation: '第三段。', status: 'translated', reviewIssues: [] },
     })
     expect(mockChapterUpdate).toHaveBeenCalledWith({
       where: { id: CHAPTER_ID },
@@ -213,7 +213,7 @@ describe('POST /api/internal/worker-callback', () => {
     expect(res.status).toBe(200)
     expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
       where: { chapterId: CHAPTER_ID, index: 0 },
-      data: { translation: '甲', status: 'translated' },
+      data: { translation: '甲', status: 'translated', reviewIssues: [] },
     })
     expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
       where: { chapterId: CHAPTER_ID, index: { in: [1] } },
@@ -258,7 +258,7 @@ describe('POST /api/internal/worker-callback', () => {
     expect(res.status).toBe(200)
     expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
       where: { chapterId: CHAPTER_ID, index: 3 },
-      data: { translation: '丁', status: 'translated' },
+      data: { translation: '丁', status: 'translated', reviewIssues: [] },
     })
     expect(mockJobUpdate).toHaveBeenCalledWith({
       where: { id: JOB_ID },
@@ -276,6 +276,55 @@ describe('POST /api/internal/worker-callback', () => {
       expect(mockTransaction).not.toHaveBeenCalled()
     }
   )
+
+  // -------------------------------------------------------------------------
+  // Review loop results (Phase 4)
+  // -------------------------------------------------------------------------
+  const PRONOUN = { category: 'pronoun', severity: 'error', message: '她 → 他' }
+  const STYLE = { category: 'style', severity: 'warning', message: 'stiff' }
+
+  async function postSegments(segments: Record<string, unknown>[]) {
+    const { POST } = await import('@/app/api/internal/worker-callback/route')
+    return POST(makeRequest({ ...OK_BODY, segments }, { 'X-Worker-Secret': SECRET }))
+  }
+
+  it('marks a reviewed segment with no open errors as reviewed', async () => {
+    const res = await postSegments([{ index: 0, translation: '甲', reviewed: true, issues: [STYLE] }])
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '甲', status: 'reviewed', reviewIssues: [STYLE] },
+    })
+  })
+
+  it('marks a segment with an open error as flagged and stores the issues', async () => {
+    const res = await postSegments([
+      { index: 0, translation: '甲', reviewed: true, issues: [PRONOUN, STYLE] },
+    ])
+    expect(res.status).toBe(200)
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith({
+      where: { chapterId: CHAPTER_ID, index: 0 },
+      data: { translation: '甲', status: 'flagged', reviewIssues: [PRONOUN, STYLE] },
+    })
+  })
+
+  it('flags rule errors even when the reviewer call did not run', async () => {
+    await postSegments([{ index: 0, translation: '甲', reviewed: false, issues: [PRONOUN] }])
+    expect(mockSegmentUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'flagged' }) })
+    )
+  })
+
+  it.each([
+    [{ ...PRONOUN, severity: 'fatal' }],
+    [{ ...PRONOUN, message: 'x'.repeat(301) }],
+    [{ ...PRONOUN, category: 'x'.repeat(51) }],
+    Array.from({ length: 21 }, () => STYLE),
+  ])('rejects malformed or oversized issue lists', async (...issues) => {
+    const res = await postSegments([{ index: 0, translation: '甲', reviewed: true, issues }])
+    expect(res.status).toBe(400)
+    expect(mockTransaction).not.toHaveBeenCalled()
+  })
 
   it('returns 404 when job does not exist', async () => {
     mockJobFindUnique.mockResolvedValueOnce(null)

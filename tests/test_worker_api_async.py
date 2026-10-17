@@ -8,6 +8,7 @@ callback.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -52,6 +53,11 @@ def _run(scripted: ScriptedClient, **overrides: object) -> tuple[list[dict], lis
     return jobs, terms
 
 
+def _texts(rows: list[dict]) -> list[dict]:
+    """Index and translation only — review fields have their own tests."""
+    return [{"index": r["index"], "translation": r["translation"]} for r in rows]
+
+
 def _is_review(system: str) -> bool:
     return "Task: review" in system
 
@@ -81,7 +87,7 @@ def test_returns_202_and_runs_job(client: TestClient, monkeypatch: pytest.Monkey
     payload = jobs[-1]  # after one RUNNING progress callback
     assert [j["status"] for j in jobs] == ["RUNNING", "SUCCEEDED"]
     assert payload["status"] == "SUCCEEDED"
-    assert payload["segments"] == [
+    assert _texts(payload["segments"]) == [
         {"index": 0, "translation": "[zh-Hans] Frodo ran."},
         {"index": 2, "translation": "[zh-Hans] Sam."},
     ]
@@ -107,6 +113,8 @@ def test_rejects_malformed_job_id(client: TestClient) -> None:
         {"glossary": [{"english": "A", "translation": "a", "alias_of": {"english": "B"}}]},
         {"bible": {"style_guide": "x" * 5001}},
         {"config": {"book_bible": "maybe"}},
+        {"config": {"review_max_retries": 3}},
+        {"config": {"review_max_retries": -1}},
     ],
 )
 def test_rejects_invalid_body_with_422(client: TestClient, overrides: dict) -> None:
@@ -139,8 +147,8 @@ def test_success_payload_maps_results_to_segment_indices() -> None:
 def test_progress_callbacks_after_each_batch_then_final() -> None:
     jobs, _ = _run(ScriptedClient(_translate_or_extract), config={"max_batch_chars": 1})
     assert [j["status"] for j in jobs] == ["RUNNING", "RUNNING", "SUCCEEDED"]
-    assert jobs[0]["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
-    assert jobs[1]["segments"] == [{"index": 2, "translation": "T:Sam."}]
+    assert _texts(jobs[0]["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert _texts(jobs[1]["segments"]) == [{"index": 2, "translation": "T:Sam."}]
 
 
 def test_partial_failure_reports_successes_and_failed_indices() -> None:
@@ -152,7 +160,7 @@ def test_partial_failure_reports_successes_and_failed_indices() -> None:
     jobs, _ = _run(ScriptedClient(respond))
     payload = jobs[-1]
     assert payload["status"] == "FAILED"
-    assert payload["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert _texts(payload["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
     assert payload["failed_indices"] == [2]
     assert "1 of 2" in payload["error"]
 
@@ -166,7 +174,7 @@ def test_provider_failure_stops_and_keeps_finished_segments() -> None:
     jobs, _ = _run(ScriptedClient(respond), config={"max_batch_chars": 1})
     payload = jobs[-1]
     assert payload["status"] == "FAILED"
-    assert payload["segments"] == [{"index": 0, "translation": "T:Frodo ran."}]
+    assert _texts(payload["segments"]) == [{"index": 0, "translation": "T:Frodo ran."}]
     assert payload["error"] == "Translation provider failed; finished segments were kept"
     assert "secret" not in str(payload)
 
@@ -350,3 +358,50 @@ def test_new_terms_are_posted_in_chunks_the_bff_accepts() -> None:
 
     _, terms = _run(ScriptedClient(respond), project_id="proj_123456")
     assert [len(call["terms"]) for call in terms] == [200, 50]
+
+
+# ---------------------------------------------------------------------------
+# Review loop results (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def _flag_second(system: str, user: str, json_mode: bool) -> str:
+    if _is_review(system):
+        issue = {"segment": 2, "category": "pronoun", "severity": "warning", "message": "他/她"}
+        return json.dumps({"issues": [issue] if "Sam." in user else []})
+    return _translate_or_extract(system, user, json_mode)
+
+
+def test_rows_carry_review_state_and_issues() -> None:
+    jobs, _ = _run(ScriptedClient(_flag_second))
+    rows = jobs[-1]["segments"]
+    assert rows[0] == {"index": 0, "translation": "T:Frodo ran.", "reviewed": True, "issues": []}
+    assert rows[1]["reviewed"] is True
+    assert rows[1]["issues"] == [{"category": "pronoun", "severity": "warning", "message": "他/她"}]
+
+
+def test_progress_rows_carry_review_state_too() -> None:
+    jobs, _ = _run(ScriptedClient(_flag_second), config={"max_batch_chars": 1})
+    assert jobs[0]["status"] == "RUNNING"
+    assert jobs[0]["segments"][0]["reviewed"] is True
+
+
+def test_review_switch_off_sends_no_review_calls() -> None:
+    scripted = ScriptedClient(_flag_second)
+    jobs, _ = _run(scripted, config={"review_max_retries": 0})
+    assert not any(_is_review(system) for system, _, _ in scripted.calls)
+    assert all(r["reviewed"] is False and r["issues"] == [] for r in jobs[-1]["segments"])
+
+
+def test_issue_list_per_segment_is_capped() -> None:
+    def many(system: str, user: str, json_mode: bool) -> str:
+        if _is_review(system):
+            issues = [
+                {"segment": 1, "category": "style", "severity": "warning", "message": f"m{i}"}
+                for i in range(50)
+            ]
+            return json.dumps({"issues": issues})
+        return _translate_or_extract(system, user, json_mode)
+
+    jobs, _ = _run(ScriptedClient(many), segments=[{"index": 0, "source": "Frodo ran."}])
+    assert len(jobs[-1]["segments"][0]["issues"]) == routes.MAX_SEGMENT_ISSUES

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { CHAPTER_PROGRESS, isFullyTranslated, joinSegments, joinTranslations } from '@/lib/segments'
+import {
+  CHAPTER_PROGRESS,
+  countFlagged,
+  isFullyTranslated,
+  joinSegments,
+  joinTranslations,
+} from '@/lib/segments'
 
 describe('segment helpers', () => {
   it('joinSegments joins sources with a blank line', () => {
@@ -36,5 +42,20 @@ describe('segment helpers', () => {
     expect(CHAPTER_PROGRESS.segments.where).toEqual({
       OR: [{ translation: null }, { status: 'failed' }],
     })
+  })
+
+  it('a flagged segment (open review error) still counts as translated', () => {
+    const segs = [
+      { translation: '甲', status: 'reviewed' },
+      { translation: '乙', status: 'flagged' },
+    ]
+    expect(isFullyTranslated(segs)).toBe(true)
+  })
+
+  it('countFlagged counts segments the review left with an open error', () => {
+    expect(
+      countFlagged([{ status: 'flagged' }, { status: 'reviewed' }, { status: 'flagged' }])
+    ).toBe(2)
+    expect(countFlagged([])).toBe(0)
   })
 })
