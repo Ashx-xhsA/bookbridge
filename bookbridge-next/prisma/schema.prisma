@@ -68,13 +68,17 @@ model Chapter {
 // One source paragraph — the unit of translation. Source and translation
 // text live only here (not on Chapter).
 model Segment {
-  id          String  @id @default(cuid())
-  chapterId   String
-  chapter     Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  index       Int
-  source      String  @db.Text
-  translation String? @db.Text
-  status      String  @default("pending") // pending | translated | reviewed | failed
+  id           String  @id @default(cuid())
+  chapterId    String
+  chapter      Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  index        Int
+  source       String  @db.Text
+  translation  String? @db.Text
+  // pending | translated | reviewed (passed review) | flagged (an error is
+  // still open after review) | failed
+  status       String  @default("pending")
+  // Issues still open after the review loop: [{category, severity, message}].
+  reviewIssues Json    @default("[]")
 
   @@unique([chapterId, index])
 }

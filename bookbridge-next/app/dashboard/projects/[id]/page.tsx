@@ -2,7 +2,13 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
-import { SEGMENT_TEXT, isFullyTranslated, joinSegments, joinTranslations } from '@/lib/segments'
+import {
+  SEGMENT_TEXT,
+  countFlagged,
+  isFullyTranslated,
+  joinSegments,
+  joinTranslations,
+} from '@/lib/segments'
 import { BookOpen, ArrowLeft, Sparkles } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
@@ -138,6 +144,7 @@ export default async function ProjectPage({
             sourceContent: c.segments.length > 0 ? joinSegments(c.segments) : null,
             translation: joinTranslations(c.segments),
             translated: isFullyTranslated(c.segments),
+            flaggedCount: countFlagged(c.segments),
             summary: c.summary,
           }))}
           jobs={project.jobs.map((j) => ({

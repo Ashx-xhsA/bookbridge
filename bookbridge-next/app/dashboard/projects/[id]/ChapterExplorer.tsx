@@ -16,6 +16,8 @@ interface ChapterData {
   // Joined translation of the segments done so far (may be partial)
   translation: string | null
   translated: boolean
+  // Paragraphs the review loop left with an open error
+  flaggedCount: number
   summary: string | null
 }
 
@@ -284,6 +286,12 @@ export default function ChapterExplorer({
                     </p>
                     <p className="text-xs text-ink-muted">
                       {chapter.paragraphCount} paragraphs
+                      {chapter.flaggedCount > 0 && (
+                        <span className="text-amber-600">
+                          {' '}
+                          · {chapter.flaggedCount} need review
+                        </span>
+                      )}
                     </p>
                   </div>
                 </button>

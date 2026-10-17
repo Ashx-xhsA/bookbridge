@@ -33,6 +33,12 @@ export function isFullyTranslated(
   return segments.length > 0 && segments.every((s) => !!s.translation && s.status !== 'failed')
 }
 
+// Segments the review loop left with an open error, for a human to look at.
+// They still count as translated.
+export function countFlagged(segments: { status?: string }[]): number {
+  return segments.filter((s) => s.status === 'flagged').length
+}
+
 // Cheap "is this chapter done?" probe for list views: the segment count plus
 // at most one segment still to do (untranslated or failed), instead of
 // loading every translation.

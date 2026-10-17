@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, StrictBool, model_validator
 
-from bookbridge.harness.config import MAX_CONTEXT_WINDOW
+from bookbridge.harness.config import MAX_CONTEXT_WINDOW, MAX_REVIEW_RETRIES
 from bookbridge.harness.models import ALLOWED_TARGET_LANGS
 
 MAX_SEGMENT_CHARS = 100_000
@@ -65,6 +65,7 @@ class TranslationConfigInput(BaseModel):
     glossary_mode: Literal["full", "matched"] = "matched"
     context_window: int = Field(3, ge=0, le=MAX_CONTEXT_WINDOW)
     book_bible: StrictBool = True
+    review_max_retries: int = Field(1, ge=0, le=MAX_REVIEW_RETRIES)
     max_batch_chars: int = Field(6000, ge=1, le=50_000)
 
 

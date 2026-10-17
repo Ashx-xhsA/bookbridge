@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 SUMMARY_SOURCE_CHARS = 8000
 # Matches the BFF glossary callback's max terms per request.
 GLOSSARY_CALLBACK_BATCH = 200
+# Matches the BFF worker-callback limit on review issues per segment.
+MAX_SEGMENT_ISSUES = 20
 # Entities are sorted by mentions; the long tail past this is noise for review.
 MAX_BIBLE_ENTITIES = 1000
 
@@ -168,18 +170,33 @@ def _post_new_terms(
         )
 
 
-def _segment_rows(body: TranslateSegmentsAsyncRequest, done: list[tuple[int, str]]) -> list[dict]:
-    return [{"index": body.segments[i].index, "translation": text} for i, text in done]
+def _segment_rows(body: TranslateSegmentsAsyncRequest, done: list[SegmentOutcome]) -> list[dict]:
+    return [
+        {
+            "index": body.segments[o.index].index,
+            "translation": o.translation,
+            "reviewed": o.reviewed,
+            "issues": [i.to_dict() for i in o.issues[:MAX_SEGMENT_ISSUES]],
+        }
+        for o in done
+    ]
+
+
+def _outcomes(result: SegmentsResult) -> list[SegmentOutcome]:
+    return [
+        SegmentOutcome(i, t, i in result.reviewed, result.issues.get(i, []))
+        for i, t in enumerate(result.translations)
+        if t is not None
+    ]
 
 
 def _result_payload(body: TranslateSegmentsAsyncRequest, result: SegmentsResult) -> dict:
-    done = [(i, t) for i, t in enumerate(result.translations) if t is not None]
     # After a provider abort the rest was never attempted — not "failed" segments.
     failed = [] if result.aborted else [body.segments[i].index for i in result.failed]
     payload: dict = {
         "job_id": body.job_id,
         "status": "FAILED" if failed or result.aborted else "SUCCEEDED",
-        "segments": _segment_rows(body, done),
+        "segments": _segment_rows(body, _outcomes(result)),
         "failed_indices": failed,
     }
     if result.aborted:
@@ -193,7 +210,7 @@ def _progress(body: TranslateSegmentsAsyncRequest):  # noqa: ANN202
     """Post each finished batch as RUNNING: saves it early and is the job heartbeat."""
 
     def report(done: list[SegmentOutcome]) -> None:
-        rows = _segment_rows(body, [(o.index, o.translation) for o in done])
+        rows = _segment_rows(body, done)
         post_worker_callback({"job_id": body.job_id, "status": "RUNNING", "segments": rows})
 
     return report
@@ -219,6 +236,11 @@ def run_translation_job(body: TranslateSegmentsAsyncRequest) -> None:
             on_progress=_progress(body),
         )
         payload = _result_payload(body, result)
+        stats = result.review
+        logger.info(
+            "job %s review: %d flagged, %d fixed, %d revise calls",
+            body.job_id, stats.flagged, stats.fixed, stats.revisions,
+        )  # fmt: skip
     except Exception as exc:
         logger.warning("translation job %s failed: %s", body.job_id, type(exc).__name__)
         post_worker_callback(

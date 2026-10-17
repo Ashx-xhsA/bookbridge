@@ -9,10 +9,21 @@ import { rejectUnlessWorker } from '@/lib/worker-secret'
 // X-Worker-Secret and then persist per-segment results so the BFF poller can
 // see them. No user auth — Clerk is not in this path.
 
+// Issues the review loop left open (limits match the Worker's).
+const reviewIssue = z.object({
+  category: z.string().min(1).max(50),
+  severity: z.enum(['error', 'warning']),
+  message: z.string().min(1).max(300),
+})
+
 const segmentResult = z.object({
   index: z.number().int().min(0),
   translation: z.string().min(1),
+  reviewed: z.boolean().default(false),
+  issues: z.array(reviewIssue).max(20).default([]),
 })
+
+type SegmentResult = z.infer<typeof segmentResult>
 
 const results = {
   segments: z.array(segmentResult).max(5000).default([]),
@@ -105,6 +116,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true }, { status: 200 })
 }
 
+// An open error flags the segment for a human whether it came from the rule
+// checks or the reviewer; otherwise it is "reviewed" only if the reviewer ran.
+function segmentStatus(seg: SegmentResult): string {
+  if (seg.issues.some((i) => i.severity === 'error')) return 'flagged'
+  return seg.reviewed ? 'reviewed' : 'translated'
+}
+
 function segmentWrites(
   chapterId: string,
   payload: CallbackBody
@@ -112,7 +130,7 @@ function segmentWrites(
   const writes: Prisma.PrismaPromise<unknown>[] = payload.segments.map((seg) =>
     prisma.segment.updateMany({
       where: { chapterId, index: seg.index },
-      data: { translation: seg.translation, status: 'translated' },
+      data: { translation: seg.translation, status: segmentStatus(seg), reviewIssues: seg.issues },
     })
   )
   if (payload.failed_indices.length > 0) {
