@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/prisma'
-import { SEGMENT_TEXT, joinSegments, joinTranslations } from '@/lib/segments'
+import { joinSegments, joinTranslations } from '@/lib/segments'
+import { SEGMENT_ROW, publicRows, toAlignedRows } from '@/lib/reader'
 import { getPublishedProjectId, tokenSchema } from '@/lib/public-project'
 
 const paramsSchema = z.object({
@@ -28,7 +29,7 @@ export async function GET(
     getPublishedProjectId(token),
     prisma.chapter.findUnique({
       where: { id: chunkId },
-      select: { projectId: true, segments: SEGMENT_TEXT },
+      select: { projectId: true, segments: SEGMENT_ROW },
     }),
   ])
 
@@ -52,6 +53,9 @@ export async function GET(
     data: {
       originalText: joinSegments(chapter.segments),
       translatedText: joinTranslations(chapter.segments),
+      // One row per paragraph for the aligned reader; review status and
+      // issues are owner-only and stripped here.
+      segments: publicRows(toAlignedRows(chapter.segments)),
     },
   })
 }
