@@ -153,4 +153,23 @@ describe('planBibleMerge', () => {
     ])
     expect(plan.links).toEqual([])
   })
+
+  it('removes terms the user never touched that this scan no longer lists', () => {
+    const existing = [
+      term(), // Gandalf: listed again
+      term({ id: 't2', english: 'Earth', translation: '地球' }),
+      term({ id: 't3', english: 'London', translation: '伦敦', userEdited: true }),
+      term({ id: 't4', english: 'Oxford', translation: '牛津', approved: true }),
+      term({ id: 't5', english: 'Mithrandir', translation: '灰袍' }), // listed as an alias
+    ]
+    const plan = planBibleMerge(existing, [
+      entity({ aliases: [{ english: 'Mithrandir', translation: '米斯兰达' }] }),
+    ])
+    expect(plan.deletes).toEqual(['t2'])
+  })
+
+  it('removes nothing on a first scan', () => {
+    expect(planBibleMerge([], [entity()]).deletes).toEqual([])
+  })
 })
+

@@ -12,6 +12,7 @@ const mockTermFindMany = vi.fn()
 const mockTermCreateManyAndReturn = vi.fn()
 const mockTermUpdate = vi.fn()
 const mockTermUpdateMany = vi.fn()
+const mockTermDeleteMany = vi.fn()
 const mockJobUpdate = vi.fn()
 const order: string[] = []
 
@@ -20,6 +21,7 @@ const tx = {
     createManyAndReturn: (a: unknown) => (order.push('createMany'), mockTermCreateManyAndReturn(a)),
     update: (a: unknown) => (order.push('update'), mockTermUpdate(a)),
     updateMany: (a: unknown) => (order.push('link'), mockTermUpdateMany(a)),
+    deleteMany: (a: unknown) => (order.push('delete'), mockTermDeleteMany(a)),
   },
   bookBible: { update: (a: unknown) => (order.push('bible'), mockBibleUpdate(a)) },
   translationJob: { update: (a: unknown) => (order.push('job'), mockJobUpdate(a)) },
@@ -157,6 +159,25 @@ describe('POST /api/internal/worker-callback/bible', () => {
       where: { id: { in: ['m1'] }, projectId: PROJECT_ID },
       data: { aliasOfId: 't1' },
     })
+  })
+
+  it('first removes the unedited terms this scan no longer lists, in this project only', async () => {
+    mockTermFindMany.mockResolvedValueOnce([
+      {
+        id: 'old1', english: 'Earth', translation: '地球', approved: false, userEdited: false,
+        notes: null, aliasOfId: null, _count: { aliases: 0 },
+      },
+      {
+        id: 'mine', english: 'London', translation: '伦敦', approved: false, userEdited: true,
+        notes: null, aliasOfId: null, _count: { aliases: 0 },
+      },
+    ])
+    const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
+    await POST(req(OK))
+    expect(mockTermDeleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['old1'] }, projectId: PROJECT_ID },
+    })
+    expect(order[0]).toBe('delete')
   })
 
   it('keeps a style guide the user edited', async () => {

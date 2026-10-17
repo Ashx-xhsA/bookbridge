@@ -187,6 +187,23 @@ describe('app/dashboard/projects/[id]/page.tsx — Start Reading button (issue #
   })
 
   // -------------------------------------------------------------------------
+  // Glossary terms are trusted by default: no "N unreviewed" nag
+  // -------------------------------------------------------------------------
+  it('shows the glossary size without an unreviewed-terms badge', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ ...projectWithChapters, _count: { glossary: 12 } })
+    mockTermCount.mockResolvedValueOnce(7)
+
+    const { default: ProjectPage } = await import(
+      '@/app/dashboard/projects/[id]/page'
+    )
+    render((await ProjectPage(makeParams(PROJECT_ID))) as React.ReactElement)
+
+    expect(screen.getByRole('link', { name: /glossary \(12\)/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/unreviewed terms/i)).not.toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
   // Edge case: project has no chapters → Start Reading is NOT rendered
   // -------------------------------------------------------------------------
   it('does NOT render Start Reading when the project has no chapters', async () => {
