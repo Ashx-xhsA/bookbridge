@@ -67,7 +67,11 @@ function lastCall() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockPollJob.mockResolvedValue({ id: 'job1', status: 'SUCCEEDED' })
+  // Scanning asks first (it is slow and costs API credits).
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
+
+const SCAN_URL = `/api/projects/${PROJECT_ID}/bible/scan`
 
 describe('BibleReview', () => {
   it('offers a scan before any bible exists and hides the editor', () => {
@@ -82,7 +86,7 @@ describe('BibleReview', () => {
     render(<BibleReview projectId={PROJECT_ID} bible={null} {...pages()} />)
     fireEvent.click(screen.getByRole('button', { name: /scan book/i }))
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
-    expect(lastCall()).toMatchObject({ url: `/api/projects/${PROJECT_ID}/bible/scan`, method: 'POST' })
+    expect(mockFetch).toHaveBeenCalledWith(SCAN_URL, expect.objectContaining({ method: 'POST' }))
     expect(mockPollJob).toHaveBeenCalledWith('job1', expect.any(Object))
   })
 
@@ -280,6 +284,66 @@ describe('BibleReview', () => {
     expect(lastCall().url).toBe(`/api/projects/${PROJECT_ID}/bible/entries?group=person&cursor=g1`)
     expect(screen.getByLabelText('Voice of Gandalf')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /show more characters/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('BibleReview — scan time, progress and stop', () => {
+  const scanning = { status: 'NONE', scanStatus: 'SCANNING', styleGuide: '', jobId: 'job9' }
+
+  it('warns how long a scan takes and what it costs, sized to this book', () => {
+    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} {...pages()} />)
+    const note = screen.getByRole('note')
+    expect(note).toHaveTextContent('69 model calls')
+    expect(note).toHaveTextContent('12–29 minutes')
+    expect(note).toHaveTextContent(/translating works without/i)
+  })
+
+  it('asks before scanning and does nothing when the user cancels', () => {
+    vi.mocked(window.confirm).mockReturnValueOnce(false)
+    render(<BibleReview projectId={PROJECT_ID} bible={null} sourceChars={796_213} {...pages()} />)
+    fireEvent.click(screen.getByRole('button', { name: /scan book/i }))
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('12–29 minutes'))
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('shows live progress while scanning', async () => {
+    mockFetch.mockReturnValue(
+      ok({ bible: { ...scanning, scanDone: 30, scanTotal: 69, scanLost: false } })
+    )
+    render(
+      <BibleReview
+        projectId={PROJECT_ID}
+        bible={{ ...scanning, scanDone: 23, scanTotal: 69, scanLost: false }}
+        {...pages()}
+      />
+    )
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '23')
+    await waitFor(() => expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30'))
+    expect(screen.getByText(/30 \/ 69/)).toBeInTheDocument()
+    expect(mockFetch).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/bible`, expect.anything())
+  })
+
+  it('stops a running scan after confirming', async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+      init?.method === 'DELETE'
+        ? ok({ bible: { scanStatus: 'IDLE' } })
+        : ok({ bible: { ...scanning, scanDone: 1, scanTotal: 69, scanLost: false } })
+    )
+    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanDone: 1, scanTotal: 69 }} {...pages()} />)
+    fireEvent.click(screen.getByRole('button', { name: /stop scan/i }))
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(SCAN_URL, expect.objectContaining({ method: 'DELETE' }))
+    )
+    expect(window.confirm).toHaveBeenCalled()
+    expect(await screen.findByRole('button', { name: /scan book/i })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /stop scan/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a scan that stopped responding and lets the user start again', () => {
+    render(<BibleReview projectId={PROJECT_ID} bible={{ ...scanning, scanLost: true }} {...pages()} />)
+    expect(screen.getByText(/stopped responding/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /scan book/i })).toBeEnabled()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 })
 

@@ -198,6 +198,10 @@ describe('POST /api/upload — unit tests via mocked formData', () => {
     expect(mockProjectUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'READY' }) })
     )
+    // Book size (First. + Second. + Third.) drives the bible-scan estimate.
+    expect(mockProjectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sourceChars: 19 }) })
+    )
   })
 
   it('treats a malformed worker response as a failure', async () => {
