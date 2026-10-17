@@ -15,6 +15,7 @@ human to judge (real problem or false positive). One run, sanity only.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 import time
@@ -58,17 +59,17 @@ class _PerTask:
 
 
 def _load_bible(path: Path) -> tuple:
+    """A saved smoke-bible report; older ones have a style guide and voice fields."""
     data = json.loads(path.read_text())
+    fields = {f.name for f in dataclasses.fields(ScannedEntity)} - {"aliases"}
     entities = [
         ScannedEntity(
-            **{
-                **{k: v for k, v in e.items() if k != "aliases"},
-                "aliases": tuple(AliasTarget(**a) for a in e["aliases"]),
-            }
+            **{k: v for k, v in e.items() if k in fields},
+            aliases=tuple(AliasTarget(**a) for a in e["aliases"]),
         )
         for e in data["entities"]
     ]
-    return _bible_and_glossary(entities, data["style_guide"])
+    return _bible_and_glossary(entities, data.get("overview", data.get("style_guide", "")))
 
 
 def _flagged(reviews: list[BatchReview]) -> list[dict]:

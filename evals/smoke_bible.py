@@ -1,7 +1,7 @@
 """Smoke-test the book-bible pre-scan against a real model.
 
-Scans the chosen chapters, prints the draft bible (top entities with aliases,
-voice cards, style guide) and its token cost, then translates one chapter
+Scans the chosen chapters, prints the draft bible (top entities with aliases
+and the book overview) and its token cost, then translates one chapter
 with the bible on and off so the injected context can be compared by eye.
 One run, for sanity only — not an eval.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from bookbridge.harness import get_llm_client
 from bookbridge.harness.config import TranslationConfig
-from bookbridge.harness.models import AliasTarget, BookBible, CharacterCard, GlossaryEntry
+from bookbridge.harness.models import AliasTarget, BookBible, GlossaryEntry
 from bookbridge.harness.pipeline import translate_segments
 from bookbridge.harness.prescan import ScannedEntity, scan_book
 from evals.smoke import RESULTS_DIR, _commit, _load_chapter
@@ -29,14 +29,8 @@ def _chapter_range(spec: str) -> list[int]:
     return list(range(int(start), int(end or start) + 1))
 
 
-def _bible_and_glossary(entities: list[ScannedEntity], style: str) -> tuple[BookBible, list]:
-    people = [e for e in entities if e.category == "person"]
-    bible = BookBible(
-        style_guide=style,
-        characters=tuple(
-            CharacterCard(e.english, e.translation, e.gender, e.voice, e.notes) for e in people
-        ),
-    )
+def _bible_and_glossary(entities: list[ScannedEntity], overview: str) -> tuple[BookBible, list]:
+    bible = BookBible(overview=overview)
     glossary = [GlossaryEntry(e.english, e.translation, e.category) for e in entities]
     glossary += [
         GlossaryEntry(
@@ -84,11 +78,11 @@ def main() -> None:
         "source_chars": sum(len(p) for ch in chapters for p in ch),
         "scan_usage": vars(client.usage),
         "scan_seconds": round(time.monotonic() - start, 1),
-        "style_guide": scan.style_guide,
+        "overview": scan.overview,
         "entities": [{**vars(e), "aliases": [vars(a) for a in e.aliases]} for e in scan.entities],
     }
     if args.translate:
-        bible, glossary = _bible_and_glossary(scan.entities, scan.style_guide)
+        bible, glossary = _bible_and_glossary(scan.entities, scan.overview)
         report["runs"] = [
             _translate(args.book, args.translate, glossary, bible, on) for on in (True, False)
         ]
@@ -102,14 +96,10 @@ def main() -> None:
             indent=2,
         )
     )
-    print("style guide:\n" + scan.style_guide)
+    print("overview:\n" + scan.overview)
     for e in scan.entities[:15]:
         aliases = ", ".join(f"{a.english}→{a.translation}" for a in e.aliases)
-        print(
-            f"{e.mentions:4d}  {e.english} → {e.translation} [{e.category}, {e.gender}] {aliases}"
-        )
-        if e.voice:
-            print(f"      voice: {e.voice}")
+        print(f"{e.mentions:4d}  {e.english} → {e.translation} [{e.category}] {aliases}")
     print(f"entities: {len(scan.entities)}; full report: {out}")
 
 
