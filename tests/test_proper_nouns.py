@@ -55,3 +55,18 @@ def test_accepts_proper_nouns(name: str) -> None:
 )
 def test_rejects_common_nouns_titles_and_blanks(name: str) -> None:
     assert not is_proper_noun(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Jurassic Europe",
+        "Eocene Antarctica",
+        "Late Cretaceous Laramidia",
+        "Pliocene Africa",
+        "Jurassic",
+    ],
+)
+def test_rejects_a_geological_period_with_or_without_a_place(name: str) -> None:
+    # "Jurassic Europe" is a description, not a name; the place alone is the term.
+    assert not is_proper_noun(name)

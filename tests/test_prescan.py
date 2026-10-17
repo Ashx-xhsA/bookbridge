@@ -470,3 +470,26 @@ def test_default_cap_is_200() -> None:
     from bookbridge.harness.prescan import MAX_GLOSSARY_TERMS
 
     assert MAX_GLOSSARY_TERMS == 200
+
+
+def test_names_mentioned_only_once_are_dropped() -> None:
+    # Frieda and St. Petersburg each appear in one paragraph of BOOK.
+    router = Router(
+        {
+            "friend": [
+                _entity("Georg", "格奥尔格"),
+                _entity("Frieda", "弗里达"),
+                _entity("St. Petersburg", "圣彼得堡", "place"),
+            ]
+        }
+    )
+    result = scan_book(router.client, BOOK, target_lang="zh-Hans")
+    assert [e.english for e in result.entities] == ["Georg"]
+
+
+def test_overview_prompt_leaves_out_people_only_quoted_or_thanked() -> None:
+    from bookbridge.harness.prompts import build_overview_prompt
+
+    system, _ = build_overview_prompt([], [], [], target_lang="zh-Hans")
+    for word in ("epigraphs", "acknowledgements", "non-fiction"):
+        assert word in system
