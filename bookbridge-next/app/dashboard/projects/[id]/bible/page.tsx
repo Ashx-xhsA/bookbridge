@@ -3,7 +3,8 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import prisma from '@/lib/prisma'
-import BibleReview, { type BibleEntry } from './BibleReview'
+import { loadBibleEntries } from '@/lib/bible-entries'
+import BibleReview from './BibleReview'
 
 export default async function BiblePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -19,30 +20,15 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       bible: {
         select: { status: true, scanStatus: true, styleGuide: true, jobId: true, updatedAt: true },
       },
-      glossary: {
-        where: { aliasOfId: null },
-        orderBy: [{ mentions: 'desc' }, { english: 'asc' }],
-        select: {
-          id: true,
-          english: true,
-          translation: true,
-          category: true,
-          gender: true,
-          voice: true,
-          mentions: true,
-          approved: true,
-          userEdited: true,
-          aliases: {
-            orderBy: { english: 'asc' },
-            select: { id: true, english: true, translation: true },
-          },
-        },
-      },
     },
   })
   if (!project || project.ownerId !== userId) notFound()
 
-  const entries: BibleEntry[] = project.glossary
+  // First page of each group; the rest loads from the entries API.
+  const [people, others] = await Promise.all([
+    loadBibleEntries(id, { group: 'person' }),
+    loadBibleEntries(id, { group: 'other' }),
+  ])
   return (
     <div>
       <Link
@@ -64,7 +50,8 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
           key={`${project.bible?.status}-${project.bible?.scanStatus}-${project.bible?.updatedAt.getTime()}`}
           projectId={id}
           bible={project.bible}
-          entries={entries}
+          people={people}
+          others={others}
         />
       </div>
     </div>

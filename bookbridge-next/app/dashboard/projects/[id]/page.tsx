@@ -2,13 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import prisma from '@/lib/prisma'
-import {
-  SEGMENT_TEXT,
-  countFlagged,
-  isFullyTranslated,
-  joinSegments,
-  joinTranslations,
-} from '@/lib/segments'
+import { CHAPTER_PROGRESS, isChapterDone } from '@/lib/segments'
 import { BookOpen, ArrowLeft, Sparkles } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
@@ -24,12 +18,24 @@ export default async function ProjectPage({
   const { userId } = await auth()
   if (!userId) redirect('/sign-in')
 
+  // Outline only: chapter titles plus a cheap progress probe. Paragraph text
+  // is loaded per chapter by ChapterExplorer when a chapter is selected.
   const project = await prisma.project.findUnique({
     where: { id },
-    include: {
-      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_TEXT } },
-      jobs: true,
-      glossary: { orderBy: { english: 'asc' } },
+    select: {
+      id: true,
+      title: true,
+      sourceLang: true,
+      targetLang: true,
+      ownerId: true,
+      isPublic: true,
+      publicToken: true,
+      chapters: {
+        orderBy: { number: 'asc' },
+        select: { id: true, number: true, title: true, summary: true, ...CHAPTER_PROGRESS },
+      },
+      jobs: { select: { id: true, chapterId: true, status: true } },
+      _count: { select: { glossary: true } },
       bible: { select: { status: true, scanStatus: true } },
     },
   })
@@ -37,7 +43,17 @@ export default async function ProjectPage({
   if (!project) notFound()
   if (project.ownerId !== userId) notFound()
 
-  const translatedCount = project.chapters.filter((c) => isFullyTranslated(c.segments)).length
+  const [unreviewed, flaggedGroups] = await Promise.all([
+    prisma.glossaryTerm.count({ where: { projectId: id, approved: false, userEdited: false } }),
+    prisma.segment.groupBy({
+      by: ['chapterId'],
+      where: { status: 'flagged', chapter: { projectId: id } },
+      _count: { _all: true },
+    }),
+  ])
+  const flaggedByChapter = new Map(flaggedGroups.map((g) => [g.chapterId, g._count._all]))
+
+  const translatedCount = project.chapters.filter(isChapterDone).length
   const totalChapters = project.chapters.length
   const progress = totalChapters > 0 ? Math.round((translatedCount / totalChapters) * 100) : 0
 
@@ -91,20 +107,15 @@ export default async function ProjectPage({
             className="relative rounded-lg border border-parchment px-4 py-2 text-sm font-medium text-ink-light hover:bg-parchment/50"
           >
             <BookOpen className="mr-1 inline h-4 w-4" />
-            Glossary ({project.glossary.length})
-            {(() => {
-              const unreviewed = project.glossary.filter(
-                (t) => !t.approved && !t.userEdited
-              ).length
-              return unreviewed > 0 ? (
-                <span
-                  aria-label={`${unreviewed} unreviewed terms`}
-                  className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
-                >
-                  {unreviewed}
-                </span>
-              ) : null
-            })()}
+            Glossary ({project._count.glossary})
+            {unreviewed > 0 && (
+              <span
+                aria-label={`${unreviewed} unreviewed terms`}
+                className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
+              >
+                {unreviewed}
+              </span>
+            )}
           </Link>
           <DeleteProjectButton projectId={project.id} />
         </div>
@@ -140,11 +151,9 @@ export default async function ProjectPage({
             id: c.id,
             number: c.number,
             title: c.title,
-            paragraphCount: c.segments.length,
-            sourceContent: c.segments.length > 0 ? joinSegments(c.segments) : null,
-            translation: joinTranslations(c.segments),
-            translated: isFullyTranslated(c.segments),
-            flaggedCount: countFlagged(c.segments),
+            paragraphCount: c._count.segments,
+            translated: isChapterDone(c),
+            flaggedCount: flaggedByChapter.get(c.id) ?? 0,
             summary: c.summary,
           }))}
           jobs={project.jobs.map((j) => ({

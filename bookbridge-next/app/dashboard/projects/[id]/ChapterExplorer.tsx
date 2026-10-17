@@ -1,20 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { FileText, CheckCircle, Clock, Loader2, PlayCircle, StopCircle } from 'lucide-react'
 import TranslateButton from './TranslateButton'
 import SummaryButton from './SummaryButton'
 import { pollJob } from '@/lib/jobPoll'
+import { chapterUrl, type ReaderRow } from '@/lib/reader'
+import SegmentRow from '@/app/read/[id]/SegmentRow'
 
 interface ChapterData {
   id: string
   number: number
   title: string
   paragraphCount: number
-  sourceContent: string | null
-  // Joined translation of the segments done so far (may be partial)
-  translation: string | null
   translated: boolean
   // Paragraphs the review loop left with an open error
   flaggedCount: number
@@ -52,6 +51,29 @@ export default function ChapterExplorer({
   const [batchError, setBatchError] = useState<string | null>(null)
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null)
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set())
+  // Paragraphs of chapters opened so far; 'error' when loading failed.
+  const [chapterRows, setChapterRows] = useState<Record<string, ReaderRow[] | 'error'>>({})
+
+  // Load the selected chapter's paragraphs on first open.
+  useEffect(() => {
+    if (!selectedId || chapterRows[selectedId]) return
+    const url = chapterUrl({ kind: 'owner', projectId }, selectedId)
+    if (!url) return
+    let cancelled = false
+    fetch(url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('load failed')
+        const body = (await res.json()) as { data?: { segments?: ReaderRow[] } }
+        return body.data?.segments ?? []
+      })
+      .then(
+        (rows) => !cancelled && setChapterRows((prev) => ({ ...prev, [selectedId]: rows })),
+        () => !cancelled && setChapterRows((prev) => ({ ...prev, [selectedId]: 'error' }))
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId, chapterRows, projectId])
 
   async function handleCancelJob(jobId: string) {
     setCancellingJobId(jobId)
@@ -65,8 +87,9 @@ export default function ChapterExplorer({
 
   const selected = chapters.find((c) => c.id === selectedId)
   const untranslatedChapters = chapters.filter(
-    (c) => !c.translated && c.sourceContent
+    (c) => !c.translated && c.paragraphCount > 0
   )
+  const selectedRows = selectedId ? chapterRows[selectedId] : undefined
 
   function toggleChapter(id: string) {
     setSelectedChapterIds((prev) => {
@@ -79,7 +102,7 @@ export default function ChapterExplorer({
 
   async function handleSelectedTranslate() {
     const toTranslate = chapters.filter(
-      (c) => selectedChapterIds.has(c.id) && !c.translated && c.sourceContent
+      (c) => selectedChapterIds.has(c.id) && !c.translated && c.paragraphCount > 0
     )
     if (toTranslate.length === 0) return
     setBatchTranslating(true)
@@ -326,7 +349,7 @@ export default function ChapterExplorer({
                     setSummaries((prev) => ({ ...prev, [selected.id]: summary }))
                   }}
                 />
-                {selected.translation ? (
+                {selected.translated ? (
                   <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
                     Translated
                   </span>
@@ -374,39 +397,25 @@ export default function ChapterExplorer({
             )}
 
             <div className="mt-6">
-              {selected.translation ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
-                      Original
-                    </p>
-                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                      {selected.sourceContent || (
-                        <span className="italic text-ink-muted">No content</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="rounded-xl bg-accent-light/30 p-4">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">
-                      Translation
-                    </p>
-                    <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                      {selected.translation}
-                    </div>
-                  </div>
-                </div>
+              {selectedRows === undefined ? (
+                <p className="flex items-center gap-2 text-sm text-ink-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </p>
+              ) : selectedRows === 'error' ? (
+                <p className="text-sm text-red-600">Could not load this chapter. Reload to try again.</p>
+              ) : selectedRows.length === 0 ? (
+                <p className="italic text-ink-muted">No content available for this chapter.</p>
               ) : (
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-ink-muted">
-                    Source text
-                  </p>
-                  <div className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-ink">
-                    {selected.sourceContent || (
-                      <span className="italic text-ink-muted">
-                        No content available for this chapter.
-                      </span>
-                    )}
-                  </div>
+                <div className="divide-y divide-parchment/60">
+                  {selectedRows.map((row) => (
+                    <SegmentRow
+                      key={row.index}
+                      row={row}
+                      mode="bilingual"
+                      showIssues
+                      anchorId={`preview-${selected.id}-${row.index}`}
+                    />
+                  ))}
                 </div>
               )}
             </div>

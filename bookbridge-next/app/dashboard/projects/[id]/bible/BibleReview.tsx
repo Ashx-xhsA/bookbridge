@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Loader2, RefreshCw, Search } from 'lucide-react'
 import { pollJob } from '@/lib/jobPoll'
@@ -18,6 +18,15 @@ export type BibleEntry = {
   userEdited: boolean
   aliases: AliasRow[]
 }
+
+// One page of a group (characters, or places and terms) plus where to resume.
+export type EntryPage = {
+  entries: BibleEntry[]
+  total: number
+  nextCursor: string | null
+}
+
+type Group = 'person' | 'other'
 
 type Bible = {
   status: string
@@ -64,19 +73,27 @@ const secondary = `${button} border border-zinc-300 hover:bg-zinc-50 dark:border
 export default function BibleReview({
   projectId,
   bible,
-  entries: initialEntries,
+  people: initialPeople,
+  others: initialOthers,
 }: {
   projectId: string
   bible: Bible
-  entries: BibleEntry[]
+  people: EntryPage
+  others: EntryPage
 }) {
   const router = useRouter()
   const [status, setStatus] = useState(bible?.status ?? null)
   const [scanStatus, setScanStatus] = useState(bible?.scanStatus ?? null)
   const [styleGuide, setStyleGuide] = useState(bible?.styleGuide ?? '')
   const [savedStyle, setSavedStyle] = useState(bible?.styleGuide ?? '')
-  const [entries, setEntries] = useState(initialEntries)
+  const [groups, setGroups] = useState<Record<Group, EntryPage>>({
+    person: initialPeople,
+    other: initialOthers,
+  })
   const [query, setQuery] = useState('')
+  // The filter the shown pages were loaded with ('' = none).
+  const [activeQuery, setActiveQuery] = useState('')
+  const [loadingGroup, setLoadingGroup] = useState<Group | 'all' | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -93,18 +110,48 @@ export default function BibleReview({
   const scanning = scanStatus === 'SCANNING' || busy
   const reviewable = status === 'DRAFT' || status === 'CONFIRMED'
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return entries
-    return entries.filter(
-      (e) =>
-        e.english.toLowerCase().includes(q) ||
-        (e.translation ?? '').includes(q) ||
-        e.aliases.some((a) => a.english.toLowerCase().includes(q))
-    )
-  }, [entries, query])
-  const people = visible.filter((e) => e.category === 'person')
-  const others = visible.filter((e) => e.category !== 'person')
+  const people = groups.person
+  const others = groups.other
+
+  function entriesUrl(group: Group, q: string, cursor?: string) {
+    const params = new URLSearchParams({ group })
+    if (q) params.set('q', q)
+    if (cursor) params.set('cursor', cursor)
+    return `/api/projects/${projectId}/bible/entries?${params}`
+  }
+
+  async function fetchPage(group: Group, q: string, cursor?: string): Promise<EntryPage> {
+    const res = await fetch(entriesUrl(group, q, cursor))
+    if (!res.ok) throw new Error('Could not load the bible')
+    const body = (await res.json()) as { data: BibleEntry[]; total: number; nextCursor: string | null }
+    return { entries: body.data, total: body.total, nextCursor: body.nextCursor }
+  }
+
+  async function search(e: React.FormEvent) {
+    e.preventDefault()
+    const q = query.trim()
+    setLoadingGroup('all')
+    await run(async () => {
+      const [person, other] = await Promise.all([fetchPage('person', q), fetchPage('other', q)])
+      setGroups({ person, other })
+      setActiveQuery(q)
+    })
+    setLoadingGroup(null)
+  }
+
+  async function showMore(group: Group) {
+    const cursor = groups[group].nextCursor
+    if (!cursor) return
+    setLoadingGroup(group)
+    await run(async () => {
+      const page = await fetchPage(group, activeQuery, cursor)
+      setGroups((g) => ({
+        ...g,
+        [group]: { ...page, entries: [...g[group].entries, ...page.entries] },
+      }))
+    })
+    setLoadingGroup(null)
+  }
 
   async function call(url: string, init: RequestInit, failure: string) {
     const res = await fetch(url, {
@@ -162,7 +209,11 @@ export default function BibleReview({
   }
 
   function updateEntry(id: string, change: (e: BibleEntry) => BibleEntry) {
-    setEntries((prev) => prev.map((e) => (e.id === id ? change(e) : e)))
+    const apply = (page: EntryPage) => ({
+      ...page,
+      entries: page.entries.map((e) => (e.id === id ? change(e) : e)),
+    })
+    setGroups((g) => ({ person: apply(g.person), other: apply(g.other) }))
   }
 
   async function patchTerm(entryId: string, termId: string, patch: TermPatch) {
@@ -270,37 +321,80 @@ export default function BibleReview({
             />
           </section>
 
-          <div className="relative max-w-sm">
+          <form onSubmit={search} className="relative max-w-sm">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search names or aliases"
+              placeholder="Search names or aliases, then press Enter"
               aria-label="Search names or aliases"
+              maxLength={100}
               className="w-full rounded border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
             />
-          </div>
+            {loadingGroup === 'all' && (
+              <Loader2 className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-zinc-400" />
+            )}
+          </form>
 
           <section>
-            <h2 className="text-sm font-semibold text-ink">Characters ({people.length})</h2>
+            <h2 className="text-sm font-semibold text-ink">Characters ({people.total})</h2>
             <div className="mt-2 grid gap-3 lg:grid-cols-2">
-              {people.map((e) => (
+              {people.entries.map((e) => (
                 <EntryCard key={e.id} {...cardProps(e)} person />
               ))}
             </div>
+            <ShowMore
+              page={people}
+              label="characters"
+              loading={loadingGroup === 'person'}
+              onClick={() => showMore('person')}
+            />
           </section>
 
           <section>
-            <h2 className="text-sm font-semibold text-ink">Places and terms ({others.length})</h2>
+            <h2 className="text-sm font-semibold text-ink">Places and terms ({others.total})</h2>
             <div className="mt-2 grid gap-3 lg:grid-cols-2">
-              {others.map((e) => (
+              {others.entries.map((e) => (
                 <EntryCard key={e.id} {...cardProps(e)} person={false} />
               ))}
             </div>
+            <ShowMore
+              page={others}
+              label="places and terms"
+              loading={loadingGroup === 'other'}
+              onClick={() => showMore('other')}
+            />
           </section>
         </>
       )}
     </div>
+  )
+}
+
+function ShowMore({
+  page,
+  label,
+  loading,
+  onClick,
+}: {
+  page: EntryPage
+  label: string
+  loading: boolean
+  onClick: () => void
+}) {
+  if (!page.nextCursor) return null
+  const left = page.total - page.entries.length
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      aria-label={`Show more ${label}`}
+      className={`mt-3 ${secondary}`}
+    >
+      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      Show more{left > 0 ? ` (${left} left)` : ''}
+    </button>
   )
 }
