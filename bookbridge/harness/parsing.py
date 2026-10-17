@@ -136,6 +136,10 @@ REVIEW_CATEGORIES: tuple[str, ...] = (
     "mistranslation", "omission", "addition", "pronoun", "address", "voice",
     "term", "alias", "fluency", "style", "other",
 )  # fmt: skip
+# Only these may be errors (sent back for revision); the rest is style-level.
+MEANING_CATEGORIES = frozenset(
+    {"mistranslation", "omission", "addition", "pronoun", "address", "term", "alias"}
+)
 MAX_ISSUE_MESSAGE = 300
 
 
@@ -147,12 +151,16 @@ def _review_issue(raw: object, expected: int) -> tuple[int, Issue] | None:
         return None
     cat = raw.get("category")
     category = cat if isinstance(cat, str) and cat in REVIEW_CATEGORIES else "other"
-    severity = "error" if raw.get("severity") == "error" else "warning"
-    return seg - 1, Issue(category, message[:MAX_ISSUE_MESSAGE], severity)
+    fix = _text(raw.get("fix"))
+    # An error must change meaning AND come with a concrete fix: reviewers
+    # otherwise mark nitpicks, or items they themselves retract, as errors.
+    is_error = raw.get("severity") == "error" and category in MEANING_CATEGORIES and bool(fix)
+    text = f"{message} (fix: {fix})" if fix else message
+    return seg - 1, Issue(category, text[:MAX_ISSUE_MESSAGE], "error" if is_error else "warning")
 
 
 def parse_review(content: str, expected: int) -> dict[int, list[Issue]]:
-    """Parse `{"issues": [{"segment", "category", "severity", "message"}]}`.
+    """Parse `{"issues": [{"segment", "category", "severity", "message", "fix"}]}`.
 
     Keys are 0-based positions in the reviewed batch. Unparseable replies and
     malformed or out-of-range items are dropped — a broken review never

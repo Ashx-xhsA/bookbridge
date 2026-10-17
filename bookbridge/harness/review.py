@@ -3,7 +3,9 @@
 Each segment gets the deterministic rule checks (`quality.check_segment`) and
 the batch gets one LLM reviewer call that sees the rule findings. Segments
 with an error are sent back — only those — for revision, then rechecked, up to
-`config.review_max_retries` times. Nothing here can lose a translation: a
+`config.review_max_retries` times. The recheck is not a fresh review: it only
+verifies the listed problems and looks for new meaning errors, otherwise
+every round finds new nitpicks and the loop never converges. Nothing here can lose a translation: a
 failed review or revision keeps the text it had.
 """
 
@@ -22,7 +24,11 @@ from bookbridge.harness.models import (
     TranslatorError,
 )
 from bookbridge.harness.parsing import parse_review, parse_segments
-from bookbridge.harness.prompts import build_review_prompt, build_revision_prompt
+from bookbridge.harness.prompts import (
+    build_recheck_prompt,
+    build_review_prompt,
+    build_revision_prompt,
+)
 from bookbridge.harness.retry import complete_with_retry
 from bookbridge.quality import Issue, check_segment, has_errors
 
@@ -74,9 +80,10 @@ def review_batch(
     pending = [i for i in everything if has_errors(out.issues[i])]
     out.flagged = len(pending)
     for _ in range(ctx.config.review_max_retries):
+        before = {i: (out.translations[i], out.issues[i]) for i in pending}
         if not pending or not _revise(ctx, out, pending):
             break
-        pending = _recheck(ctx, out, pending)
+        pending = _recheck(ctx, out, before)
     out.fixed = out.flagged - len(pending)
     return out
 
@@ -126,12 +133,28 @@ def _revise(ctx: ReviewContext, out: BatchReview, idx: list[int]) -> bool:
     return True
 
 
-def _recheck(ctx: ReviewContext, out: BatchReview, idx: list[int]) -> list[int]:
-    """Re-run rules and the reviewer on revised segments; return those still failing."""
+def _recheck(
+    ctx: ReviewContext, out: BatchReview, before: dict[int, tuple[str, list[Issue]]]
+) -> list[int]:
+    """Rules plus one verifying call on revised segments; return those still failing."""
+    idx = list(before)
     for i in idx:
         out.issues[i] = _rules(ctx, out, i)
+    system, user = build_recheck_prompt(
+        [(out.sources[i], before[i][0], out.translations[i],
+          [x for x in before[i][1] if x.severity == "error"]) for i in idx],
+        source_lang=ctx.source_lang,
+        target_lang=ctx.target_lang,
+        glossary=ctx.glossary,
+        preceding=ctx.preceding,
+        config=ctx.config,
+        bible=ctx.bible,
+    )  # fmt: skip
     try:
-        _add_llm_issues(ctx, out, idx)
+        content = complete_with_retry(ctx.client, system, user, json_mode=True)
     except TranslatorError as exc:  # rule findings alone decide this round
-        logger.warning("re-review call failed: %s", type(exc).__name__)
+        logger.warning("recheck call failed: %s", type(exc).__name__)
+        content = ""
+    for k, found in parse_review(content, expected=len(idx)).items():
+        out.issues[idx[k]] = out.issues[idx[k]] + found
     return [i for i in idx if has_errors(out.issues[i])]

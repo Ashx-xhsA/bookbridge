@@ -2,7 +2,7 @@
 
 Translation calls echo each marked segment as `[<target>] <source>`;
 extraction calls return capitalised words from the `[source]` lines; the
-reviewer finds nothing and revision re-echoes the `[source]` lines. Dev,
+reviewer and recheck find nothing and revision re-echoes the `[source]` lines. Dev,
 CI and the mock eval run go through the same pipeline code as real providers.
 """
 
@@ -33,7 +33,7 @@ class MockLLMClient:
         lang = found.group(1) if found else "mock"
         found_task = _TASK_RE.search(system)
         task = found_task.group(1) if found_task else ""
-        if json_mode and task == "review":
+        if json_mode and task in ("review", "recheck"):
             return json.dumps({"issues": []})
         if task == "revise":
             sources = _SOURCE_LINE_RE.findall(user.split(REVISE_HEADING, 1)[-1])

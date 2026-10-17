@@ -24,6 +24,7 @@ CONTEXT_HEADING = "## Preceding text (context only — do not translate)"
 SEGMENTS_HEADING = "## Segments to translate"
 REVIEW_HEADING = "## Segments to review"
 REVISE_HEADING = "## Segments to revise"
+RECHECK_HEADING = "## Revisions to verify"
 
 
 def select_glossary(
@@ -179,6 +180,25 @@ def _issue_lines(label: str, issues: Sequence[Issue]) -> list[str]:
     return [f"[{label}] ({i.severity}, {i.category}) {i.message}" for i in issues]
 
 
+def _issues_json_instruction() -> str:
+    categories = "|".join(f'"{c}"' for c in REVIEW_CATEGORIES)
+    return (
+        'Return only JSON: {"issues": [{"segment": <marker number>, "category": '
+        f'{categories}, "severity": "error"|"warning", "message": str, "fix": str}}]}}. '
+        '"fix" is the corrected wording for the problem. Return {"issues": []} if '
+        "there is nothing to report."
+    )
+
+
+_SEVERITY_RULE = (
+    'Severity "error" only for problems that change the meaning: mistranslation, '
+    "omission, addition, wrong pronoun or gender, wrong form of address, a glossary "
+    "term not used, or an alias replaced by the main name — and only with a concrete "
+    '"fix". Wording, rhythm, fluency, style and voice are at most "warning". '
+    "Do not list anything you conclude is fine."
+)
+
+
 def build_review_prompt(
     pairs: Sequence[tuple[str, str]],
     *,
@@ -195,22 +215,15 @@ def build_review_prompt(
     `rule_issues` (keyed by position in `pairs`) is shown under each segment
     so the reviewer doesn't repeat it.
     """
-    categories = "|".join(f'"{c}"' for c in REVIEW_CATEGORIES)
     parts = [
         "Task: review",
         f"You are a senior literary editor checking a translation from {source_lang} "
         f"to {target_lang}.",
         f"Target language: {target_lang}",
-        "Compare each translation with its source. Report only real problems: "
-        "mistranslation, omission, addition, wrong pronoun or gender, wrong form of "
-        "address, a character's voice that does not match the bible, a glossary term "
-        "not used, or an alias replaced by the main name. Do not repeat problems "
-        "listed under [automatic check]; do not report matters of taste.",
-        'Severity "error" means the segment must be fixed (meaning, omission, pronoun, '
-        'term); "warning" is for minor style.',
-        'Return only JSON: {"issues": [{"segment": <marker number>, "category": '
-        f'{categories}, "severity": "error"|"warning", "message": str}}]}}. '
-        'Return {"issues": []} if every segment is fine.',
+        "Compare each translation with its source and report real problems. Do not "
+        "repeat problems listed under [automatic check]; do not report matters of taste.",
+        _SEVERITY_RULE,
+        _issues_json_instruction(),
     ]
     batch_text = "\n".join(src for src, _ in pairs)
     system = _join(parts, _context_sections(batch_text, glossary, config, bible))
@@ -226,6 +239,50 @@ def build_review_prompt(
         for n, (src, tgt) in enumerate(pairs, start=1)
     ]
     return system, _user_message(preceding, config, REVIEW_HEADING, "\n".join(blocks))
+
+
+def build_recheck_prompt(
+    items: Sequence[tuple[str, str, str, Sequence[Issue]]],
+    *,
+    source_lang: str,
+    target_lang: str,
+    glossary: Sequence[GlossaryEntry],
+    preceding: Sequence[ContextSegment],
+    config: TranslationConfig,
+    bible: BookBible | None,
+) -> tuple[str, str]:
+    """Second round: did the revision fix the listed problems without breaking meaning?
+
+    `items` are (source, previous translation, revised translation, problems).
+    Unlike the first review this is not a fresh search, so rounds converge.
+    """
+    parts = [
+        "Task: recheck",
+        f"You are a senior literary editor verifying revisions of a translation from "
+        f"{source_lang} to {target_lang}.",
+        f"Target language: {target_lang}",
+        "For each segment, check only (1) whether each [problem to verify] is fixed in "
+        "the revised translation and (2) whether the revision introduced a new error "
+        "that changes the meaning. Report only unfixed problems and such new errors. "
+        "Do not look for new style, wording or fluency problems.",
+        _SEVERITY_RULE,
+        _issues_json_instruction(),
+    ]
+    batch_text = "\n".join(src for src, _, _, _ in items)
+    system = _join(parts, _context_sections(batch_text, glossary, config, bible))
+    blocks = [
+        "\n".join(
+            [
+                marker(n),
+                f"[source] {src}",
+                f"[previous translation] {old}",
+                f"[revised translation] {new}",
+                *_issue_lines("problem to verify", issues),
+            ]
+        )  # fmt: skip
+        for n, (src, old, new, issues) in enumerate(items, start=1)
+    ]
+    return system, _user_message(preceding, config, RECHECK_HEADING, "\n".join(blocks))
 
 
 def build_revision_prompt(
