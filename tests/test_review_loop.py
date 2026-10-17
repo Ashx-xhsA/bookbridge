@@ -212,3 +212,15 @@ class TestMock:
         assert result.translations[0] is not None
         assert result.reviewed == {0}
         assert client.usage.calls == 4  # translate, review, revise, review
+
+
+class TestBatchReviewTrace:
+    def test_keeps_first_round_findings_and_texts_for_evals(self) -> None:
+        from bookbridge.harness.review import ReviewContext, review_batch
+
+        client = Router(revise=lambda s: "弗罗多跑了。")
+        ctx = ReviewContext(client, "en", "zh-Hans", [FRODO], TranslationConfig(), None, [])
+        rv = review_batch(ctx, ["Frodo ran."], ["佛罗多跑了。"])
+        assert rv.first_translations == ["佛罗多跑了。"]
+        assert [i.category for i in rv.first_issues[0]] == ["term"]
+        assert rv.issues == [[]]
