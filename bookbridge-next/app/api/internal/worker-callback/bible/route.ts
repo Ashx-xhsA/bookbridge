@@ -124,6 +124,9 @@ async function applyPlan(
   plan: MergePlan,
   existing: { id: string; english: string }[]
 ) {
+  if (plan.deletes.length) {
+    await tx.glossaryTerm.deleteMany({ where: { id: { in: plan.deletes }, projectId } })
+  }
   const created = plan.creates.length
     ? await tx.glossaryTerm.createManyAndReturn({
         data: plan.creates.map((c) => ({ ...c, projectId })),
@@ -133,7 +136,9 @@ async function applyPlan(
   for (const u of plan.updates) {
     await tx.glossaryTerm.update({ where: { id: u.id }, data: u.data })
   }
-  const idOf = new Map([...existing, ...created].map((t) => [termKey(t.english), t.id]))
+  const removed = new Set(plan.deletes)
+  const kept = existing.filter((t) => !removed.has(t.id))
+  const idOf = new Map([...kept, ...created].map((t) => [termKey(t.english), t.id]))
   const aliasesByMain = new Map<string, string[]>()
   for (const { alias, main } of plan.links) {
     const [aliasId, mainId] = [idOf.get(alias), idOf.get(main)]
