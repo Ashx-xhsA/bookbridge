@@ -107,7 +107,7 @@ def _add_llm_issues(ctx: ReviewContext, out: BatchReview, idx: list[int]) -> Non
         rule_issues={k: out.issues[i] for k, i in enumerate(idx)},
     )
     content = complete_with_retry(ctx.client, system, user, json_mode=True)
-    for k, found in parse_review(content, expected=len(idx)).items():
+    for k, found in parse_review(content, [out.translations[i] for i in idx]).items():
         out.issues[idx[k]] = out.issues[idx[k]] + found
 
 
@@ -155,6 +155,6 @@ def _recheck(
     except TranslatorError as exc:  # rule findings alone decide this round
         logger.warning("recheck call failed: %s", type(exc).__name__)
         content = ""
-    for k, found in parse_review(content, expected=len(idx)).items():
+    for k, found in parse_review(content, [out.translations[i] for i in idx]).items():
         out.issues[idx[k]] = out.issues[idx[k]] + found
     return [i for i in idx if has_errors(out.issues[i])]

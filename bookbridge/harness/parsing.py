@@ -143,33 +143,44 @@ MEANING_CATEGORIES = frozenset(
 MAX_ISSUE_MESSAGE = 300
 
 
-def _review_issue(raw: object, expected: int) -> tuple[int, Issue] | None:
+def _review_issue(raw: object, translations: Sequence[str]) -> tuple[int, Issue] | None:
+    """One reviewer item, or None when it does not point at real text.
+
+    The item must quote the wrong words exactly as they appear in the
+    translation: a reviewer that talks itself out of a finding ("not a
+    problem, withdrawn") cannot quote a wrong span, so the item is dropped.
+    """
     if not isinstance(raw, dict):
         return None
-    seg, message = raw.get("segment"), _text(raw.get("message"))
-    if type(seg) is not int or not 1 <= seg <= expected or not message:
+    seg, message, quote = raw.get("segment"), _text(raw.get("message")), _text(raw.get("quote"))
+    if type(seg) is not int or not 1 <= seg <= len(translations) or not message:
+        return None
+    if not quote or quote not in translations[seg - 1]:
         return None
     cat = raw.get("category")
     category = cat if isinstance(cat, str) and cat in REVIEW_CATEGORIES else "other"
     fix = _text(raw.get("fix"))
-    # An error must change meaning AND come with a concrete fix: reviewers
-    # otherwise mark nitpicks, or items they themselves retract, as errors.
-    is_error = raw.get("severity") == "error" and category in MEANING_CATEGORIES and bool(fix)
-    text = f"{message} (fix: {fix})" if fix else message
+    # An error must change meaning and come with a fix that actually changes the quote.
+    is_error = (
+        raw.get("severity") == "error" and category in MEANING_CATEGORIES
+        and bool(fix) and fix != quote
+    )  # fmt: skip
+    text = f'{message} ["{quote}" → "{fix}"]' if fix else message
     return seg - 1, Issue(category, text[:MAX_ISSUE_MESSAGE], "error" if is_error else "warning")
 
 
-def parse_review(content: str, expected: int) -> dict[int, list[Issue]]:
-    """Parse `{"issues": [{"segment", "category", "severity", "message", "fix"}]}`.
+def parse_review(content: str, translations: Sequence[str]) -> dict[int, list[Issue]]:
+    """Parse `{"issues": [{"segment", "quote", "category", "severity", "fix", "message"}]}`.
 
-    Keys are 0-based positions in the reviewed batch. Unparseable replies and
-    malformed or out-of-range items are dropped — a broken review never
+    `translations` are the reviewed texts in batch order; keys of the result
+    are 0-based positions in them. Unparseable replies and malformed,
+    out-of-range or unquotable items are dropped — a broken review never
     blocks a translation.
     """
     items = _json_object(content).get("issues")
     out: dict[int, list[Issue]] = {}
     for raw in items if isinstance(items, list) else []:
-        parsed = _review_issue(raw, expected)
+        parsed = _review_issue(raw, translations)
         if parsed:
             out.setdefault(parsed[0], []).append(parsed[1])
     return out

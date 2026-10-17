@@ -183,10 +183,13 @@ def _issue_lines(label: str, issues: Sequence[Issue]) -> list[str]:
 def _issues_json_instruction() -> str:
     categories = "|".join(f'"{c}"' for c in REVIEW_CATEGORIES)
     return (
-        'Return only JSON: {"issues": [{"segment": <marker number>, "category": '
-        f'{categories}, "severity": "error"|"warning", "message": str, "fix": str}}]}}. '
-        '"fix" is the corrected wording for the problem. Return {"issues": []} if '
-        "there is nothing to report."
+        'Return only JSON: {"issues": [{"segment": <marker number>, "quote": str, '
+        f'"category": {categories}, "severity": "error"|"warning", "fix": str, '
+        '"message": str}]}. "quote" is the wrong words copied exactly from the '
+        "translation (for an omission, the words where the missing content belongs); "
+        '"fix" is what should replace them. Decide first: if you cannot quote wrong '
+        'words, it is not a problem — leave it out. Return {"issues": []} if there is '
+        "nothing to report."
     )
 
 
