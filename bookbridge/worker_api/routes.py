@@ -10,7 +10,6 @@ from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
     AliasTarget,
     BookBible,
-    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     LLMClient,
@@ -118,16 +117,7 @@ def _glossary(body: TranslateSegmentsAsyncRequest) -> list[GlossaryEntry]:
 def _bible(body: TranslateSegmentsAsyncRequest) -> BookBible | None:
     if body.bible is None:
         return None
-    return BookBible(
-        style_guide=body.bible.style_guide,
-        characters=tuple(
-            CharacterCard(
-                name=c.name, translation=c.translation,
-                gender=c.gender, voice=c.voice, notes=c.notes,
-            )
-            for c in body.bible.characters
-        ),
-    )  # fmt: skip
+    return BookBible(overview=body.bible.style_guide)
 
 
 def _summarize(llm: LLMClient, text: str, max_words: int = 100) -> str | None:
@@ -271,15 +261,6 @@ def translate_segments_async(
 
 # Must match the BFF bible callback schema, or the whole scan is rejected.
 MAX_NAME, MAX_TRANSLATION, MAX_NOTE, MAX_ALIASES, MAX_STYLE_GUIDE = 200, 500, 1000, 50, 5000
-_GENDERS = {"male": "male", "m": "male", "female": "female", "f": "female", "unknown": "unknown"}
-
-
-def normalise_gender(raw: str | None) -> str | None:
-    """Map an LLM's free-form gender to male / female / unknown, else None."""
-    if not raw:
-        return None
-    word = raw.strip().lower().split(" ")[0].strip("(),.")
-    return _GENDERS.get(word)
 
 
 def _clip(text: str | None, limit: int) -> str | None:
@@ -294,9 +275,7 @@ def _entity_payload(e: ScannedEntity) -> dict | None:
         "english": e.english,
         "translation": _clip(e.translation, MAX_TRANSLATION),
         "category": e.category,
-        "gender": normalise_gender(e.gender),
         "notes": _clip(e.notes, MAX_NOTE),
-        "voice": _clip(e.voice, MAX_NOTE),
         "mentions": e.mentions,
         "aliases": [
             {"english": a.english, "translation": _clip(a.translation, MAX_TRANSLATION)}
@@ -331,7 +310,8 @@ def run_bible_scan(body: BibleScanAsyncRequest) -> None:
         {
             **base,
             "status": "SUCCEEDED",
-            "style_guide": result.style_guide[:MAX_STYLE_GUIDE],
+            # The overview goes in style_guide (same BookBible column).
+            "style_guide": result.overview[:MAX_STYLE_GUIDE],
             "entities": [
                 row
                 for e in result.entities[:MAX_BIBLE_ENTITIES]

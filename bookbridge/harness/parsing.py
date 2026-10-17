@@ -120,7 +120,6 @@ def parse_entities(content: str) -> list[dict]:
                 "name": name,
                 "translation": tran,
                 "category": cat if isinstance(cat, str) and cat in TERM_CATEGORIES else "general",
-                "gender": _text(raw.get("gender")) or None,
                 "notes": _text(raw.get("note") or raw.get("notes")) or None,
                 "aliases": [
                     (_text(a.get("name")), _text(a.get("translation")))
@@ -186,15 +185,9 @@ def parse_review(content: str, translations: Sequence[str]) -> dict[int, list[Is
     return out
 
 
-def parse_voices(content: str) -> dict[str, str]:
-    """Parse `{"voices": [{"name", "voice"}]}` into {name: voice}."""
-    items = _json_object(content).get("voices")
-    pairs = (
-        (_text(v.get("name")), _text(v.get("voice")))
-        for v in (items if isinstance(items, list) else [])
-        if isinstance(v, dict)
-    )
-    return {name: voice for name, voice in pairs if name and voice}
+def parse_summary(content: str) -> str:
+    """The passage summary in a pre-scan reply `{"summary": str}`; "" if absent."""
+    return _text(_json_object(content).get("summary"))
 
 
 def _text(value: object) -> str:

@@ -44,26 +44,15 @@ class GlossaryEntry:
 
 
 @dataclass(frozen=True)
-class CharacterCard:
-    """Book-bible entry for one character: how to refer to them and how they talk."""
-
-    name: str
-    translation: str
-    gender: str | None = None
-    voice: str | None = None
-    notes: str | None = None
-
-
-@dataclass(frozen=True)
 class BookBible:
-    """Whole-book context from the pre-scan, reviewed by the user."""
+    """Whole-book context from the pre-scan, reviewed by the user: one overview
+    of the storyline, the main characters and how they relate, and the tone."""
 
-    style_guide: str = ""
-    characters: tuple[CharacterCard, ...] = ()
+    overview: str = ""
 
     @property
     def empty(self) -> bool:
-        return not self.style_guide.strip() and not self.characters
+        return not self.overview.strip()
 
 
 @dataclass(frozen=True)
