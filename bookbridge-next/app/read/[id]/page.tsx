@@ -1,7 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
-import { SEGMENT_TEXT, joinSegments, joinTranslations } from '@/lib/segments'
+import { textToRows } from '@/lib/reader'
+import { READER_OUTLINE, loadFirstChapterRows, toReaderChapters } from '@/lib/reader-data'
 import {
   getPublishedProjectForReader,
   tokenSchema,
@@ -149,6 +150,17 @@ But the little prince made no answer.`,
   },
 ]
 
+const demoReaderChapters = demoChapters.map((ch) => ({
+  key: `demo-${ch.number}`,
+  number: ch.number,
+  title: ch.title,
+  done: true,
+}))
+
+const demoRows = Object.fromEntries(
+  demoChapters.map((ch) => [`demo-${ch.number}`, textToRows(ch.source, ch.translation)])
+)
+
 export default async function ReaderPage({
   params,
 }: {
@@ -168,7 +180,9 @@ export default async function ReaderPage({
         subtitle="小王子"
         sourceLang="English"
         targetLang="中文"
-        chapters={demoChapters}
+        chapters={demoReaderChapters}
+        initialRows={demoRows}
+        source={{ kind: 'static' }}
         isDemo
       />
     )
@@ -182,22 +196,17 @@ export default async function ReaderPage({
   // private". Next 16 forbids sibling [id]/[token] slugs, so owner cuids and
   // public uuids must share this one segment.
   if (tokenSchema.safeParse(id).success) {
-    const project = await getPublishedProjectForReader(id)
-    if (!project) return notFound()
-
-    const chapters = project.chapters.map((ch) => ({
-      number: ch.number,
-      title: ch.title,
-      source: joinSegments(ch.segments),
-      translation: joinTranslations(ch.segments) ?? '',
-    }))
+    const reader = await getPublishedProjectForReader(id)
+    if (!reader) return notFound()
 
     return (
       <ReaderView
-        title={project.title}
-        sourceLang={project.sourceLang}
-        targetLang={project.targetLang}
-        chapters={chapters}
+        title={reader.title}
+        sourceLang={reader.sourceLang}
+        targetLang={reader.targetLang}
+        chapters={reader.chapters}
+        initialRows={reader.initialRows}
+        source={{ kind: 'public', token: id }}
       />
     )
   }
@@ -207,29 +216,33 @@ export default async function ReaderPage({
 
   const project = await prisma.project.findUnique({
     where: { id },
-    include: {
-      chapters: { orderBy: { number: 'asc' }, include: { segments: SEGMENT_TEXT } },
+    select: {
+      title: true,
+      sourceLang: true,
+      targetLang: true,
+      ownerId: true,
+      isPublic: true,
+      publicToken: true,
+      chapters: READER_OUTLINE,
     },
   })
 
   if (!project) return notFound()
-  if (project.ownerId !== userId && !project.isPublic) return notFound()
-
-  const chapters = project.chapters.map((ch) => ({
-    id: ch.id,
-    number: ch.number,
-    title: ch.title,
-    source: joinSegments(ch.segments),
-    translation: joinTranslations(ch.segments) ?? '',
-  }))
+  if (project.ownerId !== userId) {
+    // Other signed-in users read a published book through its shared link,
+    // which never carries review details.
+    if (project.isPublic && project.publicToken) return redirect(`/read/${project.publicToken}`)
+    return notFound()
+  }
 
   return (
     <ReaderView
       title={project.title}
       sourceLang={project.sourceLang}
       targetLang={project.targetLang}
-      chapters={chapters}
-      projectId={project.ownerId === userId ? id : undefined}
+      chapters={toReaderChapters(project.chapters)}
+      initialRows={await loadFirstChapterRows(project.chapters)}
+      source={{ kind: 'owner', projectId: id }}
     />
   )
 }
