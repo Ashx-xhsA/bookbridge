@@ -39,12 +39,9 @@ class Router:
             raise TranslatorError("boom")
         if task == "scan_entities":
             found = [e for key, ents in self.scan.items() if key in user for e in ents]
-            return json.dumps({"entities": found})
-        if task == "voice_cards":
-            names = re.findall(r"^### (.+)$", user, re.MULTILINE)
-            return json.dumps({"voices": [{"name": n, "voice": f"voice of {n}"} for n in names]})
-        if task == "style_guide":
-            return "Restrained, plain prose."
+            return json.dumps({"entities": found, "summary": f"Summary: {user.split()[0]}"})
+        if task == "book_overview":
+            return "  OVERVIEW of the book.  "
         raise AssertionError(task)
 
 
@@ -71,7 +68,6 @@ class TestScanBook:
                         "Georg Bendemann",
                         "格奥尔格·本德曼",
                         aliases=[{"name": "Georg", "translation": "格奥尔格"}],
-                        gender="male",
                     )
                 ],
             }
@@ -81,7 +77,6 @@ class TestScanBook:
         assert set(entities) == {"Georg", "St. Petersburg"}
         georg = entities["Georg"]
         assert georg.translation == "格奥尔格"
-        assert georg.gender == "male"
         assert [(a.english, a.translation) for a in georg.aliases] == [
             ("Georg Bendemann", "格奥尔格·本德曼")
         ]
@@ -115,32 +110,25 @@ class TestScanBook:
         result = scan_book(router.client, BOOK, target_lang="zh-Hans")
         assert [e.english for e in result.entities] == ["Georg", "Frieda"]
 
-    def test_voice_cards_only_for_top_people_with_dialogue_samples(self) -> None:
-        router = Router(
-            {
-                "friend": [
-                    _entity("Georg", "格奥尔格"),
-                    _entity("Frieda", "弗里达"),
-                    _entity("St. Petersburg", "圣彼得堡", "place"),
-                ]
-            }
-        )
-        result = scan_book(router.client, BOOK, target_lang="zh-Hans", max_voice_cards=1)
-        entities = _by_name(result)
-        assert entities["Georg"].voice == "voice of Georg"
-        assert entities["Frieda"].voice is None
-        assert entities["St. Petersburg"].voice is None
-        [voice_user] = [u for s, u, _ in router.client.calls if _task(s) == "voice_cards"]
-        assert "said Frieda" in voice_user  # a quoted line that names Georg is a sample
-
-    def test_style_guide_from_samples(self) -> None:
-        router = Router({})
+    def test_no_voice_cards_or_gender(self) -> None:
+        router = Router({"friend": [_entity("Georg", "格奥尔格", gender="male")]})
         result = scan_book(router.client, BOOK, target_lang="zh-Hans")
-        assert result.style_guide == "Restrained, plain prose."
+        tasks = {_task(s) for s, _, _ in router.client.calls}
+        assert tasks == {"scan_entities", "book_overview"}
+        georg = _by_name(result)["Georg"]
+        assert not hasattr(georg, "voice") and not hasattr(georg, "gender")
+
+    def test_overview_from_passage_summaries_main_names_and_samples(self) -> None:
+        router = Router({"friend": [_entity("Georg", "格奥尔格"), _entity("Frieda", "弗里达")]})
+        result = scan_book(router.client, BOOK, target_lang="zh-Hans", max_chunk_chars=60)
+        assert result.overview == "OVERVIEW of the book."
         [(system, user, json_mode)] = [
-            c for c in router.client.calls if _task(c[0]) == "style_guide"
+            c for c in router.client.calls if _task(c[0]) == "book_overview"
         ]
         assert "zh-Hans" in system and not json_mode
+        summaries = re.findall(r"^\d+\. Summary: (\S+)$", user, re.MULTILINE)
+        assert summaries == ["Georg", '"Georg,"', "Georg", "His"]  # every passage, in order
+        assert "Georg (格奥尔格)" in user and "Frieda (弗里达)" in user
         assert "St. Petersburg" in user and "dark room" in user  # start and end of the book
 
     def test_failed_chunk_is_skipped(self) -> None:
@@ -171,13 +159,11 @@ class TestScanBook:
             scan_book(client, BOOK, target_lang="zh-Hans", max_chunk_chars=60)
         assert len(client.calls) == 1
 
-    def test_failed_voice_and_style_calls_degrade_gracefully(self) -> None:
-        router = Router(
-            {"friend": [_entity("Georg", "格奥尔格")]}, fail={"voice_cards", "style_guide"}
-        )
+    def test_failed_overview_call_degrades_gracefully(self) -> None:
+        router = Router({"friend": [_entity("Georg", "格奥尔格")]}, fail={"book_overview"})
         result = scan_book(router.client, BOOK, target_lang="zh-Hans")
-        assert _by_name(result)["Georg"].voice is None
-        assert result.style_guide == ""
+        assert list(_by_name(result)) == ["Georg"]
+        assert result.overview == ""
 
     def test_drops_malformed_entities_and_normalises_category(self) -> None:
         router = Router(
@@ -203,7 +189,7 @@ def test_mock_client_runs_the_whole_scan() -> None:
     result = scan_book(MockLLMClient(), BOOK, target_lang="zh-Hans")
     names = [e.english for e in result.entities]
     assert "Georg" in names
-    assert result.style_guide
+    assert result.overview
 
 
 SAFETY_BOOK = [
@@ -326,10 +312,35 @@ def test_scan_prompt_asks_to_skip_ordinary_nouns_and_shared_names() -> None:
     assert "only if it refers to that one entity" in system
 
 
+def test_scan_prompt_asks_for_a_passage_summary_and_no_gender() -> None:
+    from bookbridge.harness.prompts import build_scan_prompt
+
+    system, _ = build_scan_prompt("x", target_lang="zh-Hans")
+    assert '"summary"' in system
+    assert "gender" not in system
+
+
+def test_overview_prompt_asks_for_plot_characters_and_style_in_the_target_language() -> None:
+    from bookbridge.harness.prompts import build_overview_prompt
+
+    system, user = build_overview_prompt(
+        ["Georg writes a letter.", "His father judges him."],
+        [("Georg", "格奥尔格")],
+        ["Sample one."],
+        target_lang="zh-Hans",
+    )
+    assert "Task: book_overview" in system and "zh-Hans" in system
+    for part in ("storyline", "characters", "tone"):
+        assert part in system.lower()
+    assert "1. Georg writes a letter.\n2. His father judges him." in user
+    assert "- Georg (格奥尔格)" in user
+    assert "Sample one." in user
+
+
 # --- progress and stop (Phase 5 follow-up) -----------------------------------
 
 
-def test_reports_progress_after_every_passage_then_voices_and_style() -> None:
+def test_reports_progress_after_every_passage_then_the_overview() -> None:
     router = Router({"Georg": [_entity("Georg", "格奥尔格")]})
     seen: list[tuple[int, int]] = []
 
@@ -340,7 +351,7 @@ def test_reports_progress_after_every_passage_then_voices_and_style() -> None:
     scan_book(router.client, BOOK, target_lang="zh-Hans", max_chunk_chars=60, progress=progress)
 
     passages = sum(1 for c in router.client.calls if _task(c[0]) == "scan_entities")
-    total = passages + 2  # + voice cards + style guide
+    total = passages + 1  # + the overview
     assert passages > 1
     assert seen == [(i, total) for i in range(1, total + 1)]
 

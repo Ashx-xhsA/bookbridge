@@ -15,7 +15,6 @@ from bookbridge.harness.config import TranslationConfig
 from bookbridge.harness.models import (
     AliasTarget,
     BookBible,
-    CharacterCard,
     ContextSegment,
     GlossaryEntry,
     ProviderError,
@@ -134,10 +133,7 @@ class TestTranslateSegments:
         assert "山姆" in second_system and "弗罗多" not in second_system
 
     def test_bible_reaches_every_call_and_switch_removes_it(self) -> None:
-        bible = BookBible(
-            style_guide="Keep it terse.",
-            characters=(CharacterCard(name="Frodo", translation="弗罗多", voice="Earnest."),),
-        )
+        bible = BookBible(overview="Keep it terse.")
         client = ScriptedClient(_echo)
         cfg = TranslationConfig(review_max_retries=0, max_batch_chars=1)
         translate_segments(client, ["Frodo.", "x"], target_lang="zh-Hans", bible=bible, config=cfg)
