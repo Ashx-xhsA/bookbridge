@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from evals.metrics import agreement, consistency, occurrences, truncation_rate
 from evals.reference import ReferenceTerm
 

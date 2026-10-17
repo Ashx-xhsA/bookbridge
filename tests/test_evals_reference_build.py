@@ -6,14 +6,14 @@ import json
 from pathlib import Path
 
 import pytest
-from evals.book import chapter_range, load_book
-from evals.build_reference import candidates, draft, parse_renderings
-from evals.scan_cache import load_scan, save_scan
 
 from bookbridge.harness.models import AliasTarget
 from bookbridge.harness.prescan import ScannedEntity
 from bookbridge.ingestion.models import Book, Chapter
 from evals import book as book_module
+from evals.book import chapter_range, load_book
+from evals.build_reference import candidates, draft, parse_renderings
+from evals.scan_cache import load_scan, save_scan
 
 
 def _fake_reader(books: dict[str, list[tuple[str, list[str]]]]):

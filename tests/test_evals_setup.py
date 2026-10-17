@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from evals.configs import CONFIGS, select
 
 from bookbridge.harness.config import TranslationConfig
+from evals.configs import CONFIGS, select
 from evals.reference import ReferenceTerm, load_reference
 
 

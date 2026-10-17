@@ -5,13 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from evals.run import (
-    glossary_for,
-    parse_used_renderings,
-    results_payload,
-    run_config,
-    summarize,
-)
 
 from bookbridge.harness.models import AliasTarget, Usage
 from bookbridge.harness.prescan import ScannedEntity
@@ -20,17 +13,26 @@ from bookbridge.harness.providers.mock import MockLLMClient
 from evals.book import ChapterPair
 from evals.configs import CONFIGS
 from evals.reference import ReferenceTerm
+from evals.run import (
+    glossary_for,
+    parse_used_renderings,
+    results_payload,
+    run_config,
+    summarize,
+)
 
 
 class RecordingMock(MockLLMClient):
-    """The deterministic mock, keeping every system prompt it was sent."""
+    """The deterministic mock, keeping every prompt it was sent."""
 
     def __init__(self) -> None:
         super().__init__()
         self.systems: list[str] = []
+        self.users: list[str] = []
 
     def complete(self, system: str, user: str, *, json_mode: bool = False) -> str:
         self.systems.append(system)
+        self.users.append(user)
         return super().complete(system, user, json_mode=json_mode)
 
 
@@ -74,17 +76,19 @@ class TestRunConfig:
 
     def test_a_sends_no_glossary_no_context_and_no_overview(self) -> None:
         client, run = self._run("A")
-        translate = [s for s in client.systems if "Task" not in s.splitlines()[0]]
+        prompts = list(zip(client.systems, client.users, strict=True))
+        translate = [(s, u) for s, u in prompts if s.startswith("Task: translate")]
         assert translate, "translation calls were made"
-        assert not any(
-            GLOSSARY_HEADING in s or CONTEXT_HEADING in s or BIBLE_HEADING in s for s in translate
-        )
+        for system, user in translate:
+            assert GLOSSARY_HEADING not in system and BIBLE_HEADING not in system
+            assert CONTEXT_HEADING not in user
         assert run["segments"] == 4 and run["failed"] == 0
 
     def test_b_sends_the_glossary_and_context_across_chapters_but_no_overview(self) -> None:
         client, _ = self._run("B")
         assert any(GLOSSARY_HEADING in s for s in client.systems)
-        assert any(CONTEXT_HEADING in s for s in client.systems)  # chapter 2 sees chapter 1's end
+        # Each chapter fits one batch, so context can only come from the chapter before.
+        assert any(CONTEXT_HEADING in u and "At Esperanza, ice." in u for u in client.users)
         assert not any(BIBLE_HEADING in s for s in client.systems)
 
     def test_c_adds_the_overview(self) -> None:
@@ -141,7 +145,9 @@ def test_results_payload_holds_numbers_not_book_text() -> None:
         "consistency": {"hits": 2, "total": 2, "rate": 1.0, "per_term": {}},
         "truncation": 0.0, "failed": 0, "segments": 2, "source_chars": 40,
         "usage": vars(Usage(calls=3)), "seconds": 1.0, "review": None,
-        "texts": [{"title": "Intro", "sources": ["Esperanza lies south."], "translations": ["埃斯"]}],
+        "texts": [
+            {"title": "Intro", "sources": ["Esperanza lies south."], "translations": ["埃斯"]}
+        ],
     }  # fmt: skip
     payload = results_payload(
         book="otherlands", chapters=[0, 1], model="deepseek-chat", commit="abc1234",
