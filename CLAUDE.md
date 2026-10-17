@@ -5,18 +5,16 @@ Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **P
 ## Architecture Rules
 - Next.js API Routes proxy all Worker calls — browser never talks to Worker directly
 - PostgreSQL is the single source of truth; ChromaDB is a local RAG cache on the Worker only
-- Wrap existing Python core (`ingestion/`, `glossary/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
+- Wrap existing Python core (`ingestion/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
 - Server Components by default; add `'use client'` only for interactivity or browser APIs
 
 ## Project Structure
 ```
 bookbridge/         # Python Worker package
   ingestion/        # EPUB/TXT reading into chapters and paragraphs
-  glossary/         # ChromaDB RAG store (local to Worker)
   harness/          # translation orchestrator + Claude API client
-  quality/          # per-language quality checkers
+  quality/          # per-segment rule checks used by the review loop
   worker_api/       # FastAPI endpoints
-  mcp_servers/      # glossary and translation MCP servers
 tests/              # pytest suite (Python Worker)
 app/                # Next.js App Router (Sprint 2+)
   api/              # BFF API Routes
