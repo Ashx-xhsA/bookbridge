@@ -91,11 +91,19 @@ vi.mock(
 )
 
 const mockProjectFindUnique = vi.fn()
+const mockTermCount = vi.fn().mockResolvedValue(0)
+const mockSegmentGroupBy = vi.fn().mockResolvedValue([])
 
 vi.mock('@/lib/prisma', () => ({
   default: {
     project: {
       findUnique: (...args: unknown[]) => mockProjectFindUnique(...args),
+    },
+    glossaryTerm: {
+      count: (...args: unknown[]) => mockTermCount(...args),
+    },
+    segment: {
+      groupBy: (...args: unknown[]) => mockSegmentGroupBy(...args),
     },
   },
 }))
@@ -122,12 +130,15 @@ const projectWithChapters = {
       id: 'ch1',
       number: 1,
       title: 'Chapter One',
-      segments: [{ source: 'Some text.', translation: null }],
       summary: null,
+      // Progress probe only: segment count + at most one untranslated id.
+      _count: { segments: 1 },
+      segments: [{ id: 's1' }],
     },
   ],
   jobs: [],
-  glossary: [],
+  _count: { glossary: 0 },
+  bible: null,
 }
 
 const projectWithoutChapters = {
@@ -165,6 +176,26 @@ describe('app/dashboard/projects/[id]/page.tsx — Start Reading button (issue #
     const link = screen.getByRole('link', { name: /start reading/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', `/read/${PROJECT_ID}`)
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 5c: the project page lists chapters without loading any text
+  // -------------------------------------------------------------------------
+  it('loads only the chapter outline and counts, never paragraph text', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(projectWithChapters)
+
+    const { default: ProjectPage } = await import(
+      '@/app/dashboard/projects/[id]/page'
+    )
+    render((await ProjectPage(makeParams(PROJECT_ID))) as React.ReactElement)
+
+    const [args] = mockProjectFindUnique.mock.calls[0]
+    const query = JSON.stringify(args)
+    expect(query).not.toContain('"source"')
+    expect(query).not.toContain('"translation":true')
+    expect(query).not.toContain('"glossary":{"orderBy"')
+    expect(screen.getByTestId('chapter-explorer')).toHaveTextContent('1 chapters loaded')
   })
 
   // -------------------------------------------------------------------------
