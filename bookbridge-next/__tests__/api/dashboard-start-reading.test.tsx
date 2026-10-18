@@ -44,6 +44,7 @@ vi.mock('lucide-react', () => ({
   Clock: () => <svg data-testid="icon-clock" />,
   Sparkles: () => <svg data-testid="icon-sparkles" />,
   PlayCircle: () => <svg data-testid="icon-play-circle" />,
+  Download: () => <svg data-testid="icon-download" />,
 }))
 
 // Mock DeleteProjectButton (client component — uses useRouter which is not mocked here)
@@ -164,6 +165,18 @@ describe('app/dashboard/projects/[id]/page.tsx — Start Reading button (issue #
     const link = screen.getByRole('link', { name: /start reading/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', `/read/${PROJECT_ID}`)
+  })
+
+  it('offers Export next to Start Reading', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(projectWithChapters)
+
+    const { default: ProjectPage } = await import(
+      '@/app/dashboard/projects/[id]/page'
+    )
+    render((await ProjectPage(makeParams(PROJECT_ID))) as React.ReactElement)
+
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveTextContent('Export')
   })
 
   // -------------------------------------------------------------------------

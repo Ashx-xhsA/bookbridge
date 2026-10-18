@@ -17,18 +17,24 @@ const HREFS = [
 describe('ExportMenu', () => {
   it('shows a visible "Export" label when labelled', () => {
     render(<ExportMenu projectId="p1" labelled />)
-    expect(screen.getByRole('button', { name: 'Export' })).toHaveTextContent('Export')
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveTextContent(
+      'Export'
+    )
   })
 
   it('is icon only by default', () => {
     render(<ExportMenu projectId="p1" />)
-    expect(screen.getByRole('button', { name: 'Export' })).not.toHaveTextContent('Export')
+    expect(
+      screen.getByRole('button', { name: 'Export' })
+    ).not.toHaveTextContent('Export')
   })
 
   it('opens the four downloads for the project', () => {
     render(<ExportMenu projectId="p1" labelled />)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
-    expect(screen.getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(HREFS)
+    expect(
+      screen.getAllByRole('link').map((a) => a.getAttribute('href'))
+    ).toEqual(HREFS)
   })
 })

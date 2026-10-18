@@ -9,6 +9,7 @@ import PublishToggle from './PublishToggle'
 import ReviewToggle from './ReviewToggle'
 import ChapterExplorer from './ChapterExplorer'
 import BibleNudge from './BibleNudge'
+import ExportMenu from '@/app/components/ExportMenu'
 
 export default async function ProjectPage({
   params,
@@ -81,6 +82,7 @@ export default async function ProjectPage({
               >
                 Start Reading
               </Link>
+              <ExportMenu projectId={project.id} labelled />
               <div className="flex items-center gap-2">
                 <div className="h-2 w-24 overflow-hidden rounded-full bg-parchment">
                   <div
