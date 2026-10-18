@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import Image from 'next/image'
-import { SAMPLE_READ_URL, SCREENSHOTS } from '@/lib/showcase'
+import { SAMPLE_CREDIT, SAMPLE_READ_URL, SCREENSHOTS } from '@/lib/showcase'
 
 type Item = { title: string; text: string }
 
@@ -107,11 +107,13 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
                 alt={shot.alt}
                 width={shot.width}
                 height={shot.height}
+                unoptimized
                 className="h-auto w-full rounded-xl border border-parchment shadow-sm"
               />
               <figcaption className="mt-2 text-center text-sm text-ink-muted">{shot.caption}</figcaption>
             </figure>
           ))}
+          <p className="text-center text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
         </div>
       )}
 
