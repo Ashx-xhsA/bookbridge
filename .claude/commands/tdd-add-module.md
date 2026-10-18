@@ -12,7 +12,7 @@ When asked to add a new module to BookBridge, follow this strict TDD workflow.
 Before writing any code, read and internalize these project files:
 - [ ] `CLAUDE.md` -- coding conventions, tech stack, do's and don'ts
 - [ ] `docs/API_DESIGN.md` -- planned API for the module (function signatures, data classes)
-- [ ] `docs/PRD.md` -- understand where this module fits in the product
+- [ ] `docs/API_DESIGN.md` -- understand where this module fits in the product
 - [ ] `pyproject.toml` -- current dependencies and project config
 
 Identify the closest existing module to use as a structural reference:
@@ -100,7 +100,7 @@ Implement the minimum code to make all tests pass. Follow these conventions stri
 - Functions under 40 lines; extract helpers when longer
 - Use `pathlib.Path` for all file paths, never `os.path`
 - Google-style docstrings on all public functions with Args/Returns sections
-- Use `rich.console` or `logging` instead of `print()`
+- Use `logging` instead of `print()`
 
 ### Error Handling Pattern
 
@@ -142,7 +142,7 @@ Commit: `refactor: improve <module_name> code quality (ref #<issue>)`
 ## Constraints
 
 - Do NOT modify existing tests or code in other modules
-- Do NOT use `print()` -- use `rich.console` or `logging`
+- Do NOT use `print()` -- use `logging`
 - Do NOT hardcode file paths
 - Do NOT store secrets in code
 - Do NOT use raw dicts for domain objects -- always use dataclasses
