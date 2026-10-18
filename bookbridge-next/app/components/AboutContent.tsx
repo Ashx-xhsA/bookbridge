@@ -236,7 +236,7 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
             OpenAI-compatible provider). Add it in{' '}
             <Link
               href="/dashboard/settings"
-              className="font-medium text-accent underline"
+              className="font-medium text-accent hover:underline"
             >
               Settings
             </Link>
