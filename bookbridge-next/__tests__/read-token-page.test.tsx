@@ -150,3 +150,20 @@ describe('test_read_page_does_not_show_owner_controls', () => {
     expect(screen.queryByText(/add term/i)).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// The built-in demo is gone: /read/demo is an ordinary id, so signed-out
+// visitors are sent to sign in like any other private project.
+// ---------------------------------------------------------------------------
+describe('no built-in demo', () => {
+  it('treats /read/demo like any other id', async () => {
+    const { auth } = await import('@clerk/nextjs/server')
+    const { redirect } = await import('next/navigation')
+    vi.mocked(auth).mockResolvedValueOnce({ userId: null } as Awaited<ReturnType<typeof auth>>)
+
+    const { default: ReadPage } = await import('@/app/read/[id]/page')
+    await ReadPage({ params: Promise.resolve({ id: 'demo' }) })
+
+    expect(redirect).toHaveBeenCalledWith('/sign-in')
+  })
+})

@@ -81,24 +81,23 @@ export interface ReaderChapter {
   done: boolean
 }
 
-// Where the reader loads chapters and searches from. The static demo has
-// everything in memory and searches locally.
+// Where the reader loads chapters and searches from: the owner's project
+// routes, or the shared-link routes where the token is the authorization.
 export type ChapterSource =
   | { kind: 'owner'; projectId: string }
   | { kind: 'public'; token: string }
-  | { kind: 'static' }
 
-export function chapterUrl(source: ChapterSource, chapterId: string): string | null {
-  if (source.kind === 'owner') return `/api/projects/${source.projectId}/chapters/${chapterId}`
-  if (source.kind === 'public') return `/api/read/${source.token}/chunks/${chapterId}`
-  return null
+export function chapterUrl(source: ChapterSource, chapterId: string): string {
+  return source.kind === 'owner'
+    ? `/api/projects/${source.projectId}/chapters/${chapterId}`
+    : `/api/read/${source.token}/chunks/${chapterId}`
 }
 
-export function searchUrl(source: ChapterSource, query: string): string | null {
+export function searchUrl(source: ChapterSource, query: string): string {
   const q = encodeURIComponent(query)
-  if (source.kind === 'owner') return `/api/projects/${source.projectId}/search?q=${q}`
-  if (source.kind === 'public') return `/api/read/${source.token}/search?q=${q}`
-  return null
+  return source.kind === 'owner'
+    ? `/api/projects/${source.projectId}/search?q=${q}`
+    : `/api/read/${source.token}/search?q=${q}`
 }
 
 export interface SearchHit {
@@ -111,13 +110,6 @@ export interface SearchHit {
 
 export const SEARCH_QUERY_MIN = 2
 export const SEARCH_QUERY_MAX = 100
-
-// Pairs blank-line-separated paragraphs by position (static demo text).
-export function textToRows(source: string, translation: string): PublicRow[] {
-  const src = source.split(/\n\s*\n/)
-  const tgt = translation.split(/\n\s*\n/)
-  return src.map((s, index) => ({ index, source: s, translation: tgt[index] ?? null }))
-}
 
 // The text around the first case-insensitive match of query, with … where cut.
 export function makeSnippet(text: string, query: string, radius = 60): string {

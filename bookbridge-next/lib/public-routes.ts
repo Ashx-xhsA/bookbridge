@@ -1,6 +1,7 @@
 // Routes reachable without a Clerk session (middleware.ts protects the rest).
 export const PUBLIC_ROUTES = [
   '/',
+  '/about',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/read/(.*)',

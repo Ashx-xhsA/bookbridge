@@ -114,23 +114,6 @@ describe('ReaderView', () => {
     expect(mockFetch).toHaveBeenCalledWith('/api/read/tok/chunks/c2')
   })
 
-  it('searches the static demo locally without any request', async () => {
-    render(
-      <ReaderView
-        title="Demo"
-        chapters={[{ key: 'd1', number: 1, title: 'The Drawing', done: true }]}
-        initialRows={{ d1: [{ index: 0, source: 'A boa constrictor.', translation: '一条蟒蛇。' }] }}
-        source={{ kind: 'static' }}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: /search/i }))
-    const input = screen.getByPlaceholderText(/search/i)
-    fireEvent.change(input, { target: { value: 'boa' } })
-    fireEvent.submit(input.closest('form')!)
-    expect(await screen.findByRole('button', { name: /^the drawing.*boa/i })).toBeInTheDocument()
-    expect(mockFetch).not.toHaveBeenCalled()
-  })
-
   it('offers the owner Markdown and both bilingual EPUB layouts as downloads', () => {
     render(
       <ReaderView

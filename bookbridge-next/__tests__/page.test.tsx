@@ -11,7 +11,6 @@ vi.mock('@clerk/nextjs', () => ({
   UserButton: () => <div data-testid="user-button" />,
 }))
 
-// Mock next/navigation so redirect() doesn't throw during render
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
@@ -24,67 +23,66 @@ vi.mock('next/link', () => ({
 }))
 
 import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
 const mockAuth = vi.mocked(auth)
+type AuthReturn = Awaited<ReturnType<typeof auth>>
 
-describe('app/page.tsx — auth-aware landing page', () => {
+async function renderPage(path: '@/app/page' | '@/app/about/page', userId: string | null) {
+  mockAuth.mockResolvedValueOnce({ userId } as AuthReturn)
+  const { default: Page } = await import(path)
+  const jsx = await Page()
+  if (jsx) render(jsx as React.ReactElement)
+}
+
+describe('app/page.tsx — the About page is the homepage', () => {
   beforeEach(() => {
-    // resetModules + dynamic import() lets each test set a fresh mockResolvedValueOnce
     vi.clearAllMocks()
     vi.resetModules()
   })
 
-  it('returns 200 and shows Sign In and Get Started links when signed out', async () => {
-    mockAuth.mockResolvedValueOnce(
-      { userId: null } as Awaited<ReturnType<typeof auth>>
-    )
-    const { default: Home } = await import('@/app/page')
-    const jsx = await Home()
-    render(jsx as React.ReactElement)
+  it('shows signed-out visitors what BookBridge does, with sign-in and get-started links', async () => {
+    await renderPage('@/app/page', null)
 
-    // auth() must be called so the page is conditionally rendered
-    expect(mockAuth).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Sign In')).toBeInTheDocument()
-    expect(screen.getByText('Get Started')).toBeInTheDocument()
+    expect(redirect).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: /what it does differently/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /some ways to use it/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /before you start/i })).toBeInTheDocument()
+    expect(screen.getByText(/your own API key/i)).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /get started/i })[0]).toHaveAttribute('href', '/sign-up')
+    expect(screen.getAllByRole('link', { name: /sign in/i })[0]).toHaveAttribute('href', '/sign-in')
   })
 
-  it('does not show Sign In or Get Started links when signed in', async () => {
-    mockAuth.mockResolvedValueOnce(
-      { userId: 'user_abc' } as Awaited<ReturnType<typeof auth>>
-    )
-    const { default: Home } = await import('@/app/page')
-    const jsx = await Home()
-    render(jsx as React.ReactElement)
+  it('has no demo any more', async () => {
+    await renderPage('@/app/page', null)
+    expect(screen.queryByText(/view demo/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/little prince/i)).not.toBeInTheDocument()
+  })
 
-    expect(screen.queryByText('Sign In')).not.toBeInTheDocument()
-    expect(screen.queryByText('Get Started')).not.toBeInTheDocument()
-    const myLib = screen.getByRole('link', { name: /my library/i })
-    expect(myLib).toHaveAttribute('href', '/dashboard')
+  it('sends signed-in users straight to their library', async () => {
+    await renderPage('@/app/page', 'user_abc')
+    expect(redirect).toHaveBeenCalledWith('/dashboard')
+  })
+})
+
+describe('app/about/page.tsx — About stays reachable when signed in', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+  })
+
+  it('shows the same content with a link back to the library', async () => {
+    await renderPage('@/app/about/page', 'user_abc')
+
+    expect(redirect).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: /what it does differently/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^my library$/i })).toHaveAttribute('href', '/dashboard')
     expect(screen.getByTestId('user-button')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument()
   })
 
-  it('has Start Translating link pointing to /sign-up when signed out', async () => {
-    mockAuth.mockResolvedValueOnce(
-      { userId: null } as Awaited<ReturnType<typeof auth>>
-    )
-    const { default: Home } = await import('@/app/page')
-    const jsx = await Home()
-    render(jsx as React.ReactElement)
-
-    // auth() must be called so the CTA href is conditionally chosen
-    expect(mockAuth).toHaveBeenCalledTimes(1)
-    const cta = screen.getByRole('link', { name: /start translating/i })
-    expect(cta).toHaveAttribute('href', '/sign-up')
-  })
-
-  it('has Go to Dashboard link pointing to /dashboard when signed in', async () => {
-    mockAuth.mockResolvedValueOnce(
-      { userId: 'user_abc' } as Awaited<ReturnType<typeof auth>>
-    )
-    const { default: Home } = await import('@/app/page')
-    const jsx = await Home()
-    render(jsx as React.ReactElement)
-
-    const cta = screen.getByRole('link', { name: /go to dashboard/i })
-    expect(cta).toHaveAttribute('href', '/dashboard')
+  it('works signed out too', async () => {
+    await renderPage('@/app/about/page', null)
+    expect(screen.getByRole('heading', { name: /what it does differently/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /sign in/i })[0]).toHaveAttribute('href', '/sign-in')
   })
 })
