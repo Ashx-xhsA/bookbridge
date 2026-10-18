@@ -13,8 +13,11 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from email.message import Message
+from typing import IO
 
 from bookbridge.harness.models import ProviderError, Usage
+from bookbridge.harness.providers.url_guard import UnsafeBaseURLError, validate_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +34,33 @@ def request_timeout() -> float:
         return DEFAULT_TIMEOUT_SECONDS
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface 30x as HTTPError instead of following it to another host."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: Message,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class OpenAICompatClient:
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, model: str, *, trusted_base_url: bool = False
+    ) -> None:
         if not api_key or not base_url or not model:
             raise ValueError("LLM provider not configured")
+        if not trusted_base_url:
+            validate_base_url(base_url, resolve=False)
+        self._trusted_base_url = trusted_base_url
         self._api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -46,6 +72,7 @@ class OpenAICompatClient:
             api_key=os.environ.get("LLM_API_KEY", ""),
             base_url=os.environ.get("LLM_BASE_URL", ""),
             model=os.environ.get("LLM_MODEL", ""),
+            trusted_base_url=True,
         )
 
     def complete(self, system: str, user: str, *, json_mode: bool = False) -> str:
@@ -70,6 +97,12 @@ class OpenAICompatClient:
         return content
 
     def _post(self, payload: dict) -> dict:
+        if not self._trusted_base_url:
+            try:
+                validate_base_url(self.base_url)
+            except UnsafeBaseURLError as exc:
+                logger.warning("openai_compat base URL rejected by SSRF guard")
+                raise ProviderError("Translation provider failed", retryable=False) from exc
         req = urllib.request.Request(
             url=f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -80,7 +113,7 @@ class OpenAICompatClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=request_timeout()) as resp:
+            with _OPENER.open(req, timeout=request_timeout()) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             # 429 and 5xx are transient; 401/403/400 will fail the same way again.
