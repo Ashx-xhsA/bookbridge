@@ -28,7 +28,11 @@ export async function getUserLLMCredentials(
     apiKey = decryptApiKey(user.apiKey, clerkId)
   } catch {
     // Never log the stored value. Treat it as missing so the user re-enters it.
-    console.warn('Stored API key could not be decrypted; treating it as missing')
+    if (!process.env.API_KEY_ENCRYPTION_KEY) {
+      console.error('API_KEY_ENCRYPTION_KEY is not set; no stored API key can be used')
+    } else {
+      console.warn('Stored API key could not be decrypted; treating it as missing')
+    }
     return null
   }
 

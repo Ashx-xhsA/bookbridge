@@ -25,8 +25,10 @@ _BLOCKED_NETWORKS = tuple(
         "192.168.0.0/16",
         "224.0.0.0/4",  # multicast
         "240.0.0.0/4",  # reserved + broadcast
-        "::/128",
+        "::/96",  # IPv4-compatible (deprecated), incl. :: and ::1
         "::1/128",
+        "2001::/32",  # Teredo
+        "2002::/16",  # 6to4
         "64:ff9b::/96",  # NAT64
         "fc00::/7",
         "fe80::/10",
@@ -69,11 +71,14 @@ def validate_base_url(url: str, *, resolve: bool = True) -> None:
     literal IPs); the DNS check then happens at call time.
     """
     if _private_allowed():
-        if urlsplit(url).scheme not in ("http", "https"):
+        if not url.startswith(("http://", "https://")):
             raise UnsafeBaseURLError()
         return
-    parts = urlsplit(url)
-    host = parts.hostname
+    try:
+        parts = urlsplit(url)
+        host, port = parts.hostname, parts.port or 443
+    except ValueError as exc:  # unbalanced brackets, bad port
+        raise UnsafeBaseURLError() from exc
     if parts.scheme != "https" or not host or parts.username or parts.password:
         raise UnsafeBaseURLError()
     try:
@@ -87,8 +92,8 @@ def validate_base_url(url: str, *, resolve: bool = True) -> None:
     if not resolve:
         return
     try:
-        addresses = _resolve(host, parts.port or 443)
-    except (OSError, ValueError) as exc:  # NXDOMAIN, bad port, bad IDNA
+        addresses = _resolve(host, port)
+    except (OSError, ValueError) as exc:  # NXDOMAIN, bad IDNA
         raise UnsafeBaseURLError() from exc
     if not addresses or any(is_blocked_address(a) for a in addresses):
         raise UnsafeBaseURLError()

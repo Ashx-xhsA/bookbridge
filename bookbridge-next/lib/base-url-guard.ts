@@ -23,8 +23,10 @@ for (const [net, prefix] of [
 }
 // BlockList also applies the IPv4 rules to IPv4-mapped IPv6 (::ffff:a.b.c.d).
 for (const [net, prefix] of [
-  ['::', 128],
+  ['::', 96], // IPv4-compatible (deprecated), incl. :: and ::1
   ['::1', 128],
+  ['2001::', 32], // Teredo
+  ['2002::', 16], // 6to4
   ['64:ff9b::', 96], // NAT64
   ['fc00::', 7],
   ['fe80::', 10],
