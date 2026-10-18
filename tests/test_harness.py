@@ -30,7 +30,7 @@ from bookbridge.harness.providers.openai_compat import OpenAICompatClient
 # These tests are about translation itself; the review loop has its own file.
 NO_REVIEW = TranslationConfig(review_max_retries=0)
 
-URLOPEN = "bookbridge.harness.providers.openai_compat.urllib.request.urlopen"
+URLOPEN = "bookbridge.harness.providers.openai_compat._OPENER.open"
 
 
 class ScriptedClient:
@@ -482,6 +482,48 @@ class TestOpenAICompatClient:
         with pytest.raises(ValueError, match="not configured"):
             OpenAICompatClient(api_key="", base_url="https://x/v1", model="m")
 
+    @pytest.mark.parametrize(
+        "base_url", ["http://api.example.com/v1", "https://169.254.169.254/v1", "file:///etc"]
+    )
+    def test_untrusted_unsafe_base_url_is_rejected_up_front(self, base_url: str) -> None:
+        with pytest.raises(ValueError, match="not allowed"):
+            OpenAICompatClient(api_key="sk", base_url=base_url, model="m")
+
+    def test_host_resolving_to_private_address_is_never_called(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "bookbridge.harness.providers.url_guard._resolve", lambda h, p: ["169.254.169.254"]
+        )
+        with patch(URLOPEN) as mock_open, pytest.raises(ProviderError) as exc:
+            _client().complete("s", "u")
+        mock_open.assert_not_called()
+        assert exc.value.retryable is False
+
+    def test_trusted_env_base_url_may_be_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_API_KEY", "ollama")
+        monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+        monkeypatch.setenv("LLM_MODEL", "llama3.1")
+        monkeypatch.setattr(
+            "bookbridge.harness.providers.url_guard._resolve", lambda h, p: ["127.0.0.1"]
+        )
+        with patch(URLOPEN, return_value=_response(_OK)) as mock_open:
+            OpenAICompatClient.from_env().complete("s", "u")
+        mock_open.assert_called_once()
+
+    def test_redirects_are_not_followed(self) -> None:
+        """A 30x would re-send the Authorization header to wherever it points."""
+        import urllib.request
+
+        from bookbridge.harness.providers import openai_compat
+
+        req = urllib.request.Request("https://api.example.com/v1/chat/completions", method="POST")
+        handler = openai_compat._NoRedirect()
+        for code in (301, 302, 303, 307, 308):
+            target = "http://169.254.169.254/latest/meta-data/"
+            assert handler.redirect_request(req, None, code, "moved", {}, target) is None
+        assert any(isinstance(h, openai_compat._NoRedirect) for h in openai_compat._OPENER.handlers)
+
 
 # ---------------------------------------------------------------------------
 # get_llm_client — explicit credentials win, else TRANSLATION_PROVIDER
@@ -520,3 +562,12 @@ class TestGetLLMClient:
         client = get_llm_client(api_key="sk-user", model="user-model")
         assert isinstance(client, OpenAICompatClient)
         assert (client.base_url, client.model) == ("https://env.example/v1", "user-model")
+
+    def test_user_supplied_base_url_is_untrusted(self) -> None:
+        with pytest.raises(ValueError, match="not allowed"):
+            get_llm_client(api_key="sk-user", base_url="https://10.0.0.1/v1", model="m")
+
+    def test_env_fallback_base_url_is_trusted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+        client = get_llm_client(api_key="sk-user", model="m")
+        assert client.base_url == "http://localhost:11434/v1"

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { encryptApiKey } from '@/lib/api-key-crypto'
 
 vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(),
@@ -42,7 +43,7 @@ function makeParams(): Promise<{ id: string }> {
 describe('POST /api/projects/[id]/summarize', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', apiProvider: 'deepseek', apiBaseUrl: null })
+    mockUserFindUnique.mockResolvedValue({ apiKey: encryptApiKey('sk-test', 'user_abc'), apiProvider: 'deepseek', apiBaseUrl: null })
   })
 
   it('returns 401 when unauthenticated', async () => {

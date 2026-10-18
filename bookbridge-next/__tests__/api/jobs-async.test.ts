@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { encryptApiKey } from '@/lib/api-key-crypto'
 
 // ---------------------------------------------------------------------------
 // Mock Clerk auth (OWASP A07)
@@ -127,7 +128,7 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     // - User has API key (skips free-tier gate)
     // - No adjacent chapters with summaries (no context injection)
     // - Empty glossary (omits glossary from worker body)
-    mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', freeCharsUsed: 0 })
+    mockUserFindUnique.mockResolvedValue({ apiKey: encryptApiKey('sk-test', USER_ID), freeCharsUsed: 0 })
     mockChapterFindMany.mockResolvedValue([])
     mockGlossaryTermFindMany.mockResolvedValue([])
     mockSegmentFindMany.mockResolvedValue([])

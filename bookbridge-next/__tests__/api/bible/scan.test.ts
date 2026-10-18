@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { encryptApiKey } from '@/lib/api-key-crypto'
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }))
 vi.mock('next/server', async () => {
@@ -76,7 +77,7 @@ describe('POST /api/projects/[id]/bible/scan', () => {
     process.env.WORKER_URL = 'http://worker.test'
     mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, ownerId: USER_ID, targetLang: 'zh-Hans' })
     mockBibleFindUnique.mockResolvedValue(null)
-    mockUserFindUnique.mockResolvedValue({ apiKey: 'sk-test', apiProvider: 'deepseek', apiBaseUrl: null })
+    mockUserFindUnique.mockResolvedValue({ apiKey: encryptApiKey('sk-test', USER_ID), apiProvider: 'deepseek', apiBaseUrl: null })
     mockChapterFindMany.mockResolvedValue([
       { segments: [{ source: 'Georg wrote.' }, { source: 'Frieda spoke.' }] },
       { segments: [] },
