@@ -1,0 +1,879 @@
+{
+ "date": "2026-10-17",
+ "commit": "cae772a",
+ "model": "deepseek-chat",
+ "book": "otherlands",
+ "chapters": [
+  0,
+  1,
+  2,
+  3
+ ],
+ "scan_usage": {
+  "calls": 0,
+  "prompt_tokens": 0,
+  "completion_tokens": 0
+ },
+ "judge_usage": {
+  "calls": 24,
+  "prompt_tokens": 182176,
+  "completion_tokens": 30199
+ },
+ "configs": {
+  "A": {
+   "summary": {
+    "runs": 2,
+    "agreement": {
+     "mean": 0.29,
+     "min": 0.29,
+     "max": 0.29
+    },
+    "consistency": {
+     "mean": 0.9199999999999999,
+     "min": 0.9,
+     "max": 0.94
+    },
+    "truncation": 0.0,
+    "failed": 0.0,
+    "tokens_per_1k_chars": 441.8091239941336,
+    "seconds_per_1k_chars": 1.3408965693844137
+   },
+   "runs": [
+    {
+     "agreement": {
+      "hits": 29,
+      "total": 100,
+      "rate": 0.29,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 94,
+      "total": 100,
+      "rate": 0.94,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        10,
+        10
+       ],
+       "Ikpikpuk": [
+        2,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        11,
+        12
+       ],
+       "Lake Lonyumun": [
+        11,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 26,
+      "prompt_tokens": 31371,
+      "completion_tokens": 25530
+     },
+     "seconds": 173.3,
+     "review": null
+    },
+    {
+     "agreement": {
+      "hits": 29,
+      "total": 100,
+      "rate": 0.29,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 90,
+      "total": 100,
+      "rate": 0.9,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        6,
+        10
+       ],
+       "Ikpikpuk": [
+        2,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        11,
+        12
+       ],
+       "Lake Lonyumun": [
+        11,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 26,
+      "prompt_tokens": 31371,
+      "completion_tokens": 25599
+     },
+     "seconds": 172.3,
+     "review": null
+    }
+   ]
+  },
+  "B": {
+   "summary": {
+    "runs": 2,
+    "agreement": {
+     "mean": 0.27,
+     "min": 0.27,
+     "max": 0.27
+    },
+    "consistency": {
+     "mean": 0.97,
+     "min": 0.97,
+     "max": 0.97
+    },
+    "truncation": 0.0,
+    "failed": 0.0,
+    "tokens_per_1k_chars": 659.9686503348362,
+    "seconds_per_1k_chars": 1.3602961146590724
+   },
+   "runs": [
+    {
+     "agreement": {
+      "hits": 27,
+      "total": 100,
+      "rate": 0.27,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        0,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 97,
+      "total": 100,
+      "rate": 0.97,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        10,
+        10
+       ],
+       "Ikpikpuk": [
+        3,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        12,
+        12
+       ],
+       "Lake Lonyumun": [
+        12,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 26,
+      "prompt_tokens": 59278,
+      "completion_tokens": 25727
+     },
+     "seconds": 173.6,
+     "review": null
+    },
+    {
+     "agreement": {
+      "hits": 27,
+      "total": 100,
+      "rate": 0.27,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        0,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 97,
+      "total": 100,
+      "rate": 0.97,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        10,
+        10
+       ],
+       "Ikpikpuk": [
+        3,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        12,
+        12
+       ],
+       "Lake Lonyumun": [
+        12,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 26,
+      "prompt_tokens": 59328,
+      "completion_tokens": 25766
+     },
+     "seconds": 177.0,
+     "review": null
+    }
+   ]
+  },
+  "C": {
+   "summary": {
+    "runs": 2,
+    "agreement": {
+     "mean": 0.27,
+     "min": 0.27,
+     "max": 0.27
+    },
+    "consistency": {
+     "mean": 0.97,
+     "min": 0.97,
+     "max": 0.97
+    },
+    "truncation": 0.0,
+    "failed": 0.0,
+    "tokens_per_1k_chars": 2678.7939690693647,
+    "seconds_per_1k_chars": 2.674421311564457
+   },
+   "runs": [
+    {
+     "agreement": {
+      "hits": 27,
+      "total": 100,
+      "rate": 0.27,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        0,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 97,
+      "total": 100,
+      "rate": 0.97,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        10,
+        10
+       ],
+       "Ikpikpuk": [
+        3,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        12,
+        12
+       ],
+       "Lake Lonyumun": [
+        12,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 94,
+      "prompt_tokens": 315301,
+      "completion_tokens": 49695
+     },
+     "seconds": 358.1,
+     "review": {
+      "found": 60,
+      "fixed": 49
+     }
+    },
+    {
+     "agreement": {
+      "hits": 27,
+      "total": 100,
+      "rate": 0.27,
+      "per_term": {
+       "Gargano": [
+        18,
+        18
+       ],
+       "Kanapoi": [
+        0,
+        16
+       ],
+       "Lonyumun": [
+        0,
+        12
+       ],
+       "Lake Lonyumun": [
+        0,
+        12
+       ],
+       "North Slope": [
+        0,
+        10
+       ],
+       "Beringia": [
+        0,
+        10
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Ikpikpuk": [
+        0,
+        5
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "Brooks Range": [
+        0,
+        2
+       ],
+       "Ikpikpuk River": [
+        0,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        0,
+        2
+       ],
+       "Paratethys": [
+        0,
+        2
+       ]
+      }
+     },
+     "consistency": {
+      "hits": 97,
+      "total": 100,
+      "rate": 0.97,
+      "per_term": {
+       "Gargano": [
+        17,
+        18
+       ],
+       "Ramesseum": [
+        2,
+        2
+       ],
+       "North Slope": [
+        10,
+        10
+       ],
+       "Beringia": [
+        10,
+        10
+       ],
+       "Ikpikpuk": [
+        3,
+        5
+       ],
+       "Brooks Range": [
+        2,
+        2
+       ],
+       "Ikpikpuk River": [
+        2,
+        2
+       ],
+       "Laurentide Ice Sheet": [
+        2,
+        2
+       ],
+       "Kanapoi": [
+        16,
+        16
+       ],
+       "Lonyumun": [
+        12,
+        12
+       ],
+       "Lake Lonyumun": [
+        12,
+        12
+       ],
+       "Kerio": [
+        7,
+        7
+       ],
+       "Paratethys": [
+        2,
+        2
+       ]
+      }
+     },
+     "truncation": 0.0,
+     "failed": 0,
+     "segments": 183,
+     "source_chars": 128869,
+     "usage": {
+      "calls": 86,
+      "prompt_tokens": 279455,
+      "completion_tokens": 45976
+     },
+     "seconds": 331.2,
+     "review": {
+      "found": 41,
+      "fixed": 29
+     }
+    }
+   ]
+  }
+ }
+}
