@@ -58,6 +58,19 @@ describe('app/page.tsx — the About page is the homepage', () => {
     expect(screen.queryByText(/little prince/i)).not.toBeInTheDocument()
   })
 
+  it('shows the sample book: a screenshot, a link to read it, and where it comes from', async () => {
+    await renderPage('@/app/page', null)
+    expect(screen.getByRole('img', { name: /bilingual reader/i })).toHaveAttribute(
+      'src',
+      expect.stringContaining('/screenshots/reader.webp')
+    )
+    expect(screen.getByRole('link', { name: /read a sample/i })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/read\/[0-9a-f-]{36}#ch-\d+$/)
+    )
+    expect(screen.getByText(/Wuthering Heights/)).toHaveTextContent(/Project Gutenberg/)
+  })
+
   it('sends signed-in users straight to their library', async () => {
     await renderPage('@/app/page', 'user_abc')
     expect(redirect).toHaveBeenCalledWith('/dashboard')
