@@ -19,7 +19,7 @@ beforeEach(() => {
 describe('ReviewToggle', () => {
   it('shows the saved state', () => {
     render(<ReviewToggle projectId={PROJECT_ID} initialEnabled={false} />)
-    expect(screen.getByRole('checkbox', { name: /review pass/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /double-check translations/i })).not.toBeChecked()
   })
 
   it('saves the new state to the project', async () => {
@@ -28,10 +28,10 @@ describe('ReviewToggle', () => {
     )
     render(<ReviewToggle projectId={PROJECT_ID} initialEnabled={false} />)
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /review pass/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /double-check translations/i }))
 
     await waitFor(() =>
-      expect(screen.getByRole('checkbox', { name: /review pass/i })).toBeChecked()
+      expect(screen.getByRole('checkbox', { name: /double-check translations/i })).toBeChecked()
     )
     expect(global.fetch).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}`, {
       method: 'PATCH',
@@ -44,9 +44,9 @@ describe('ReviewToggle', () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('{}', { status: 500 }))
     render(<ReviewToggle projectId={PROJECT_ID} initialEnabled={true} />)
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /review pass/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /double-check translations/i }))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: /review pass/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /double-check translations/i })).toBeChecked()
   })
 })

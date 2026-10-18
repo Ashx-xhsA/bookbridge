@@ -41,7 +41,7 @@ export default function ReviewToggle({ projectId, initialEnabled }: Props) {
           onChange={(e) => void save(e.target.checked)}
           className="h-4 w-4 accent-accent"
         />
-        Review pass
+        Double-check translations
       </label>
       {error && (
         <p role="alert" className="text-xs text-red-600">
