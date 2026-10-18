@@ -265,8 +265,9 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
           translated PDFs. Afterwards I rebuilt most of it on my own: switched
           to EPUB and TXT, moved to paragraph-by-paragraph translation, added
           the editable name list and the whole-book scan, and wrote a small
-          evaluation to see what actually keeps names consistent. The source is
-          on{' '}
+          evaluation to see what actually keeps names consistent.
+          <br />
+          The source is on{' '}
           <a
             href="https://github.com/Ashx-xhsA/bookbridge"
             className="text-ink-light underline hover:text-ink"
