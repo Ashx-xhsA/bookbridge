@@ -131,7 +131,7 @@ export default async function ProjectPage({
       <div className="mt-4 rounded-xl border border-parchment bg-white p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold text-ink">Review pass</h2>
+            <h2 className="text-sm font-semibold text-ink">Double-check translations</h2>
             <p className="mt-1 text-xs text-ink-muted">
               After each batch, a second AI call checks for mistranslations and fixes them.
               Uses several times more tokens and takes about twice as long.
