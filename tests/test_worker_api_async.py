@@ -376,8 +376,11 @@ def _flag_second(system: str, user: str, json_mode: bool) -> str:
     return _translate_or_extract(system, user, json_mode)
 
 
+REVIEW_ON = {"review_max_retries": 1}
+
+
 def test_rows_carry_review_state_and_issues() -> None:
-    jobs, _ = _run(ScriptedClient(_flag_second))
+    jobs, _ = _run(ScriptedClient(_flag_second), config=REVIEW_ON)
     rows = jobs[-1]["segments"]
     assert rows[0] == {"index": 0, "translation": "T:Frodo ran.", "reviewed": True, "issues": []}
     assert rows[1]["reviewed"] is True
@@ -385,9 +388,16 @@ def test_rows_carry_review_state_and_issues() -> None:
 
 
 def test_progress_rows_carry_review_state_too() -> None:
-    jobs, _ = _run(ScriptedClient(_flag_second), config={"max_batch_chars": 1})
+    jobs, _ = _run(ScriptedClient(_flag_second), config={**REVIEW_ON, "max_batch_chars": 1})
     assert jobs[0]["status"] == "RUNNING"
     assert jobs[0]["segments"][0]["reviewed"] is True
+
+
+def test_review_is_off_unless_the_request_asks_for_it() -> None:
+    scripted = ScriptedClient(_flag_second)
+    jobs, _ = _run(scripted)
+    assert not any(_is_review(system) for system, _, _ in scripted.calls)
+    assert all(r["reviewed"] is False for r in jobs[-1]["segments"])
 
 
 def test_review_switch_off_sends_no_review_calls() -> None:
@@ -413,7 +423,9 @@ def test_issue_list_per_segment_is_capped() -> None:
             return json.dumps({"issues": issues})
         return _translate_or_extract(system, user, json_mode)
 
-    jobs, _ = _run(ScriptedClient(many), segments=[{"index": 0, "source": "Frodo ran."}])
+    jobs, _ = _run(
+        ScriptedClient(many), segments=[{"index": 0, "source": "Frodo ran."}], config=REVIEW_ON
+    )
     assert len(jobs[-1]["segments"][0]["issues"]) == routes.MAX_SEGMENT_ISSUES
 
 
