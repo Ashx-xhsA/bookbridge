@@ -1,23 +1,35 @@
 import Link from 'next/link'
 import Image from 'next/image'
-import { SAMPLE_CREDIT, SAMPLE_READ_URL, SCREENSHOTS } from '@/lib/showcase'
+import {
+  SAMPLE_CREDIT,
+  SAMPLE_READ_URL,
+  SCREENSHOTS,
+  type Screenshot,
+  type ShowcaseFeature,
+} from '@/lib/showcase'
 
 type Item = { title: string; text: string }
 
-const DIFFERENCES: Item[] = [
+// The first difference has no screenshot; it leads the section.
+const NOTES: Item = {
+  title: 'Your own translation notes.',
+  text: 'Tell it how you want the book translated, like the tone, the style, or what to leave as is. Optionally, let it scan the whole book first and draft notes on the plot and characters for you.',
+}
+
+// The rest each sit beside the screenshot that shows them.
+const FEATURES: (Item & { shot: ShowcaseFeature })[] = [
   {
-    title: 'Your own translation notes.',
-    text: 'Tell it how you want the book translated, like the tone, the style, or what to leave as is. Optionally, let it scan the whole book first and draft notes on the plot and characters for you.',
-  },
-  {
-    title: 'You control the names.',
-    text: 'Character and place names go into an editable list. Change a name once and every chapter follows.',
-  },
-  {
+    shot: 'reader',
     title: 'Context for every paragraph.',
     text: 'Each paragraph is translated with the names that appear in it and the few paragraphs before it, so chapter 30 still knows what chapter 1 decided.',
   },
   {
+    shot: 'names',
+    title: 'You control the names.',
+    text: 'Character and place names go into an editable list. Change a name once and every chapter follows.',
+  },
+  {
+    shot: 'book',
     title: 'Optional double-check.',
     text: 'Turn it on per book to have a second AI pass catch mistranslations and fix them. Slower and uses more tokens.',
   },
@@ -34,12 +46,20 @@ const USES: Item[] = [
   { title: 'Take it with you.', text: 'Export a bilingual EPUB, or share a reading link.' },
 ]
 
+function ItemText({ item }: { item: Item }) {
+  return (
+    <p className="leading-relaxed text-ink-light">
+      <span className="font-semibold text-ink">{item.title}</span> {item.text}
+    </p>
+  )
+}
+
 function ItemList({ items }: { items: Item[] }) {
   return (
     <ul className="mt-4 space-y-3">
       {items.map((item) => (
-        <li key={item.title} className="leading-relaxed text-ink-light">
-          <span className="font-semibold text-ink">{item.title}</span> {item.text}
+        <li key={item.title}>
+          <ItemText item={item} />
         </li>
       ))}
     </ul>
@@ -48,19 +68,72 @@ function ItemList({ items }: { items: Item[] }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-12">
+    <section className="mt-16 max-w-3xl">
       <h2 className="font-serif text-2xl font-bold text-ink">{title}</h2>
       {children}
     </section>
   )
 }
 
+// A screenshot in a browser-window frame, so it reads as the app.
+function Framed({ shot }: { shot: Screenshot }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-parchment bg-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.18)]">
+      <div className="flex items-center gap-1.5 border-b border-parchment bg-paper px-4 py-2.5" aria-hidden="true">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+      </div>
+      <Image
+        src={shot.src}
+        alt={shot.alt}
+        width={shot.width}
+        height={shot.height}
+        unoptimized
+        className="block h-auto w-full"
+      />
+    </div>
+  )
+}
+
+// One feature per row: the screenshot takes two thirds, the text one third,
+// and the sides swap every row. On narrow screens the screenshot comes first.
+function FeatureRows() {
+  return (
+    <div className="mt-10 space-y-16">
+      {FEATURES.map((feature, i) => {
+        const shot = SCREENSHOTS[feature.shot]
+        if (!shot) {
+          return (
+            <div key={feature.title} className="max-w-3xl">
+              <ItemText item={feature} />
+            </div>
+          )
+        }
+        const flip = i % 2 === 1
+        return (
+          <div key={feature.title} className="grid items-center gap-8 lg:grid-cols-3">
+            <div className={`lg:col-span-2 ${flip ? 'lg:order-2' : ''}`}>
+              <Framed shot={shot} />
+            </div>
+            <div className={flip ? 'lg:order-1' : ''}>
+              <h3 className="font-serif text-xl font-bold text-ink">{feature.title}</h3>
+              <p className="mt-3 leading-relaxed text-ink-light">{feature.text}</p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // The About text. It is the homepage for signed-out visitors and /about for everyone.
 export default function AboutContent({ signedIn }: { signedIn: boolean }) {
+  const hasShots = FEATURES.some((f) => SCREENSHOTS[f.shot])
   return (
-    <article className="mx-auto max-w-3xl px-6 py-16">
+    <article className="mx-auto max-w-6xl px-6 py-16">
       <h1 className="font-serif text-5xl font-bold text-ink">BookBridge</h1>
-      <p className="mt-5 text-lg leading-relaxed text-ink-light">
+      <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-light">
         BookBridge translates EPUB and TXT books with an AI model of your choice. It&rsquo;s built
         for long stories, where pasting chapters into a chatbot falls apart.
       </p>
@@ -98,36 +171,14 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
         )}
       </div>
 
-      {SCREENSHOTS.length > 0 && (
-        <div className="mt-12 space-y-12">
-          {SCREENSHOTS.map((shot) => (
-            <figure key={shot.src}>
-              {/* A browser-window frame, so the screenshot reads as the app. */}
-              <div className="overflow-hidden rounded-xl border border-parchment bg-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.18)]">
-                <div className="flex items-center gap-1.5 border-b border-parchment bg-paper px-4 py-2.5" aria-hidden="true">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-                </div>
-                <Image
-                  src={shot.src}
-                  alt={shot.alt}
-                  width={shot.width}
-                  height={shot.height}
-                  unoptimized
-                  className="block h-auto w-full"
-                />
-              </div>
-              <figcaption className="mt-3 text-center text-sm text-ink-muted">{shot.caption}</figcaption>
-            </figure>
-          ))}
-          <p className="text-center text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
+      <section className="mt-16">
+        <h2 className="font-serif text-2xl font-bold text-ink">What it does differently</h2>
+        <div className="mt-4 max-w-3xl">
+          <ItemText item={NOTES} />
         </div>
-      )}
-
-      <Section title="What it does differently">
-        <ItemList items={DIFFERENCES} />
-      </Section>
+        <FeatureRows />
+        {hasShots && <p className="mt-10 text-xs text-ink-muted">{SAMPLE_CREDIT}</p>}
+      </section>
 
       <Section title="Some ways to use it">
         <ItemList items={USES} />
