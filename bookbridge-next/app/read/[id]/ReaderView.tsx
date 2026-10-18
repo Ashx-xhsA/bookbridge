@@ -7,7 +7,6 @@ import { pollJob } from '@/lib/jobPoll'
 import {
   SEARCH_QUERY_MIN,
   chapterUrl,
-  makeSnippet,
   searchUrl,
   type ChapterSource,
   type ReaderChapter,
@@ -45,23 +44,6 @@ function readSavedMode(): ViewMode {
 
 function anchorId(key: string, index: number) {
   return `seg-${key}-${index}`
-}
-
-// Search the demo's in-memory rows (no server behind the static demo).
-function localSearch(
-  chapters: ReaderChapter[],
-  rows: Record<string, ReaderRow[]>,
-  query: string
-): SearchHit[] {
-  const q = query.toLowerCase()
-  return chapters.flatMap((ch) =>
-    (rows[ch.key] ?? []).flatMap((r) => {
-      const text = [r.source, r.translation ?? ''].find((t) => t.toLowerCase().includes(q))
-      return text === undefined
-        ? []
-        : [{ chapterId: ch.key, chapterNumber: ch.number, chapterTitle: ch.title, index: r.index, snippet: makeSnippet(text, query) }]
-    })
-  )
 }
 
 export default function ReaderView({
@@ -156,10 +138,6 @@ export default function ReaderView({
     e.preventDefault()
     const q = query.trim()
     if (q.length < SEARCH_QUERY_MIN) return
-    if (source.kind === 'static') {
-      setHits(localSearch(chapters, rows, q))
-      return
-    }
     const url = searchUrl(source, q)
     if (!url) return
     setSearching(true)

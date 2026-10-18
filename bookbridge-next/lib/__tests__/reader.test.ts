@@ -5,7 +5,6 @@ import {
   makeSnippet,
   publicRows,
   searchUrl,
-  textToRows,
   toAlignedRows,
 } from '@/lib/reader'
 
@@ -99,22 +98,6 @@ describe('chapterUrl / searchUrl', () => {
     const src = { kind: 'public', token: 'tok' } as const
     expect(chapterUrl(src, 'c1')).toBe('/api/read/tok/chunks/c1')
     expect(searchUrl(src, 'a&b')).toBe('/api/read/tok/search?q=a%26b')
-  })
-
-  it('has no URLs for the static demo', () => {
-    const src = { kind: 'static' } as const
-    expect(chapterUrl(src, 'c1')).toBeNull()
-    expect(searchUrl(src, 'x')).toBeNull()
-  })
-})
-
-describe('textToRows', () => {
-  it('pairs paragraphs by position and pads a shorter translation with null', () => {
-    expect(textToRows('A.\n\nB.\n\nC.', '甲\n\n乙')).toEqual([
-      { index: 0, source: 'A.', translation: '甲' },
-      { index: 1, source: 'B.', translation: '乙' },
-      { index: 2, source: 'C.', translation: null },
-    ])
   })
 })
 
