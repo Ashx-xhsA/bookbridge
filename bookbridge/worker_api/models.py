@@ -60,12 +60,16 @@ class ContextSegmentInput(BaseModel):
 
 
 class TranslationConfigInput(BaseModel):
-    """Ablation switches (see harness.config.TranslationConfig); defaults = all on."""
+    """Ablation switches (see harness.config.TranslationConfig).
+
+    Everything is on except review: the Phase 6 eval found it costs ~4x the
+    tokens with no gain in name consistency, so callers opt in.
+    """
 
     glossary_mode: Literal["full", "matched"] = "matched"
     context_window: int = Field(3, ge=0, le=MAX_CONTEXT_WINDOW)
     book_bible: StrictBool = True
-    review_max_retries: int = Field(1, ge=0, le=MAX_REVIEW_RETRIES)
+    review_max_retries: int = Field(0, ge=0, le=MAX_REVIEW_RETRIES)
     max_batch_chars: int = Field(6000, ge=1, le=50_000)
 
 

@@ -29,24 +29,26 @@ enum Role {
 }
 
 model Project {
-  id          String           @id @default(cuid())
-  title       String
-  sourceFile  String
-  sourceLang  String           @default("en")
-  targetLang  String           @default("zh-Hans")
-  status      ProjectStatus    @default(DRAFT)
-  isPublic    Boolean          @default(false)
-  publicToken String?          @unique
+  id            String           @id @default(cuid())
+  title         String
+  sourceFile    String
+  sourceLang    String           @default("en")
+  targetLang    String           @default("zh-Hans")
+  status        ProjectStatus    @default(DRAFT)
+  isPublic      Boolean          @default(false)
+  publicToken   String?          @unique
+  // Opt-in review pass after each translated batch (costly; see Phase 6 eval).
+  reviewEnabled Boolean          @default(false)
   // Characters of source text, recorded at upload; sizes the bible-scan estimate.
-  sourceChars Int              @default(0)
-  ownerId     String
-  owner       User             @relation(fields: [ownerId], references: [clerkId])
-  chapters    Chapter[]
-  jobs        TranslationJob[]
-  glossary    GlossaryTerm[]
-  bible       BookBible?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  sourceChars   Int              @default(0)
+  ownerId       String
+  owner         User             @relation(fields: [ownerId], references: [clerkId])
+  chapters      Chapter[]
+  jobs          TranslationJob[]
+  glossary      GlossaryTerm[]
+  bible         BookBible?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 }
 
 enum ProjectStatus {

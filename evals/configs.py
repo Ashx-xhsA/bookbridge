@@ -4,7 +4,7 @@ A  plain paragraph translation: no glossary, no context window, no overview,
    no review — what a model does on its own.
 B  A + the scanned glossary (only terms that occur in each batch) + the
    preceding three paragraphs.
-C  B + the book overview + one round of review (the production defaults).
+C  B + the book overview + one round of review (review is opt-in per project).
 """
 
 from __future__ import annotations

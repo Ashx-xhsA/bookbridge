@@ -6,6 +6,7 @@ import { CHAPTER_PROGRESS, isChapterDone } from '@/lib/segments'
 import { BookOpen, ArrowLeft, Sparkles } from 'lucide-react'
 import DeleteProjectButton from './DeleteProjectButton'
 import PublishToggle from './PublishToggle'
+import ReviewToggle from './ReviewToggle'
 import ChapterExplorer from './ChapterExplorer'
 import BibleNudge from './BibleNudge'
 
@@ -30,6 +31,7 @@ export default async function ProjectPage({
       ownerId: true,
       isPublic: true,
       publicToken: true,
+      reviewEnabled: true,
       chapters: {
         orderBy: { number: 'asc' },
         select: { id: true, number: true, title: true, summary: true, ...CHAPTER_PROGRESS },
@@ -123,6 +125,19 @@ export default async function ProjectPage({
             initialIsPublic={project.isPublic}
             initialPublicToken={project.publicToken}
           />
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-parchment bg-white p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Review pass</h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              After each batch, a second AI call checks for mistranslations and fixes them.
+              Uses several times more tokens and takes about twice as long.
+            </p>
+          </div>
+          <ReviewToggle projectId={project.id} initialEnabled={project.reviewEnabled} />
         </div>
       </div>
 

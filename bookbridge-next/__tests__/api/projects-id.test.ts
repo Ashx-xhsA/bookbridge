@@ -264,6 +264,34 @@ describe('PATCH /api/projects/[id]', () => {
     expect(body.data.id).toBe(PROJECT_ID)
   })
 
+  it('saves the review switch when the owner toggles it', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    mockProjectUpdate.mockResolvedValueOnce({ ...fakeProject, reviewEnabled: true })
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { reviewEnabled: true }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(200)
+    expect(mockProjectUpdate).toHaveBeenCalledWith({
+      where: { id: PROJECT_ID },
+      data: { reviewEnabled: true },
+    })
+  })
+
+  it('rejects a review switch that is not a boolean', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce(fakeProjectSlim)
+    const { PATCH } = await import('@/app/api/projects/[id]/route')
+    const res = await PATCH(
+      makePatchRequest(PROJECT_ID, { reviewEnabled: 'yes' }),
+      makeParams(PROJECT_ID),
+    )
+    expect(res.status).toBe(400)
+    expect(mockProjectUpdate).not.toHaveBeenCalled()
+  })
+
   // Happy path — isPublic toggle
   it('returns updated project when owner toggles isPublic to true', async () => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: OWNER_ID } as AuthReturn)
