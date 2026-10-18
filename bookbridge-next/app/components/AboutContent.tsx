@@ -202,7 +202,7 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
         </div>
 
         {/* Ways to use it fill the space beside the intro on wide screens. */}
-        <section className="rounded-xl border border-parchment bg-paper px-6 py-5">
+        <section className="rounded-xl border border-parchment bg-paper px-6 py-5 lg:mt-8">
           <h2 className="font-serif text-xl font-bold text-ink">
             Some ways to use it
           </h2>
