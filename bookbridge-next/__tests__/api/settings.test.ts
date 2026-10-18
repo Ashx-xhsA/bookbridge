@@ -20,9 +20,10 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 const mockLookup = vi.fn()
-vi.mock('node:dns/promises', () => ({
-  lookup: (...args: unknown[]) => mockLookup(...args),
-}))
+vi.mock('node:dns/promises', () => {
+  const lookup = (...args: unknown[]) => mockLookup(...args)
+  return { lookup, default: { lookup } }
+})
 
 import { auth } from '@clerk/nextjs/server'
 import { decryptApiKey } from '@/lib/api-key-crypto'

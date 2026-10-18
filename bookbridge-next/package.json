@@ -11,7 +11,8 @@
     "format:check": "prettier --check \"app/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\"",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "encrypt-api-keys": "tsx scripts/encrypt-api-keys.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.17",
@@ -42,6 +43,7 @@
     "prettier": "^3.8.3",
     "prisma": "^7.10.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^4.1.12"
   }

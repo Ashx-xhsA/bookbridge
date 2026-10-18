@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Settings, Key, Save, Loader2, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Settings, Key, Save, Loader2, AlertTriangle, CheckCircle, Lock } from 'lucide-react'
 
 interface SettingsData {
   apiProvider: string | null
@@ -50,7 +50,11 @@ export default function SettingsPage() {
         body: JSON.stringify(body),
       })
 
-      if (!res.ok) throw new Error('Failed to save')
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.error || 'Failed to save settings. Please try again.')
+        return
+      }
 
       const data: SettingsData = await res.json()
       setHasExistingKey(data.hasApiKey)
@@ -119,9 +123,14 @@ export default function SettingsPage() {
           <Key className="h-5 w-5 text-ink-muted" />
           <h2 className="text-sm font-semibold text-ink">API Key Configuration</h2>
         </div>
-        <p className="mt-1 text-xs text-ink-muted">
-          Your key is stored securely and only used for your own translation requests.
-        </p>
+        <div className="mt-3 flex items-start gap-2 rounded-lg bg-parchment/40 p-3">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+          <p className="text-xs text-ink-muted">
+            Your key is encrypted with AES-256-GCM before it is stored. It is decrypted only
+            on our server when you run a translation, is never sent back to your browser, and
+            is only used for your own requests.
+          </p>
+        </div>
 
         <div className="mt-5 space-y-4">
           <div>
@@ -154,6 +163,10 @@ export default function SettingsPage() {
                 placeholder="https://api.example.com/v1"
                 className="mt-1 w-full rounded-lg border border-parchment px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
+              <p className="mt-1 text-xs text-ink-muted">
+                Must be a public https:// address. Private and internal network addresses
+                are not allowed.
+              </p>
             </div>
           )}
 

@@ -101,8 +101,9 @@ describe('isAllowedBaseUrl', () => {
   it('allows http://localhost outside production without a DNS lookup', async () => {
     const lookup = vi.fn()
     expect(await isAllowedBaseUrl('http://localhost:11434/v1', { production: false, lookup })).toBe(true)
-    expect(await isAllowedBaseUrl('http://127.0.0.1:11434/v1', { production: false, lookup })).toBe(true)
     expect(lookup).not.toHaveBeenCalled()
+    // Only the name `localhost` is exempt, not loopback IPs.
+    expect(await isAllowedBaseUrl('http://127.0.0.1:11434/v1', { production: false, lookup })).toBe(false)
   })
 
   it('rejects http://localhost in production', async () => {

@@ -36,8 +36,14 @@ describe('api key encryption', () => {
 
   it('detects tampering', () => {
     const stored = encryptApiKey('sk-live-abc123', 'user_1')
-    const last = stored.at(-1) === 'A' ? 'B' : 'A'
-    expect(() => decryptApiKey(stored.slice(0, -1) + last, 'user_1')).toThrow()
+    const [iv, tag, ct] = stored.slice('enc:v1:'.length).split('.')
+    const bytes = Buffer.from(ct, 'base64url')
+    bytes[0] ^= 1
+    const tampered = `enc:v1:${iv}.${tag}.${bytes.toString('base64url')}`
+    expect(() => decryptApiKey(tampered, 'user_1')).toThrow()
+    // A truncated tag is rejected rather than accepted as a weaker check.
+    const short = Buffer.from(tag, 'base64url').subarray(0, 4).toString('base64url')
+    expect(() => decryptApiKey(`enc:v1:${iv}.${short}.${ct}`, 'user_1')).toThrow()
   })
 
   it('rejects a legacy plaintext value instead of passing it through', () => {
