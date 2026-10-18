@@ -181,12 +181,26 @@ describe('POST /api/internal/worker-callback/bible', () => {
   })
 
   it('keeps a style guide the user edited', async () => {
-    mockBibleFindUnique.mockResolvedValueOnce({ jobId: JOB_ID, styleGuideEdited: true })
+    mockBibleFindUnique.mockResolvedValueOnce({
+      jobId: JOB_ID, styleGuideEdited: true, status: 'DRAFT', styleGuide: '- 我的写法',
+    })
     const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
     await POST(req(OK))
     expect(mockBibleUpdate).toHaveBeenCalledWith({
       where: { projectId: PROJECT_ID },
       data: { status: 'DRAFT', scanStatus: 'IDLE' },
+    })
+  })
+
+  it('adds the first scan overview below notes written before scanning', async () => {
+    mockBibleFindUnique.mockResolvedValueOnce({
+      jobId: JOB_ID, styleGuideEdited: true, status: 'NONE', styleGuide: '- 保留敬称\n',
+    })
+    const { POST } = await import('@/app/api/internal/worker-callback/bible/route')
+    await POST(req(OK))
+    expect(mockBibleUpdate).toHaveBeenCalledWith({
+      where: { projectId: PROJECT_ID },
+      data: { status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 保留敬称\n\n- 简洁克制' },
     })
   })
 

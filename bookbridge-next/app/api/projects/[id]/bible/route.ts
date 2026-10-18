@@ -56,6 +56,22 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(raw)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
+  const { styleGuide, status } = parsed.data
+  const select = { status: true, styleGuide: true } as const
+
+  // Notes alone can be written before any scan; this creates the bible row.
+  if (status === undefined && styleGuide !== undefined) {
+    const notes = { styleGuide, styleGuideEdited: true }
+    const bible = await prisma.bookBible.upsert({
+      where: { projectId },
+      create: { projectId, ...notes },
+      update: notes,
+      select,
+    })
+    return NextResponse.json({ bible })
+  }
+
+  // Confirming or reopening needs a scanned draft.
   const current = await prisma.bookBible.findUnique({
     where: { projectId },
     select: { status: true },
@@ -65,14 +81,13 @@ export async function PATCH(
     return NextResponse.json({ error: 'Bible is not ready for review' }, { status: 409 })
   }
 
-  const { styleGuide, status } = parsed.data
   const bible = await prisma.bookBible.update({
     where: { projectId },
     data: {
       ...(styleGuide !== undefined ? { styleGuide, styleGuideEdited: true } : {}),
       ...(status ? { status } : {}),
     },
-    select: { status: true, styleGuide: true },
+    select,
   })
   return NextResponse.json({ bible })
 }

@@ -12,6 +12,7 @@ vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }))
 const mockProjectFindUnique = vi.fn()
 const mockBibleFindUnique = vi.fn()
 const mockBibleUpdate = vi.fn()
+const mockBibleUpsert = vi.fn()
 const mockTermFindUnique = vi.fn()
 const mockTermUpdate = vi.fn()
 const mockTermCreate = vi.fn()
@@ -23,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
     bookBible: {
       findUnique: (...a: unknown[]) => mockBibleFindUnique(...a),
       update: (...a: unknown[]) => mockBibleUpdate(...a),
+      upsert: (...a: unknown[]) => mockBibleUpsert(...a),
     },
     glossaryTerm: {
       findUnique: (...a: unknown[]) => mockTermFindUnique(...a),
@@ -113,6 +115,21 @@ describe('PATCH /api/projects/[id]/bible', () => {
     mockBibleFindUnique.mockResolvedValueOnce({ status: 'NONE' })
     const { PATCH } = await import('@/app/api/projects/[id]/bible/route')
     expect((await PATCH(json('PATCH', { status: 'CONFIRMED' }), bibleParams)).status).toBe(409)
+  })
+
+  it('saves translation notes before any scan, creating the bible', async () => {
+    signedIn()
+    mockBibleUpsert.mockResolvedValueOnce({ status: 'NONE', styleGuide: '- 保留敬称' })
+    const { PATCH } = await import('@/app/api/projects/[id]/bible/route')
+    const res = await PATCH(json('PATCH', { styleGuide: '- 保留敬称' }), bibleParams)
+    expect(res.status).toBe(200)
+    expect(mockBibleUpsert).toHaveBeenCalledWith({
+      where: { projectId: PROJECT_ID },
+      create: { projectId: PROJECT_ID, styleGuide: '- 保留敬称', styleGuideEdited: true },
+      update: { styleGuide: '- 保留敬称', styleGuideEdited: true },
+      select: { status: true, styleGuide: true },
+    })
+    expect((await res.json()).bible.styleGuide).toBe('- 保留敬称')
   })
 
   it('can confirm while a re-scan is running', async () => {

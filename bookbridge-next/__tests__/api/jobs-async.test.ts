@@ -598,6 +598,25 @@ describe('POST /api/jobs — async conversion (issue #61)', () => {
     expect(body.config).toEqual({ review_max_retries: retries })
   })
 
+  it('sends translation notes written without a scan', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
+    mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
+    mockChapterFindUnique.mockResolvedValueOnce({
+      id: CHAPTER_ID,
+      segments: [{ index: 0, source: SOURCE_TEXT }],
+      projectId: PROJECT_ID,
+      number: 1,
+    })
+    mockBibleFindUnique.mockResolvedValueOnce({ status: 'NONE', scanStatus: 'IDLE', styleGuide: '- 保留敬称' })
+    mockJobCreate.mockResolvedValueOnce({ id: JOB_ID, status: 'PENDING' })
+    mockGlobalFetch.mockResolvedValueOnce(new Response('{}', { status: 202 }))
+
+    const { POST } = await import('@/app/api/jobs/route')
+    await POST(makeRequest({ projectId: PROJECT_ID, chapterId: CHAPTER_ID }))
+    const body = JSON.parse((mockGlobalFetch.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body.bible).toEqual({ style_guide: '- 保留敬称' })
+  })
+
   it.each([500, 422])('marks the job FAILED when the Worker responds %i', async (code) => {
     vi.mocked(auth).mockResolvedValueOnce({ userId: USER_ID } as AuthReturn)
     mockProjectFindUnique.mockResolvedValueOnce({ id: PROJECT_ID, ownerId: USER_ID, targetLang: TARGET_LANG })
