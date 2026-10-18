@@ -14,6 +14,7 @@ const patchSchema = z
     name: z.string().min(1).optional(),
     targetLanguage: z.string().min(1).optional(),
     isPublic: z.boolean().optional(),
+    reviewEnabled: z.boolean().optional(),
   })
   .strict()
 
@@ -91,6 +92,7 @@ export async function PATCH(
   const data: Prisma.ProjectUpdateInput = {}
   if (parsed.data.name !== undefined) data.title = parsed.data.name
   if (parsed.data.targetLanguage !== undefined) data.targetLang = parsed.data.targetLanguage
+  if (parsed.data.reviewEnabled !== undefined) data.reviewEnabled = parsed.data.reviewEnabled
   if (parsed.data.isPublic !== undefined) {
     // Rotate the token on every publish so previously-shared links are invalidated.
     data.isPublic = parsed.data.isPublic

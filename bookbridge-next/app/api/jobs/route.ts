@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true, ownerId: true, targetLang: true },
+    select: { id: true, ownerId: true, targetLang: true, reviewEnabled: true },
   })
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
@@ -173,6 +173,7 @@ export async function POST(req: NextRequest) {
           target_lang: project.targetLang,
           project_id: projectId,
           llm: llmCreds,
+          config: { review_max_retries: project.reviewEnabled ? 1 : 0 },
           ...(glossary.length > 0 ? { glossary } : {}),
           ...(bible ? { bible } : {}),
         }),
