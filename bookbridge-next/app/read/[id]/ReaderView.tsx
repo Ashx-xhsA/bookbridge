@@ -72,7 +72,6 @@ export default function ReaderView({
   chapters,
   initialRows,
   source,
-  isDemo,
 }: {
   title: string
   subtitle?: string
@@ -81,7 +80,6 @@ export default function ReaderView({
   chapters: ReaderChapter[]
   initialRows: Record<string, ReaderRow[]>
   source: ChapterSource
-  isDemo?: boolean
 }) {
   const [mode, setMode] = useState<ViewMode>(readSavedMode)
   const [rows, setRows] = useState<Record<string, ReaderRow[]>>(initialRows)
@@ -273,14 +271,6 @@ export default function ReaderView({
                 </button>
               ))}
             </div>
-            {isDemo && (
-              <Link
-                href="/sign-up"
-                className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent-hover"
-              >
-                Sign Up
-              </Link>
-            )}
           </div>
         </div>
         {searchOpen && (searching || hits) && (

@@ -28,6 +28,12 @@ export default function Navbar() {
           >
             Settings
           </Link>
+          <Link
+            href="/about"
+            className="text-sm font-medium text-ink-light hover:text-ink"
+          >
+            About
+          </Link>
           <UserButton />
         </div>
       </div>

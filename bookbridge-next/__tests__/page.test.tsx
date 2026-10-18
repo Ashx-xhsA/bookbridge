@@ -75,7 +75,7 @@ describe('app/about/page.tsx — About stays reachable when signed in', () => {
 
     expect(redirect).not.toHaveBeenCalled()
     expect(screen.getByRole('heading', { name: /what it does differently/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /my library/i })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByRole('link', { name: /^my library$/i })).toHaveAttribute('href', '/dashboard')
     expect(screen.getByTestId('user-button')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument()
   })
