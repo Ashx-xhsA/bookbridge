@@ -19,4 +19,18 @@ export const SCREENSHOTS: Screenshot[] = [
     width: 1600,
     height: 938,
   },
+  {
+    src: '/screenshots/glossary.webp',
+    alt: 'The glossary listing character and place names with their Chinese translations',
+    caption: 'The name list, filled in while translating. Catherine and Cathy each keep one fixed translation.',
+    width: 1600,
+    height: 997,
+  },
+  {
+    src: '/screenshots/project.webp',
+    alt: 'A book page with its public reading link and the double-check switch',
+    caption: 'Each book gets a shareable reading link and an optional double-check.',
+    width: 1600,
+    height: 490,
+  },
 ]
