@@ -36,14 +36,26 @@ const FEATURES: (Item & { shot: ShowcaseFeature })[] = [
 ]
 
 const USES: Item[] = [
-  { title: 'Untranslated web novels.', text: 'Read the ones nobody has translated yet.' },
+  {
+    title: 'Untranslated web novels.',
+    text: 'Read the ones nobody has translated yet.',
+  },
   {
     title: 'Language practice.',
     text: 'Read something you actually like, original and translation side by side.',
   },
-  { title: 'Just a few chapters.', text: 'No need to translate the whole book.' },
-  { title: 'AO3 fics.', text: 'Download a fic as EPUB from AO3 and upload it here.' },
-  { title: 'Take it with you.', text: 'Export a bilingual EPUB, or share a reading link.' },
+  {
+    title: 'Just a few chapters.',
+    text: 'No need to translate the whole book.',
+  },
+  {
+    title: 'AO3 fics.',
+    text: 'Download a fic as EPUB from AO3 and upload it here.',
+  },
+  {
+    title: 'Take it with you.',
+    text: 'Export a bilingual EPUB, or share a reading link.',
+  },
 ]
 
 function ItemText({ item }: { item: Item }) {
@@ -54,19 +66,13 @@ function ItemText({ item }: { item: Item }) {
   )
 }
 
-function ItemList({ items }: { items: Item[] }) {
-  return (
-    <ul className="mt-4 space-y-3">
-      {items.map((item) => (
-        <li key={item.title}>
-          <ItemText item={item} />
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
   return (
     <section className="mt-16 max-w-3xl">
       <h2 className="font-serif text-2xl font-bold text-ink">{title}</h2>
@@ -79,7 +85,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Framed({ shot }: { shot: Screenshot }) {
   return (
     <div className="overflow-hidden rounded-xl border border-parchment bg-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.18)]">
-      <div className="flex items-center gap-1.5 border-b border-parchment bg-paper px-4 py-2.5" aria-hidden="true">
+      <div
+        className="flex items-center gap-1.5 border-b border-parchment bg-paper px-4 py-2.5"
+        aria-hidden="true"
+      >
         <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
@@ -112,13 +121,20 @@ function FeatureRows() {
         }
         const flip = i % 2 === 1
         return (
-          <div key={feature.title} className="grid items-center gap-8 lg:grid-cols-3">
+          <div
+            key={feature.title}
+            className="grid items-center gap-8 lg:grid-cols-3"
+          >
             <div className={`lg:col-span-2 ${flip ? 'lg:order-2' : ''}`}>
               <Framed shot={shot} />
             </div>
             <div className={flip ? 'lg:order-1' : ''}>
-              <h3 className="font-serif text-xl font-bold text-ink">{feature.title}</h3>
-              <p className="mt-3 leading-relaxed text-ink-light">{feature.text}</p>
+              <h3 className="font-serif text-xl font-bold text-ink">
+                {feature.title}
+              </h3>
+              <p className="mt-3 leading-relaxed text-ink-light">
+                {feature.text}
+              </p>
             </div>
           </div>
         )
@@ -132,63 +148,85 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
   const hasShots = FEATURES.some((f) => SCREENSHOTS[f.shot])
   return (
     <article className="mx-auto max-w-6xl px-6 py-16">
-      <h1 className="font-serif text-5xl font-bold text-ink">BookBridge</h1>
-      <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-light">
-        BookBridge translates EPUB and TXT books with an AI model of your choice. It&rsquo;s built
-        for long stories, where pasting chapters into a chatbot falls apart.
-      </p>
-      <div className="mt-8 flex flex-wrap gap-3">
-        {signedIn ? (
-          <Link
-            href="/dashboard"
-            className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white hover:bg-accent-hover"
-          >
-            Go to my library
-          </Link>
-        ) : (
-          <>
-            <Link
-              href="/sign-up"
-              className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white hover:bg-accent-hover"
-            >
-              Get started
-            </Link>
-            <Link
-              href="/sign-in"
-              className="rounded-lg border border-spine/30 bg-white px-6 py-3 text-sm font-semibold text-ink hover:bg-paper"
-            >
-              Sign in
-            </Link>
-          </>
-        )}
-        {SAMPLE_READ_URL && (
-          <Link
-            href={SAMPLE_READ_URL}
-            className="rounded-lg border border-spine/30 bg-white px-6 py-3 text-sm font-semibold text-ink hover:bg-paper"
-          >
-            Read a sample
-          </Link>
-        )}
+      <div className="grid items-start gap-10 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <h1 className="font-serif text-5xl font-bold text-ink">BookBridge</h1>
+          <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-light">
+            BookBridge translates EPUB and TXT books with an AI model of your
+            choice. It&rsquo;s built for long stories, where pasting chapters
+            into a chatbot falls apart.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            {signedIn ? (
+              <Link
+                href="/dashboard"
+                className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white hover:bg-accent-hover"
+              >
+                Go to my library
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/sign-up"
+                  className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white hover:bg-accent-hover"
+                >
+                  Get started
+                </Link>
+                <Link
+                  href="/sign-in"
+                  className="rounded-lg border border-spine/30 bg-white px-6 py-3 text-sm font-semibold text-ink hover:bg-paper"
+                >
+                  Sign in
+                </Link>
+              </>
+            )}
+            {SAMPLE_READ_URL && (
+              <Link
+                href={SAMPLE_READ_URL}
+                className="rounded-lg border border-spine/30 bg-white px-6 py-3 text-sm font-semibold text-ink hover:bg-paper"
+              >
+                Read a sample
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {/* Ways to use it fill the space beside the intro on wide screens. */}
+        <section className="rounded-xl border border-parchment bg-paper p-6 lg:col-span-2">
+          <h2 className="font-serif text-xl font-bold text-ink">
+            Some ways to use it
+          </h2>
+          <ul className="mt-4 space-y-3 text-sm">
+            {USES.map((item) => (
+              <li key={item.title}>
+                <ItemText item={item} />
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
 
       <section className="mt-16">
-        <h2 className="font-serif text-2xl font-bold text-ink">What it does differently</h2>
+        <h2 className="font-serif text-2xl font-bold text-ink">
+          What it does differently
+        </h2>
         <div className="mt-4 max-w-3xl">
           <ItemText item={NOTES} />
         </div>
         <FeatureRows />
-        {hasShots && <p className="mt-10 text-xs text-ink-muted">{SAMPLE_CREDIT}</p>}
+        {hasShots && (
+          <p className="mt-10 text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
+        )}
       </section>
-
-      <Section title="Some ways to use it">
-        <ItemList items={USES} />
-      </Section>
 
       <Section title="Before you start">
         <p className="mt-4 leading-relaxed text-ink-light">
-          You&rsquo;ll need your own API key (OpenAI, DeepSeek, or any OpenAI-compatible provider).
-          Add it in{' '}
-          <Link href="/dashboard/settings" className="font-medium text-accent underline">
+          You&rsquo;ll need your own API key (OpenAI, DeepSeek, or any
+          OpenAI-compatible provider). Add it in{' '}
+          <Link
+            href="/dashboard/settings"
+            className="font-medium text-accent underline"
+          >
             Settings
           </Link>
           . Translation costs are billed by your provider, not by us.
@@ -199,19 +237,20 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
         <ul className="mt-4 list-disc space-y-2 pl-5 leading-relaxed text-ink-light">
           <li>It&rsquo;s machine translation, so it won&rsquo;t be perfect.</li>
           <li>
-            Translations are for personal reading. If you want to share a translation of
-            someone&rsquo;s fic, ask the author first.
+            Translations are for personal reading. If you want to share a
+            translation of someone&rsquo;s fic, ask the author first.
           </li>
         </ul>
       </Section>
 
       <Section title="Background">
         <p className="mt-4 leading-relaxed text-ink-light">
-          BookBridge started as a team project in a vibe coding course, where it translated PDFs.
-          Afterwards I rebuilt most of it on my own: switched to EPUB and TXT, moved to
-          paragraph-by-paragraph translation, added the editable name list and the whole-book
-          scan, and wrote a small evaluation to see what actually keeps names consistent. The
-          source is on{' '}
+          BookBridge started as a team project in a vibe coding course, where it
+          translated PDFs. Afterwards I rebuilt most of it on my own: switched
+          to EPUB and TXT, moved to paragraph-by-paragraph translation, added
+          the editable name list and the whole-book scan, and wrote a small
+          evaluation to see what actually keeps names consistent. The source is
+          on{' '}
           <a
             href="https://github.com/Ashx-xhsA/bookbridge"
             className="font-medium text-accent underline"
