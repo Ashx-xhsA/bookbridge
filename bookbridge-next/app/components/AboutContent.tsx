@@ -69,12 +69,14 @@ function ItemText({ item }: { item: Item }) {
 function Section({
   title,
   children,
+  className = 'mt-16 max-w-3xl',
 }: {
   title: string
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <section className="mt-16 max-w-3xl">
+    <section className={className}>
       <h2 className="font-serif text-2xl font-bold text-ink">{title}</h2>
       {children}
     </section>
@@ -217,34 +219,43 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
 
       <section>
         <FeatureRows />
+        {/* Same grid as the rows, so the line stays within the screenshot's width. */}
         {hasShots && (
-          <p className="mt-10 text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
+          <div className="mt-10 grid gap-8 lg:grid-cols-3">
+            <p className="text-xs text-ink-muted lg:col-span-2">
+              {SAMPLE_CREDIT}
+            </p>
+          </div>
         )}
       </section>
 
-      <Section title="Before you start">
-        <p className="mt-4 leading-relaxed text-ink-light">
-          You&rsquo;ll need your own API key (OpenAI, DeepSeek, or any
-          OpenAI-compatible provider). Add it in{' '}
-          <Link
-            href="/dashboard/settings"
-            className="font-medium text-accent underline"
-          >
-            Settings
-          </Link>
-          . Translation costs are billed by your provider, not by us.
-        </p>
-      </Section>
+      <div className="mt-16 grid gap-12 lg:grid-cols-2">
+        <Section title="Before you start" className="">
+          <p className="mt-4 leading-relaxed text-ink-light">
+            You&rsquo;ll need your own API key (OpenAI, DeepSeek, or any
+            OpenAI-compatible provider). Add it in{' '}
+            <Link
+              href="/dashboard/settings"
+              className="font-medium text-accent underline"
+            >
+              Settings
+            </Link>
+            . Translation costs are billed by your provider, not by us.
+          </p>
+        </Section>
 
-      <Section title="A few notes">
-        <ul className="mt-4 list-disc space-y-2 pl-5 leading-relaxed text-ink-light">
-          <li>It&rsquo;s machine translation, so it won&rsquo;t be perfect.</li>
-          <li>
-            Translations are for personal reading. If you want to share a
-            translation of someone&rsquo;s fic, ask the author first.
-          </li>
-        </ul>
-      </Section>
+        <Section title="A few notes" className="">
+          <ul className="mt-4 list-disc space-y-2 pl-5 leading-relaxed text-ink-light">
+            <li>
+              It&rsquo;s machine translation, so it won&rsquo;t be perfect.
+            </li>
+            <li>
+              Translations are for personal reading. If you want to share a
+              translation of someone&rsquo;s fic, ask the author first.
+            </li>
+          </ul>
+        </Section>
+      </div>
 
       <Section title="Background">
         <p className="mt-4 leading-relaxed text-ink-light">
