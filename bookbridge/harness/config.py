@@ -1,6 +1,6 @@
 """TranslationConfig — one switch per context component, so evals can ablate each.
 
-Defaults are "everything on"; the Phase 6 eval builds B0–B4 by turning
+Defaults are "everything on"; the Phase 6 eval builds configs A/B/C by turning
 switches off rather than by reverting code.
 """
 
@@ -23,8 +23,8 @@ class TranslationConfig:
       whose name or alias appears in the batch being translated.
     - context_window: how many preceding segments (source + translation) to
       show the model; 0 disables the window.
-    - book_bible: inject the style guide and the cards of characters that
-      appear in the batch (when a bible is supplied).
+    - book_bible: inject the book overview (storyline, main characters,
+      tone) when a bible is supplied.
     - review_max_retries: after each batch, review it (rule checks + one LLM
       reviewer call) and revise segments with errors up to this many times;
       0 disables review entirely (no review calls).
