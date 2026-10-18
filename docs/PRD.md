@@ -1,6 +1,8 @@
 # BookBridge Product Requirements Document v2
 
 > Version history: v1 was a Python CLI implementation (see git history). From v2 onwards, the project adopts a Next.js Web App + Python Worker architecture.
+>
+> **Note (2026-10-18):** this PRD records the course-era plan (PDF input). The solo rebuild after tag `v1-pdf-baseline` changed the product: EPUB/TXT input, paragraph-by-paragraph translation, an editable list of character and place names matched by exact name and alias (no vector retrieval, no ChromaDB), optional translation notes and whole-book scan, and an opt-in double-check pass. See the [README](../README.md) and [API_DESIGN.md](API_DESIGN.md) for the current design.
 
 ---
 
@@ -28,7 +30,7 @@ Accesses published projects via a public link without registering. Reads in the 
 | Authentication | Clerk |
 | Database | PostgreSQL (Neon) via Prisma |
 | Translation Worker | Python 3.11, existing bookbridge core wrapped with FastAPI, deployed on Railway |
-| Vector Retrieval | ChromaDB (local to Worker, RAG acceleration layer) |
+| Glossary Lookup | Exact name/alias matching in the Worker (no vector store) |
 | LLM | Anthropic Claude API (called by Python Worker) |
 | Deployment | Vercel (Next.js) + Railway (Python Worker) |
 | CI/CD | GitHub Actions |
@@ -58,7 +60,7 @@ Accesses published projects via a public link without registering. Reads in the 
 
 ### FR5: Chapter Translation (Python Worker)
 - Accepts single-chapter translation requests; status transitions: `untranslated → queued → translating → translated | failed`
-- Injects relevant glossary terms into Claude API prompt via RAG
+- Injects the glossary terms that appear in the text into the prompt (exact name matching)
 - Writes translation results back to PostgreSQL
 - Automatic single retry on failure
 
@@ -112,7 +114,7 @@ Translation   id, term_id, language_code, translation, approved
 ### Sprint 1 — Python Foundation (Complete)
 **Goal: build and test the core Python CLI modules that the Worker will expose**
 - TDD ingestion pipeline: text cleaning, smart chunker, HTML body extractor (PRs #4-7)
-- TDD glossary SQLite store with ChromaDB vector retrieval
+- TDD glossary SQLite store (later replaced by PostgreSQL)
 - TDD quality checker with per-language base class
 - Glossary MCP server (tools: lookup, add, list terms)
 - Custom TDD skill `tdd-add-module` iterated v1→v2
@@ -151,6 +153,6 @@ Translation   id, term_id, language_code, translation, approved
 ## Non-Functional Requirements
 - Next.js API Routes act as BFF; Python Worker accepts tasks via REST
 - All persistent state stored in PostgreSQL (single source of truth)
-- ChromaDB is a local RAG acceleration layer on the Worker only, not source of truth
+- The Worker keeps no persistent state of its own
 - 80%+ test coverage on core modules
 - CI/CD pipeline: lint, typecheck, unit tests, E2E (Playwright), security scan, AI PR review, Vercel preview deploy

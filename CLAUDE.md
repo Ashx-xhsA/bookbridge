@@ -1,10 +1,10 @@
 # BookBridge
 
-Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **Python FastAPI Worker** (Railway). Sprint 1 Python core is complete; Sprints 2–4 build the web stack on top.
+Two-layer architecture: **Next.js 16 App Router** (BFF + frontend, Vercel) + **Python FastAPI Worker** (Railway). Sprint 1 Python core is complete; Sprints 2–4 build the web stack on top.
 
 ## Architecture Rules
 - Next.js API Routes proxy all Worker calls — browser never talks to Worker directly
-- PostgreSQL is the single source of truth; ChromaDB is a local RAG cache on the Worker only
+- PostgreSQL is the single source of truth; the Worker keeps no persistent state (glossary terms are found by exact name/alias matching, no vector store)
 - Wrap existing Python core (`ingestion/`, `harness/`, `quality/`) via FastAPI — do not rewrite them
 - Server Components by default; add `'use client'` only for interactivity or browser APIs
 
@@ -12,7 +12,7 @@ Two-layer architecture: **Next.js 15 App Router** (BFF + frontend, Vercel) + **P
 ```
 bookbridge/         # Python Worker package
   ingestion/        # EPUB/TXT reading into chapters and paragraphs
-  harness/          # translation orchestrator + Claude API client
+  harness/          # translation orchestrator + OpenAI-compatible model client
   quality/          # per-segment rule checks used by the review loop
   worker_api/       # FastAPI endpoints
 tests/              # pytest suite (Python Worker)

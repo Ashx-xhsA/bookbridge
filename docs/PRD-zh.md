@@ -1,6 +1,8 @@
 # BookBridge 产品需求文档 v2
 
 > 版本历史：v1 为 Python CLI 版本，见 `PRD.md` 历史提交。v2 起转向 Next.js Web App + Python Worker 架构。
+>
+> **说明（2026-10-18）：** 本文档记录的是课程阶段的设计（PDF 输入）。`v1-pdf-baseline` 之后的个人重构改为 EPUB/TXT 输入、按段翻译、可编辑的人名地名表（按名字和别名精确匹配，没有向量检索，也没有 ChromaDB）。当前设计见 [README](../README.md) 和 [API_DESIGN.md](API_DESIGN.md)。
 
 ---
 
@@ -28,7 +30,7 @@ BookBridge 是一个 AI 驱动的长文档翻译 web 平台。用户上传 PDF �
 | 认证 | Clerk |
 | 数据库 | PostgreSQL (Neon) via Prisma |
 | 翻译 Worker | Python 3.11，现有 bookbridge 核心，FastAPI 包装，部署于 Railway |
-| 向量检索 | ChromaDB（Worker 本地，RAG 加速层） |
+| 术语查找 | Worker 内按名字/别名精确匹配（无向量库） |
 | LLM | Anthropic Claude API（由 Python Worker 调用） |
 | 部署 | Vercel（Next.js）+ Railway（Python Worker） |
 | CI/CD | GitHub Actions |
@@ -58,7 +60,7 @@ BookBridge 是一个 AI 驱动的长文档翻译 web 平台。用户上传 PDF �
 
 ### FR5: 章节翻译（Python Worker）
 - 接收单章翻译请求，状态流转：`untranslated → queued → translating → translated | failed`
-- RAG 注入相关词汇表术语到 Claude API prompt
+- 把文本中出现的词汇表术语注入 prompt（按名字精确匹配）
 - 翻译结果写回 PostgreSQL
 - 失败自动重试一次
 
@@ -142,6 +144,6 @@ Translation   id, term_id, language_code, translation, approved
 ## 非功能需求
 - Next.js API Routes 作为 BFF，Python Worker 通过 REST 接受任务
 - 所有持久化状态存 PostgreSQL（单一数据源）
-- ChromaDB 仅作 Worker 本地 RAG 加速，不是 source of truth
+- Worker 自身不保存持久状态
 - 核心模块 80%+ 测试覆盖率
 - CI/CD：lint、typecheck、unit test、E2E（Playwright）、security scan、AI PR review、Vercel preview deploy
