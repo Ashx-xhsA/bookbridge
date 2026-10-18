@@ -14,11 +14,11 @@ const bodySchema = z.object({
 // window. The Worker trims to its configured window (max 10).
 const PRECEDING_SEGMENTS = 10
 
-// A drafted or confirmed bible is injected (translating before review is
-// allowed; the UI nudges the user to review first). The bible is the book
-// overview, stored in BookBible.styleGuide.
-function bibleForWorker(row: { status: string; styleGuide: string } | null) {
-  if (!row || (row.status !== 'DRAFT' && row.status !== 'CONFIRMED')) return undefined
+// The translation notes (BookBible.styleGuide) go with every batch as soon as
+// there are any: written by the user, drafted by a scan, or both. A scan is
+// optional, and review status does not gate them.
+function bibleForWorker(row: { styleGuide: string } | null) {
+  if (!row?.styleGuide.trim()) return undefined
   return { style_guide: row.styleGuide }
 }
 

@@ -34,11 +34,11 @@ function headline(status: string | null, scanStatus: string | null, lost: boolea
 function detail(reviewable: boolean, scanStatus: string | null, lost: boolean): string {
   if (lost) return 'No progress for 10 minutes — the scan was probably interrupted. Start it again.'
   if (!reviewable) {
-    return 'Scan the whole book once to draft an overview — storyline, main characters and tone — that the translator reads before every passage. Names it finds go into the glossary.'
+    return 'Optional: scan the whole book to draft notes on the storyline, main characters and tone, and to fill the glossary with names.'
   }
   if (scanStatus === 'SCANNING') return 'Re-scanning — the current bible stays in use until the scan finishes.'
   if (scanStatus === 'FAILED') return 'The last scan failed — the current bible is still in use.'
-  return 'Translation uses the overview as soon as a draft exists. Edit it freely; a re-scan keeps your edits.'
+  return 'The scan drafted the notes below. Edit them freely; a re-scan keeps your edits.'
 }
 
 // Scans of long books can take half an hour or more.
@@ -75,7 +75,7 @@ export default function BibleReview({
   const router = useRouter()
   const [status, setStatus] = useState(bible?.status ?? null)
   const [scanStatus, setScanStatus] = useState(bible?.scanStatus ?? null)
-  // The overview is stored in the bible's styleGuide field.
+  // The translation notes are stored in the bible's styleGuide field.
   const [overview, setOverview] = useState(bible?.styleGuide ?? '')
   const [savedOverview, setSavedOverview] = useState(bible?.styleGuide ?? '')
   const [busy, setBusy] = useState(false)
@@ -237,28 +237,27 @@ export default function BibleReview({
         )}
       </div>
 
-      {reviewable && (
-        <section>
-          <h2 className="text-sm font-semibold text-ink">Book overview</h2>
-          <p className="mt-0.5 text-xs text-ink-muted">
-            Storyline, main characters and tone, sent with every passage. Names and their
-            translations are in the{' '}
-            <Link href={`/dashboard/projects/${projectId}/glossary`} className="underline">
-              glossary
-            </Link>
-            .
-          </p>
-          <textarea
-            aria-label="Book overview"
-            value={overview}
-            onChange={(e) => setOverview(e.target.value)}
-            onBlur={() => overview !== savedOverview && saveBible({ styleGuide: overview })}
-            maxLength={5000}
-            rows={14}
-            className="mt-2 w-full rounded border border-zinc-300 bg-white p-2 text-sm leading-relaxed dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </section>
-      )}
+      <section>
+        <h2 className="text-sm font-semibold text-ink">Translation notes</h2>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          How you want this book translated: tone, style, what to keep as is. Sent with every
+          passage. Names and their translations are in the{' '}
+          <Link href={`/dashboard/projects/${projectId}/glossary`} className="underline">
+            glossary
+          </Link>
+          .
+        </p>
+        <textarea
+          aria-label="Translation notes"
+          value={overview}
+          onChange={(e) => setOverview(e.target.value)}
+          onBlur={() => overview !== savedOverview && saveBible({ styleGuide: overview })}
+          maxLength={5000}
+          rows={14}
+          placeholder={'e.g. Keep the dialogue casual. Leave Korean honorifics (hyung, sunbae) as they are.'}
+          className="mt-2 w-full rounded border border-zinc-300 bg-white p-2 text-sm leading-relaxed dark:border-zinc-700 dark:bg-zinc-950"
+        />
+      </section>
     </div>
   )
 }

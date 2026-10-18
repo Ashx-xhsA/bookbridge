@@ -119,7 +119,6 @@ describe('PATCH /api/projects/[id]/bible', () => {
 
   it('saves translation notes before any scan, creating the bible', async () => {
     signedIn()
-    mockBibleFindUnique.mockResolvedValueOnce(null)
     mockBibleUpsert.mockResolvedValueOnce({ status: 'NONE', styleGuide: '- 保留敬称' })
     const { PATCH } = await import('@/app/api/projects/[id]/bible/route')
     const res = await PATCH(json('PATCH', { styleGuide: '- 保留敬称' }), bibleParams)

@@ -223,7 +223,7 @@ describe('BibleReview — scan time, progress and stop', () => {
 
 describe('BibleNudge', () => {
   it.each([
-    [null, null, /scan the book first/i, 'Open book bible'],
+    [null, null, /optional: add translation notes/i, 'Open book bible'],
     ['NONE', 'FAILED', /scan failed/i, 'Open book bible'],
     ['NONE', 'SCANNING', /being scanned/i, 'Open book bible'],
     ['DRAFT', 'IDLE', /draft/i, 'Review bible'],

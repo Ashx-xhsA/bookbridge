@@ -38,6 +38,20 @@ const bodySchema = z.discriminatedUnion('status', [
 const MERGE_TIMEOUT_MS = 55_000
 export const maxDuration = 60
 
+// The notes the scan leaves behind. Unedited notes take the scan's overview;
+// notes written before the first scan get it added below them; after that a
+// re-scan keeps the user's edits. Never replaces notes with an empty overview.
+function scannedNotes(
+  bible: { styleGuideEdited: boolean; status: string; styleGuide: string },
+  overview: string
+): { styleGuide?: string } {
+  if (!overview.trim()) return {}
+  if (!bible.styleGuideEdited) return { styleGuide: overview }
+  if (bible.status !== 'NONE') return {}
+  const own = bible.styleGuide.trimEnd()
+  return { styleGuide: own ? `${own}\n\n${overview}` : overview }
+}
+
 export async function POST(req: NextRequest) {
   const rejected = rejectUnlessWorker(req, 'bible-callback')
   if (rejected) return rejected
@@ -57,7 +71,7 @@ export async function POST(req: NextRequest) {
 
   const bible = await prisma.bookBible.findUnique({
     where: { projectId },
-    select: { jobId: true, styleGuideEdited: true },
+    select: { jobId: true, styleGuideEdited: true, status: true, styleGuide: true },
   })
   if (!bible) return NextResponse.json({ error: 'Bible not found' }, { status: 404 })
   // A newer scan was started since; this result must not overwrite it.
@@ -96,10 +110,7 @@ export async function POST(req: NextRequest) {
             data: {
               status: 'DRAFT',
               scanStatus: 'IDLE',
-              // Never replace a user-edited or existing guide with an empty one.
-              ...(!bible.styleGuideEdited && payload.style_guide.trim()
-                ? { styleGuide: payload.style_guide }
-                : {}),
+              ...scannedNotes(bible, payload.style_guide),
             },
           })
           await tx.translationJob.update({

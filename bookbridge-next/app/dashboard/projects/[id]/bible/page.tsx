@@ -38,7 +38,7 @@ export default async function BiblePage({ params }: { params: Promise<{ id: stri
       <div className="mt-4">
         <h1 className="font-serif text-2xl font-bold text-ink">Book bible</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          {project.title} &mdash; an overview of the book that the translator reads before every passage.
+          {project.title} &mdash; translation notes the translator reads before every passage, and an optional whole-book scan.
         </p>
       </div>
       <div className="mt-6">
