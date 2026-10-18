@@ -257,8 +257,10 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
         </Section>
       </div>
 
-      <Section title="Background">
-        <p className="mt-4 leading-relaxed text-ink-light">
+      {/* A quiet, centred footnote rather than another headline section. */}
+      <section className="mt-20 border-t border-parchment pt-6 text-center">
+        <h2 className="text-sm font-semibold text-ink-light">Background</h2>
+        <p className="mx-auto mt-2 max-w-3xl text-sm leading-relaxed text-ink-muted">
           BookBridge started as a team project in a vibe coding course, where it
           translated PDFs. Afterwards I rebuilt most of it on my own: switched
           to EPUB and TXT, moved to paragraph-by-paragraph translation, added
@@ -267,13 +269,13 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
           on{' '}
           <a
             href="https://github.com/Ashx-xhsA/bookbridge"
-            className="font-medium text-accent underline"
+            className="text-ink-light underline hover:text-ink"
           >
             GitHub
           </a>
           .
         </p>
-      </Section>
+      </section>
     </article>
   )
 }
