@@ -42,11 +42,23 @@ beforeEach(() => {
 const SCAN_URL = `/api/projects/${PROJECT_ID}/bible/scan`
 
 describe('BibleReview', () => {
-  it('offers a scan before any bible exists and hides the editor', () => {
+  it('offers an optional scan and lets you write notes before any scan', () => {
     render(<BibleReview projectId={PROJECT_ID} bible={null} />)
     expect(screen.getByText('Not scanned yet')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /scan book/i })).toBeEnabled()
-    expect(screen.queryByLabelText('Book overview')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Translation notes')).toHaveValue('')
+  })
+
+  it('saves notes written before any scan', async () => {
+    mockFetch.mockReturnValueOnce(ok({ bible: { status: 'NONE', styleGuide: '- 保留敬称' } }))
+    render(<BibleReview projectId={PROJECT_ID} bible={null} />)
+    const box = screen.getByLabelText('Translation notes')
+    fireEvent.change(box, { target: { value: '- 保留敬称' } })
+    fireEvent.blur(box)
+    await waitFor(() =>
+      expect(lastCall()).toMatchObject({ method: 'PATCH', body: { styleGuide: '- 保留敬称' } })
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('starts a scan, polls the job and refreshes', async () => {
@@ -85,7 +97,7 @@ describe('BibleReview', () => {
       />
     )
     expect(screen.getByRole('button', { name: /scanning/i })).toBeDisabled()
-    expect(screen.getByLabelText('Book overview')).toBeInTheDocument()
+    expect(screen.getByLabelText('Translation notes')).toBeInTheDocument()
     expect(screen.getByText('Confirmed')).toBeInTheDocument()
   })
 
@@ -98,7 +110,7 @@ describe('BibleReview', () => {
     )
     expect(screen.getByText(/last scan failed/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /re-scan/i })).toBeEnabled()
-    expect(screen.getByLabelText('Book overview')).toBeInTheDocument()
+    expect(screen.getByLabelText('Translation notes')).toBeInTheDocument()
   })
 
   it('shows only the book overview: no character, place or term sections', () => {
@@ -108,7 +120,7 @@ describe('BibleReview', () => {
         bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: 'A quest to destroy a ring.', jobId: null }}
       />
     )
-    expect(screen.getByLabelText('Book overview')).toHaveValue('A quest to destroy a ring.')
+    expect(screen.getByLabelText('Translation notes')).toHaveValue('A quest to destroy a ring.')
     expect(screen.queryByText(/characters \(/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/places and terms/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/search names/i)).not.toBeInTheDocument()
@@ -140,7 +152,7 @@ describe('BibleReview', () => {
         bible={{ status: 'DRAFT', scanStatus: 'IDLE', styleGuide: '- 简洁', jobId: null }}
       />
     )
-    const box = screen.getByLabelText('Book overview')
+    const box = screen.getByLabelText('Translation notes')
     fireEvent.blur(box)
     expect(mockFetch).not.toHaveBeenCalled()
     fireEvent.change(box, { target: { value: '- 克制' } })
