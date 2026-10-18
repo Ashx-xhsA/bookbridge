@@ -274,6 +274,13 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
           >
             GitHub
           </a>
+          . Built with{' '}
+          <a
+            href="https://claude.com/claude-code"
+            className="text-ink-light underline hover:text-ink"
+          >
+            Claude Code
+          </a>
           .
         </p>
       </section>
