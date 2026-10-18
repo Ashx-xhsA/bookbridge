@@ -38,6 +38,9 @@ def _resolves_to(monkeypatch: pytest.MonkeyPatch, *ips: str) -> None:
         "fe80::1",
         "::ffff:127.0.0.1",
         "::ffff:169.254.169.254",
+        "::127.0.0.1",
+        "2002:7f00:1::1",
+        "2001:0:4136:e378::1",
         "not-an-ip",
     ],
 )
@@ -64,6 +67,8 @@ def test_public_https_url_passes() -> None:
         "https://user:pass@api.example.com/v1",
         "https://169.254.169.254/latest",
         "https://[::1]/v1",
+        "https://[::1/v1",
+        "https://api.example.com:99999/v1",
     ],
 )
 def test_rejects_unsafe_urls(url: str) -> None:

@@ -30,6 +30,9 @@ describe('isBlockedAddress', () => {
     'fe80::1',
     '::ffff:127.0.0.1',
     '::ffff:a9fe:a9fe',
+    '::7f00:1',
+    '2002:7f00:1::1',
+    '2001:0:4136:e378::1',
   ])('blocks %s', (ip) => {
     expect(isBlockedAddress(ip)).toBe(true)
   })

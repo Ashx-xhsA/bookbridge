@@ -47,6 +47,20 @@ describe('getUserLLMCredentials', () => {
     error.mockRestore()
   })
 
+  it('reports a missing encryption key as a server misconfiguration', async () => {
+    const saved = process.env.API_KEY_ENCRYPTION_KEY
+    delete process.env.API_KEY_ENCRYPTION_KEY
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      mockFindUnique.mockResolvedValue({ apiKey: 'enc:v1:a.b.c', apiProvider: 'openai', apiBaseUrl: null })
+      expect(await getUserLLMCredentials('user_1')).toBeNull()
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('API_KEY_ENCRYPTION_KEY'))
+    } finally {
+      process.env.API_KEY_ENCRYPTION_KEY = saved
+      error.mockRestore()
+    }
+  })
+
   it("will not decrypt another user's ciphertext", async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockFindUnique.mockResolvedValue({
