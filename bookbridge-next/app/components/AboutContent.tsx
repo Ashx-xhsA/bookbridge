@@ -109,7 +109,7 @@ function Framed({ shot }: { shot: Screenshot }) {
 // and the sides swap every row. On narrow screens the screenshot comes first.
 function FeatureRows() {
   return (
-    <div className="mt-10 space-y-16">
+    <div className="mt-8 space-y-16">
       {FEATURES.map((feature, i) => {
         const shot = SCREENSHOTS[feature.shot]
         if (!shot) {
@@ -148,8 +148,8 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
   const hasShots = FEATURES.some((f) => SCREENSHOTS[f.shot])
   return (
     <article className="mx-auto max-w-6xl px-6 py-16">
-      <div className="grid items-center gap-10 lg:grid-cols-5">
-        <div className="lg:col-span-3">
+      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_38%]">
+        <div>
           <h1 className="font-serif text-5xl font-bold text-ink">BookBridge</h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-light">
             BookBridge translates EPUB and TXT books with an AI model of your
@@ -189,15 +189,22 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
               </Link>
             )}
           </div>
+
+          {/* The lead difference sits under the buttons, beside the card. */}
+          <h2 className="mt-12 font-serif text-2xl font-bold text-ink">
+            What it does differently
+          </h2>
+          <div className="mt-4">
+            <ItemText item={NOTES} />
+          </div>
         </div>
 
-        {/* Ways to use it fill the space beside the intro on wide screens;
-            kept compact so the card is about as tall as the intro. */}
-        <section className="rounded-xl border border-parchment bg-paper px-5 py-4 lg:col-span-2">
-          <h2 className="font-serif text-lg font-bold text-ink">
+        {/* Ways to use it fill the space beside the intro on wide screens. */}
+        <section className="rounded-xl border border-parchment bg-paper px-6 py-5">
+          <h2 className="font-serif text-xl font-bold text-ink">
             Some ways to use it
           </h2>
-          <ul className="mt-2.5 space-y-1.5 text-sm leading-snug">
+          <ul className="mt-3 space-y-2 text-sm leading-relaxed">
             {USES.map((item) => (
               <li key={item.title} className="text-ink-light">
                 <span className="font-semibold text-ink">{item.title}</span>{' '}
@@ -208,13 +215,7 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
         </section>
       </div>
 
-      <section className="mt-16">
-        <h2 className="font-serif text-2xl font-bold text-ink">
-          What it does differently
-        </h2>
-        <div className="mt-4 max-w-3xl">
-          <ItemText item={NOTES} />
-        </div>
+      <section>
         <FeatureRows />
         {hasShots && (
           <p className="mt-10 text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
