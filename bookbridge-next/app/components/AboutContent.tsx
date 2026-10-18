@@ -99,18 +99,26 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
       </div>
 
       {SCREENSHOTS.length > 0 && (
-        <div className="mt-12 space-y-8">
+        <div className="mt-12 space-y-12">
           {SCREENSHOTS.map((shot) => (
             <figure key={shot.src}>
-              <Image
-                src={shot.src}
-                alt={shot.alt}
-                width={shot.width}
-                height={shot.height}
-                unoptimized
-                className="h-auto w-full rounded-xl border border-parchment shadow-sm"
-              />
-              <figcaption className="mt-2 text-center text-sm text-ink-muted">{shot.caption}</figcaption>
+              {/* A browser-window frame, so the screenshot reads as the app. */}
+              <div className="overflow-hidden rounded-xl border border-parchment bg-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.18)]">
+                <div className="flex items-center gap-1.5 border-b border-parchment bg-paper px-4 py-2.5" aria-hidden="true">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+                </div>
+                <Image
+                  src={shot.src}
+                  alt={shot.alt}
+                  width={shot.width}
+                  height={shot.height}
+                  unoptimized
+                  className="block h-auto w-full"
+                />
+              </div>
+              <figcaption className="mt-3 text-center text-sm text-ink-muted">{shot.caption}</figcaption>
             </figure>
           ))}
           <p className="text-center text-xs text-ink-muted">{SAMPLE_CREDIT}</p>
