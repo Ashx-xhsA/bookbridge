@@ -12,8 +12,8 @@ const TOKEN = '1c59beca-1ad2-4733-b696-53fd50af865e'
 describe('public routes', () => {
   it.each([
     '/',
+    '/about',
     `/read/${TOKEN}`,
-    '/read/demo',
     // The shared-link reader loads chapters and searches through these;
     // the token in the URL is the authorization.
     `/api/read/${TOKEN}`,

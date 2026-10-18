@@ -1,34 +1,21 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('Landing Page', () => {
-  test('shows the BookBridge hero section', async ({ page }) => {
+test.describe('Landing Page (About)', () => {
+  test('explains what BookBridge does', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('h1')).toContainText('Read any book')
-    await expect(page.locator('h1')).toContainText('in your language')
+    await expect(page.locator('h1')).toContainText('BookBridge')
+    await expect(page.getByRole('heading', { name: 'What it does differently' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Some ways to use it' })).toBeVisible()
   })
 
-  test('has a sign-in link', async ({ page }) => {
+  test('has sign-in and sign-up links', async ({ page }) => {
     await page.goto('/')
-    const signIn = page.locator('a[href="/sign-in"]')
-    await expect(signIn).toBeVisible()
+    await expect(page.locator('a[href="/sign-in"]').first()).toBeVisible()
+    await expect(page.locator('a[href="/sign-up"]').first()).toBeVisible()
   })
 
-  test('has a sign-up link', async ({ page }) => {
-    await page.goto('/')
-    // Two sign-up links exist: "Get Started" (header) and "Start Translating" (hero)
-    const signUpLinks = page.locator('a[href="/sign-up"]')
-    await expect(signUpLinks).toHaveCount(2)
-  })
-
-  test('has three feature cards', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.locator('h3', { hasText: 'Upload' })).toBeVisible()
-    await expect(page.locator('h3', { hasText: 'Translate' })).toBeVisible()
-    await expect(page.locator('h3', { hasText: 'Read' })).toBeVisible()
-  })
-
-  test('demo reader page loads', async ({ page }) => {
-    await page.goto('/read/demo')
-    await expect(page.locator('h1')).toContainText('The Little Prince')
+  test('the About page is public', async ({ page }) => {
+    await page.goto('/about')
+    await expect(page.getByRole('heading', { name: 'Before you start' })).toBeVisible()
   })
 })
