@@ -148,7 +148,7 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
   const hasShots = FEATURES.some((f) => SCREENSHOTS[f.shot])
   return (
     <article className="mx-auto max-w-6xl px-6 py-16">
-      <div className="grid items-start gap-10 lg:grid-cols-5">
+      <div className="grid items-center gap-10 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <h1 className="font-serif text-5xl font-bold text-ink">BookBridge</h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-light">
@@ -191,15 +191,17 @@ export default function AboutContent({ signedIn }: { signedIn: boolean }) {
           </div>
         </div>
 
-        {/* Ways to use it fill the space beside the intro on wide screens. */}
-        <section className="rounded-xl border border-parchment bg-paper p-6 lg:col-span-2">
-          <h2 className="font-serif text-xl font-bold text-ink">
+        {/* Ways to use it fill the space beside the intro on wide screens;
+            kept compact so the card is about as tall as the intro. */}
+        <section className="rounded-xl border border-parchment bg-paper px-5 py-4 lg:col-span-2">
+          <h2 className="font-serif text-lg font-bold text-ink">
             Some ways to use it
           </h2>
-          <ul className="mt-4 space-y-3 text-sm">
+          <ul className="mt-2.5 space-y-1.5 text-sm leading-snug">
             {USES.map((item) => (
-              <li key={item.title}>
-                <ItemText item={item} />
+              <li key={item.title} className="text-ink-light">
+                <span className="font-semibold text-ink">{item.title}</span>{' '}
+                {item.text}
               </li>
             ))}
           </ul>
