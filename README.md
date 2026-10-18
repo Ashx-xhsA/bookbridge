@@ -99,6 +99,6 @@ The browser only talks to Next.js; the API routes check ownership, validate inpu
 
 ## Background
 
-BookBridge started as a team project in a vibe coding course ([ItachiSusie/bookbridge](https://github.com/ItachiSusie/bookbridge)), where it translated PDFs; the course submission is in [`docs/course/report.md`](docs/course/report.md). Afterwards I rebuilt most of it on my own, starting from the tag [`v1-pdf-baseline`](https://github.com/Ashx-xhsA/bookbridge/tree/v1-pdf-baseline): switched to EPUB and TXT, moved to paragraph-by-paragraph translation, added the editable name list and the whole-book scan, and wrote a small evaluation to see what actually keeps names consistent. Built with [Claude Code](https://claude.com/claude-code).
+BookBridge started as a team project in a vibe coding course, where it translated PDFs; that version lives on in the course repo [ItachiSusie/bookbridge](https://github.com/ItachiSusie/bookbridge). Afterwards I rebuilt most of it on my own, starting from the tag [`v1-pdf-baseline`](https://github.com/Ashx-xhsA/bookbridge/tree/v1-pdf-baseline): switched to EPUB and TXT, moved to paragraph-by-paragraph translation, added the editable name list and the whole-book scan, and wrote a small evaluation to see what actually keeps names consistent. Built with [Claude Code](https://claude.com/claude-code).
 
 The sample is *Wuthering Heights* by Emily Brontë, a public-domain book from [Project Gutenberg](https://www.gutenberg.org/ebooks/768), translated into Chinese with BookBridge.
