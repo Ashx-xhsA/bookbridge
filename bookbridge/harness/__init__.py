@@ -19,12 +19,17 @@ def get_llm_client(
     base_url: str | None = None,
     model: str | None = None,
 ) -> LLMClient:
-    """Return a chat client; missing base_url / model fall back to env vars."""
+    """Return a chat client; missing base_url / model fall back to env vars.
+
+    A passed-in base_url comes from the user and is SSRF-checked; the env
+    fallback is operator config and trusted.
+    """
     if api_key:
         return OpenAICompatClient(
             api_key=api_key,
             base_url=base_url or os.environ.get("LLM_BASE_URL", ""),
             model=model or os.environ.get("LLM_MODEL", ""),
+            trusted_base_url=not base_url,
         )
     name = os.environ.get("TRANSLATION_PROVIDER", "mock").lower()
     if name == "mock":

@@ -63,13 +63,21 @@ uvicorn bookbridge.worker_api.main:app --reload --port 8000
 
 Set `CALLBACK_BASE_URL=http://localhost:3000` and a `WORKER_CALLBACK_SECRET` in `.env`; the Worker posts results back to the web app.
 
-**Web app** (Next.js, in `bookbridge-next/`), with a `.env.local` containing `DATABASE_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `WORKER_URL=http://localhost:8000` and the same `WORKER_CALLBACK_SECRET`:
+**Web app** (Next.js, in `bookbridge-next/`), with a `.env.local` (see `bookbridge-next/.env.example`) containing `DATABASE_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `WORKER_URL=http://localhost:8000`, the same `WORKER_CALLBACK_SECRET`, and `API_KEY_ENCRYPTION_KEY`, which encrypts users' model API keys at rest (AES-256-GCM). Generate one with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Keep that value: changing it makes saved keys undecryptable. Custom base URLs must be public `https://` addresses; `http://localhost` is accepted only outside production, and the Worker additionally needs `LLM_ALLOW_PRIVATE_BASE_URL=1` to call it.
 
 ```bash
 npm install
 npx prisma migrate deploy
 npm run dev
 ```
+
+Upgrading a database that has API keys saved before encryption at rest? Run `npm run encrypt-api-keys` once (it is idempotent).
 
 **Tests:** `pytest tests/` for the Worker, `npm test` (Vitest) and `npx playwright test` in `bookbridge-next/`.
 

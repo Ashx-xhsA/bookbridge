@@ -46,7 +46,7 @@ docs/               # API design
 | # | Threat | BookBridge Defense |
 |---|--------|--------------------|
 | A01 | Broken Access Control | `auth()` on every API route; ownership check (`resource.ownerId === userId`) on all `[id]` routes; 403 on mismatch |
-| A02 | Cryptographic Failures | No plaintext secrets; all secrets in env vars; HTTPS enforced by Vercel + Railway |
+| A02 | Cryptographic Failures | No plaintext secrets; all secrets in env vars; user model API keys AES-256-GCM encrypted at rest (`lib/api-key-crypto.ts`, `API_KEY_ENCRYPTION_KEY`), decrypted only in `lib/llm-credentials.ts`; HTTPS enforced by Vercel + Railway |
 | A03 | Injection | Prisma ORM only (no raw SQL); Zod validates all inputs; no user values in shell commands |
 | A04 | Insecure Design | BFF pattern: browser never calls Worker directly; Worker URL is env-var only |
 | A05 | Security Misconfiguration | Gitleaks pre-commit blocks secret commits; `.env` never committed; debug mode off in prod |
@@ -54,7 +54,7 @@ docs/               # API design
 | A07 | Auth Failures | Clerk handles all auth; no custom auth logic; `auth()` server-side, `useUser()` client-side |
 | A08 | Data Integrity Failures | `package-lock.json` pinned; Gitleaks prevents tampered secrets; verify all AI-suggested packages exist on npm/PyPI |
 | A09 | Logging Failures | No PII, secrets, or session tokens in logs; generic error messages to client |
-| A10 | SSRF | Worker URL from `process.env.WORKER_URL` only; no user-controlled URLs forwarded to Worker |
+| A10 | SSRF | Worker URL from `process.env.WORKER_URL` only; the user's custom LLM base URL is the one user URL forwarded, and it must be public https: checked on save (`lib/base-url-guard.ts`) and again before every Worker call (`harness/providers/url_guard.py`, no redirects) |
 
 ### Security Gates Active
 - **Gate 1** — Gitleaks pre-commit (`.pre-commit-config.yaml`)
