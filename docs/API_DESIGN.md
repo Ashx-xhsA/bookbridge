@@ -34,7 +34,7 @@ The modules the FastAPI Worker wraps. All prompt building and parsing is pure Py
 - `match_glossary(glossary, text) -> list[GlossaryEntry]` — exact matching with word boundaries, plurals/possessives and case rules; aliases match too and carry their `alias_of` target, so the prompt says who is meant while the alias is translated as written
 - `extract_terms(...)` — after translation, asks the model for new names of people and places (`is_proper_noun` filters the rest)
 - `scan_book(client, chapters, *, target_lang, progress) -> ScanResult` — optional whole-book pre-scan: one call per ~12k-char passage for names, aliases and a summary, then one call for the overview; `progress` returning `False` raises `ScanStopped`
-- `get_llm_client(api_key=None, base_url=None, model=None) -> LLMClient` — `openai_compat` (any OpenAI-format API) or `mock`; `complete_with_retry` retries transient provider errors
+- `get_llm_client(api_key=None, base_url=None, model=None) -> LLMClient` — `openai_compat` (any OpenAI-format API) or `mock`; `complete_with_retry` retries transient provider errors. A passed-in `base_url` is untrusted (`providers/url_guard.py`): it must be public https, is re-resolved before every call, and redirects are not followed. The env `LLM_BASE_URL` is trusted
 - `TranslationConfig` — switches used by the app and by `evals/`: `glossary_mode` (`matched` / `full`), `context_window`, `book_bible`, `review_max_retries`, `max_batch_chars`
 
 ### Quality (`bookbridge.quality`)
@@ -46,7 +46,7 @@ The modules the FastAPI Worker wraps. All prompt building and parsing is pure Py
 
 ## Part 2: Worker HTTP API (FastAPI)
 
-Deployed on Railway and called only by the Next.js API routes. Long jobs return `202` at once and report back through the BFF callbacks in Part 3. Requests may carry the user's own model credentials in `llm: {llm_api_key, llm_base_url, llm_model}`; without them the Worker's env provider is used. `job_id` must match `^[a-zA-Z0-9_-]{8,128}$`.
+Deployed on Railway and called only by the Next.js API routes. Long jobs return `202` at once and report back through the BFF callbacks in Part 3. Requests may carry the user's own model credentials in `llm: {llm_api_key, llm_base_url, llm_model}`; without them the Worker's env provider is used. `llm_base_url` gets the same SSRF check as in the harness above. `job_id` must match `^[a-zA-Z0-9_-]{8,128}$`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -140,7 +140,7 @@ All routes need a Clerk session unless marked **Public** or **Worker**. Every `[
 | Method | Route | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/settings` | Owner | The user's model provider settings (`hasApiKey` only, never the key) |
-| `PATCH` | `/api/settings` | Owner | Save provider, base URL and API key |
+| `PATCH` | `/api/settings` | Owner | Save provider, base URL and API key. The key is encrypted (AES-256-GCM, `lib/api-key-crypto.ts`) before it is stored. The base URL must be public https (`http://localhost` only outside production), or the route returns `400` |
 
 ### Worker callbacks
 
@@ -161,7 +161,7 @@ The full schema is in [`bookbridge-next/prisma/schema.prisma`](../bookbridge-nex
 
 | Model | Holds |
 |---|---|
-| `User` | Clerk id, email, the user's model provider, base URL and API key |
+| `User` | Clerk id, email, the user's model provider, base URL and API key (`apiKey` holds `enc:v1:…` ciphertext bound to the Clerk id; decrypted only in `lib/llm-credentials.ts`) |
 | `Project` | One uploaded book: title, source and target language, status, `isPublic` / `publicToken` for the share link, `reviewEnabled` (double-check, off by default), `sourceChars` |
 | `Chapter` | Number, the book's own title, optional summary |
 | `Segment` | One source paragraph and its translation, `index` within the chapter, `status` (`pending` / `translated` / `reviewed` / `flagged` / `failed`) and open `reviewIssues` |
